@@ -140,7 +140,14 @@
                 const xpathItems = document.querySelectorAll('#selected-xpaths-list li[data-xpath]');
                 const xpaths = Array.from(xpathItems).map(item => ({
                     xpath: item.getAttribute('data-xpath'),
-                    elementName: item.textContent.split(':')[0].trim(),
+                    element_name:
+                        item.getAttribute('data-element-name') ||
+                        item.querySelector('.element-name')?.textContent?.trim() ||
+                        'Captured Element',
+                    elementName:
+                        item.getAttribute('data-element-name') ||
+                        item.querySelector('.element-name')?.textContent?.trim() ||
+                        'Captured Element',
                     page_name: item.getAttribute('data-page-name') || document.title || 'Unknown Page',
                     page_url: item.getAttribute('data-page-url') || window.location.href || 'Unknown URL',
                     page_domain: item.getAttribute('data-page-domain') || window.location.hostname || 'Unknown Domain'
@@ -338,12 +345,13 @@
         const li = document.createElement('li');
         li.className = 'selected-xpath-item';
         li.setAttribute('data-xpath', xpathData.xpath);
+        li.setAttribute('data-element-name', xpathData.elementName || xpathData.element_name || 'Captured Element');
         li.setAttribute('data-page-name', xpathData.page_name || 'Unknown Page');
         li.setAttribute('data-page-url', xpathData.page_url || 'Unknown URL');
         li.setAttribute('data-page-domain', xpathData.page_domain || 'Unknown Domain');
         li.innerHTML = `
             <div class="selected-xpath-text">
-                <span class="element-name">${xpathData.elementName || 'Element'}</span>
+                <span class="element-name">${xpathData.elementName || xpathData.element_name || 'Captured Element'}</span>
                 <span class="page-info">[${xpathData.page_name || 'Unknown Page'}]</span>
                 <div class="xpath-value">${xpathData.xpath}</div>
             </div>

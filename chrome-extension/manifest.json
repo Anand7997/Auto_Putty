@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "QFast extension",
+  "name": "QFast Advanced",
   "version": "1.0.0",
   "description": "QFast - Intelligent XPath Capture for Selenium, Cypress, and Playwright automation",
   "permissions": [

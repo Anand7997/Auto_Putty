@@ -45,13 +45,94 @@ chrome.action.onClicked.addListener((tab) => {
 function openSidePanel() {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (tabs[0] && tabs[0].id) {
-      chrome.sidePanel.open({ tabId: tabs[0].id }).then(() => {
-        console.log('Side panel opened successfully');
+      const activeTab = tabs[0];
+      const tabId = activeTab.id;
+      const windowId = activeTab.windowId;
+
+      // Ensure side panel is enabled for the target tab before opening it.
+      chrome.sidePanel.setOptions({
+        tabId,
+        path: 'sidepanel.html',
+        enabled: true
+      }).then(() => {
+        return chrome.sidePanel.open({ tabId });
+      }).then(() => {
+        console.log('Side panel opened successfully for tab', tabId);
       }).catch((error) => {
-        console.error('Failed to open side panel:', error);
+        console.warn('Tab-scoped side panel open failed, retrying with window scope:', error);
+        chrome.sidePanel.setOptions({
+          path: 'sidepanel.html',
+          enabled: true
+        }).then(() => {
+          return chrome.sidePanel.open({ windowId });
+        }).then(() => {
+          console.log('Side panel opened successfully for window', windowId);
+        }).catch((fallbackError) => {
+          console.error('Failed to open side panel:', fallbackError);
+        });
       });
     }
   });
+}
+
+function isInjectableUrl(url) {
+  if (!url) return false;
+  const blockedPrefixes = [
+    'chrome://',
+    'chrome-extension://',
+    'edge://',
+    'about:',
+    'view-source:'
+  ];
+  return !blockedPrefixes.some(prefix => url.startsWith(prefix));
+}
+
+async function ensureContentScriptReady(tab) {
+  if (!tab || !tab.id) {
+    return { success: false, error: 'No active tab' };
+  }
+
+  if (!isInjectableUrl(tab.url)) {
+    return { success: false, error: 'Content script not available on this page' };
+  }
+
+  try {
+    await chrome.tabs.sendMessage(tab.id, { action: 'PING' });
+    return { success: true, available: true };
+  } catch (pingError) {
+    console.log('Initial content script ping failed, attempting injection:', pingError?.message || pingError);
+  }
+
+  try {
+    await chrome.scripting.insertCSS({
+      target: { tabId: tab.id },
+      files: ['content.css']
+    });
+  } catch (cssError) {
+    console.log('Content CSS injection skipped/failed:', cssError?.message || cssError);
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['content.js']
+    });
+  } catch (scriptError) {
+    return {
+      success: false,
+      error: scriptError?.message || 'Failed to inject content script'
+    };
+  }
+
+  try {
+    await chrome.tabs.sendMessage(tab.id, { action: 'PING' });
+    return { success: true, available: true };
+  } catch (retryError) {
+    return {
+      success: false,
+      error: retryError?.message || 'Content script not responding after injection'
+    };
+  }
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -74,18 +155,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     // PING_CONTENT_SCRIPT
     if (request.action === 'PING_CONTENT_SCRIPT') {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
         if (tabs[0] && tabs[0].id) {
           console.log('Pinging content script on tab:', tabs[0].id, 'URL:', tabs[0].url);
-          chrome.tabs.sendMessage(tabs[0].id, { action: 'PING' })
-            .then(response => {
-              console.log('Content script ping successful:', response);
-              if (sendResponse) sendResponse({ success: true, available: true });
-            })
-            .catch(err => {
-              console.error('Content script ping failed:', err);
-              if (sendResponse) sendResponse({ success: false, available: false, error: err.message });
-            });
+          const result = await ensureContentScriptReady(tabs[0]);
+          if (!result.success) {
+            console.error('Content script ping failed:', result.error);
+            if (sendResponse) sendResponse({ success: false, available: false, error: result.error });
+            return;
+          }
+          console.log('Content script ping successful');
+          if (sendResponse) sendResponse({ success: true, available: true });
         } else {
           if (sendResponse) sendResponse({ success: false, available: false, error: 'No active tab' });
         }
@@ -96,13 +176,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // START_CAPTURE
     if (request.action === 'START_CAPTURE') {
       panelState.captureMode = true;
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
         if (tabs[0] && tabs[0].id) {
           console.log('Sending START_CAPTURE to tab:', tabs[0].url);
-          // Check if content script should be available
-          if (tabs[0].url && (tabs[0].url.startsWith('chrome://') || tabs[0].url.startsWith('chrome-extension://'))) {
-            console.log('Cannot inject on chrome:// or chrome-extension:// pages');
-            if (sendResponse) sendResponse({ success: false, error: 'Content script not available on this page' });
+          const ready = await ensureContentScriptReady(tabs[0]);
+          if (!ready.success) {
+            console.error('Failed to prepare content script:', ready.error);
+            if (sendResponse) sendResponse({ success: false, error: ready.error });
             return;
           }
 
@@ -187,6 +267,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       // Ensure page information is included in XPath data
       const enrichedXpaths = request.xpaths.map(xpath => ({
         ...xpath,
+        element_name: xpath.element_name || xpath.elementName || xpath.object_name || 'Captured Element',
+        elementName: xpath.elementName || xpath.element_name || xpath.object_name || 'Captured Element',
         page_name: xpath.page_name || 'Unknown Page',
         page_url: xpath.page_url || 'Unknown URL',
         page_domain: xpath.page_domain || 'Unknown Domain'

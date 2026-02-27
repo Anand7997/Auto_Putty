@@ -2095,7 +2095,7 @@ def store_extension_xpaths():
             print(f"[DEBUG] Single xpath found: {single_xpath}")
             if single_xpath:
                 xpaths_data = [{
-                    'element_name': data.get('element_name', 'Captured Element'),
+                    'element_name': data.get('element_name') or data.get('elementName') or data.get('object_name') or 'Captured Element',
                     'xpath': single_xpath,
                     'page_name': data.get('page_name', 'Unknown Page')
                 }]
@@ -2123,7 +2123,7 @@ def store_extension_xpaths():
                 page_url = 'Unknown URL'
                 page_domain = 'Unknown Domain'
             else:
-                element_name = xpath_item.get('element_name', 'Captured Element')
+                element_name = xpath_item.get('element_name') or xpath_item.get('elementName') or xpath_item.get('object_name') or 'Captured Element'
                 xpath = xpath_item.get('xpath', '')
                 page_name = xpath_item.get('page_name', 'Unknown Page')
                 page_url = xpath_item.get('page_url', 'Unknown URL')

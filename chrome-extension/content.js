@@ -327,179 +327,51 @@
     return false;
   }
 
-  function escapeXPathString(value) {
-    if (value === null || value === undefined) return '""';
-    const str = String(value);
-    if (!str.includes('"')) return `"${str}"`;
-    if (!str.includes("'")) return `'${str}'`;
-    const parts = str.split('"');
-    const escaped = parts.map(part => `"${part}"`).join(", '\"', ");
-    return `concat(${escaped})`;
-  }
-
-  function isXPathUnique(xpath) {
-    try {
-      const result = document.evaluate(
-        `count(${xpath})`,
-        document,
-        null,
-        XPathResult.NUMBER_TYPE,
-        null
-      );
-      return result.numberValue === 1;
-    } catch (error) {
-      return false;
-    }
-  }
-
-  function getNodeIndexInSiblings(node) {
-    if (!node || !node.parentElement) return 1;
-    const tagName = node.tagName.toLowerCase();
-    let index = 1;
-    let sibling = node.previousElementSibling;
-    while (sibling) {
-      if (sibling.tagName.toLowerCase() === tagName) index++;
-      sibling = sibling.previousElementSibling;
-    }
-    return index;
-  }
-
-  function buildAbsoluteXPath(element) {
-    if (!element || element.nodeType !== Node.ELEMENT_NODE) return '';
-    const segments = [];
-    let current = element;
-
-    while (current && current.nodeType === Node.ELEMENT_NODE) {
-      const tagName = current.tagName.toLowerCase();
-      if (current.id && current.id.trim()) {
-        segments.unshift(`*[@id=${escapeXPathString(current.id.trim())}]`);
-        return `//${segments.join('/')}`;
-      }
-
-      const index = getNodeIndexInSiblings(current);
-      segments.unshift(`${tagName}[${index}]`);
-      current = current.parentElement;
-    }
-
-    return `/${segments.join('/')}`;
-  }
-
-  function getPreferredElementName(element, tagName) {
-    const id = element.id && element.id.trim();
-    if (id) return id;
-
-    const preferredAttrs = [
-      'name',
-      'data-testid',
-      'data-test',
-      'data-qa',
-      'aria-label',
-      'placeholder',
-      'title'
-    ];
-
-    for (const attr of preferredAttrs) {
-      const value = element.getAttribute(attr);
-      if (value && value.trim()) return value.trim();
-    }
-
-    const text = (element.textContent || element.innerText || '').replace(/\s+/g, ' ').trim();
-    if (text) return text.substring(0, 40);
-
-    return tagName;
-  }
-
   function generateXPath(element) {
     const tagName = element.tagName.toLowerCase();
     let xpath = '';
+    let elementName = tagName;
 
-    const idValue = element.id && element.id.trim();
-    if (idValue) {
-      const idXPath = `//*[@id=${escapeXPathString(idValue)}]`;
-      if (isXPathUnique(idXPath)) {
-        xpath = idXPath;
+    if (element.id && element.id.trim()) {
+      xpath = `//*[@id="${element.id}"]`;
+      elementName = `#${element.id}`;
+    } else if (element.name && element.name.trim()) {
+      xpath = `//${tagName}[@name="${element.name}"]`;
+      elementName = element.name;
+    } else {
+      const text = (element.textContent || element.innerText || '').trim();
+      if (text && text.length < 100) {
+        // For option elements, include parent select context for uniqueness
+        if (tagName === 'option' && element.parentElement && element.parentElement.tagName.toLowerCase() === 'select') {
+          const selectElement = element.parentElement;
+          const selectId = selectElement.id;
+          const selectName = selectElement.name;
+          let selectXpath = '';
+          if (selectId) {
+            selectXpath = `//*[@id="${selectId}"]`;
+          } else if (selectName) {
+            selectXpath = `//select[@name="${selectName}"]`;
+          } else {
+            selectXpath = '//select';
+          }
+          xpath = `${selectXpath}/option[contains(text(), "${text.substring(0, 30)}")]`;
+        } else {
+          xpath = `//${tagName}[contains(text(), "${text.substring(0, 30)}")]`;
+        }
+        elementName = text.substring(0, 30);
       } else {
-        xpath = `(${idXPath})[1]`;
+        xpath = `//${tagName}`;
       }
     }
 
-    if (!xpath) {
-      const attrPriority = [
-        'name',
-        'data-testid',
-        'data-test',
-        'data-qa',
-        'aria-label',
-        'placeholder',
-        'title',
-        'role'
-      ];
-
-      for (const attr of attrPriority) {
-        const value = element.getAttribute(attr);
-        if (!value || !value.trim()) continue;
-        const candidate = `//${tagName}[@${attr}=${escapeXPathString(value.trim())}]`;
-        if (isXPathUnique(candidate)) {
-          xpath = candidate;
-          break;
-        }
-      }
-    }
-
-    if (!xpath) {
-      const classNames = (element.className || '')
-        .toString()
-        .split(/\s+/)
-        .map(cls => cls.trim())
-        .filter(cls => cls && !/\d{4,}/.test(cls) && cls.length > 2)
-        .slice(0, 2);
-
-      if (classNames.length > 0) {
-        const classPredicate = classNames
-          .map(cls => `contains(concat(" ", normalize-space(@class), " "), " ${cls} ")`)
-          .join(' and ');
-        const classXPath = `//${tagName}[${classPredicate}]`;
-        if (isXPathUnique(classXPath)) {
-          xpath = classXPath;
-        }
-      }
-    }
-
-    if (!xpath) {
-      const text = (element.textContent || element.innerText || '').replace(/\s+/g, ' ').trim();
-      if (text) {
-        const shortText = text.substring(0, 60);
-        const textXPath = `//${tagName}[contains(normalize-space(.), ${escapeXPathString(shortText)})]`;
-        if (isXPathUnique(textXPath)) {
-          xpath = textXPath;
-        }
-      }
-    }
-
-    if (!xpath) {
-      let ancestor = element.parentElement;
-      while (ancestor) {
-        if (ancestor.id && ancestor.id.trim()) {
-          const anchor = `//*[@id=${escapeXPathString(ancestor.id.trim())}]`;
-          const index = getNodeIndexInSiblings(element);
-          xpath = `${anchor}//${tagName}[${index}]`;
-          break;
-        }
-        ancestor = ancestor.parentElement;
-      }
-    }
-
-    if (!xpath) {
-      xpath = buildAbsoluteXPath(element) || `//${tagName}`;
-    }
-
+    // Get page information
     const pageTitle = document.title || 'Unknown Page';
     const pageUrl = window.location.href;
     const pageDomain = window.location.hostname;
 
     return {
       xpath: xpath,
-      elementName: getPreferredElementName(element, tagName),
+      elementName: elementName || tagName,
       tagName: tagName,
       page_name: pageTitle,
       page_url: pageUrl,
@@ -510,3 +382,4 @@
 
 
 })();
+
