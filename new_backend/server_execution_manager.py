@@ -62,7 +62,7 @@ class ServerExecutionManager:
         self.user_email = user_email
 
         # Server config
-        self.server_host = "10.30.3.85:5000"
+        self.server_host = "10.30.3.85"
 
         # DB config
         DB_CONFIG = {
