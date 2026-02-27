@@ -694,6 +694,189 @@ def create_selenium_results_table():
     except Exception as e:
         print(f"[ERROR] Error creating selenium_results table: {str(e)}")
 
+def create_testcases_table_if_missing(conn=None):
+    """Create/upgrade TestCases table for environments where it is not pre-provisioned."""
+    owns_conn = conn is None
+    try:
+        if owns_conn:
+            conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='TestCases' AND xtype='U')
+            CREATE TABLE [dbo].[TestCases] (
+                id INT IDENTITY(1,1) PRIMARY KEY,
+                name NVARCHAR(255) NOT NULL,
+                status NVARCHAR(50) DEFAULT 'Active',
+                project_id INT NULL,
+                module_id INT NULL,
+                suite_type NVARCHAR(100) NULL,
+                testcase_id NVARCHAR(255) NULL,
+                mapped_excel_file_name NVARCHAR(255) NULL,
+                mapped_excel_sheet_name NVARCHAR(255) NULL,
+                created_date DATETIME DEFAULT GETUTCDATE(),
+                updated_date DATETIME DEFAULT GETUTCDATE()
+            )
+        """)
+
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'TestCases' AND COLUMN_NAME = 'suite_type')
+            ALTER TABLE [dbo].[TestCases] ADD suite_type NVARCHAR(100) NULL
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'TestCases' AND COLUMN_NAME = 'module_id')
+            ALTER TABLE [dbo].[TestCases] ADD module_id INT NULL
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'TestCases' AND COLUMN_NAME = 'project_id')
+            ALTER TABLE [dbo].[TestCases] ADD project_id INT NULL
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'TestCases' AND COLUMN_NAME = 'testcase_id')
+            ALTER TABLE [dbo].[TestCases] ADD testcase_id NVARCHAR(255) NULL
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'TestCases' AND COLUMN_NAME = 'mapped_excel_file_name')
+            ALTER TABLE [dbo].[TestCases] ADD mapped_excel_file_name NVARCHAR(255) NULL
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'TestCases' AND COLUMN_NAME = 'mapped_excel_sheet_name')
+            ALTER TABLE [dbo].[TestCases] ADD mapped_excel_sheet_name NVARCHAR(255) NULL
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'TestCases' AND COLUMN_NAME = 'created_date')
+            ALTER TABLE [dbo].[TestCases] ADD created_date DATETIME DEFAULT GETUTCDATE()
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'TestCases' AND COLUMN_NAME = 'updated_date')
+            ALTER TABLE [dbo].[TestCases] ADD updated_date DATETIME DEFAULT GETUTCDATE()
+        """)
+
+        cursor.execute("""
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE name = 'IX_TestCases_Name' AND object_id = OBJECT_ID('[dbo].[TestCases]')
+            )
+            CREATE INDEX IX_TestCases_Name ON [dbo].[TestCases]([name])
+        """)
+
+        conn.commit()
+        if owns_conn:
+            conn.close()
+        print("[SUCCESS] TestCases table created/verified")
+    except Exception as e:
+        if owns_conn and conn:
+            conn.close()
+        print(f"[ERROR] Error creating TestCases table: {str(e)}")
+
+def create_values_table_if_missing(conn=None):
+    """Create/upgrade Values table used for uploaded Excel files."""
+    owns_conn = conn is None
+    try:
+        if owns_conn:
+            conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Values' AND xtype='U')
+            CREATE TABLE [dbo].[Values] (
+                id INT IDENTITY(1,1) PRIMARY KEY,
+                file_name NVARCHAR(255) NOT NULL,
+                original_name NVARCHAR(255) NOT NULL,
+                file_path NVARCHAR(500) NOT NULL,
+                file_size BIGINT NULL,
+                uploaded_by NVARCHAR(255) NULL,
+                uploaded_at DATETIME DEFAULT GETDATE(),
+                status NVARCHAR(50) DEFAULT 'Active'
+            )
+        """)
+
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Values' AND COLUMN_NAME = 'status')
+            ALTER TABLE [dbo].[Values] ADD status NVARCHAR(50) DEFAULT 'Active'
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Values' AND COLUMN_NAME = 'uploaded_at')
+            ALTER TABLE [dbo].[Values] ADD uploaded_at DATETIME DEFAULT GETDATE()
+        """)
+
+        cursor.execute("""
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE name = 'IX_Values_UploadedByStatus' AND object_id = OBJECT_ID('[dbo].[Values]')
+            )
+            CREATE INDEX IX_Values_UploadedByStatus ON [dbo].[Values]([uploaded_by], [status])
+        """)
+
+        conn.commit()
+        if owns_conn:
+            conn.close()
+        print("[SUCCESS] Values table created/verified")
+    except Exception as e:
+        if owns_conn and conn:
+            conn.close()
+        print(f"[ERROR] Error creating Values table: {str(e)}")
+
+def create_excel_mapping_table_if_missing(conn=None):
+    """Create/upgrade ExcelMapping table that maps testcase -> excel file/sheet."""
+    owns_conn = conn is None
+    try:
+        if owns_conn:
+            conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ExcelMapping' AND xtype='U')
+            CREATE TABLE [dbo].[ExcelMapping] (
+                id INT IDENTITY(1,1) PRIMARY KEY,
+                testcase_id INT NOT NULL,
+                excel_file_id INT NOT NULL,
+                sheet_name NVARCHAR(255) NOT NULL,
+                data_sets INT DEFAULT 0,
+                created_at DATETIME DEFAULT GETDATE(),
+                updated_at DATETIME NULL
+            )
+        """)
+
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'ExcelMapping' AND COLUMN_NAME = 'data_sets')
+            ALTER TABLE [dbo].[ExcelMapping] ADD data_sets INT DEFAULT 0
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'ExcelMapping' AND COLUMN_NAME = 'updated_at')
+            ALTER TABLE [dbo].[ExcelMapping] ADD updated_at DATETIME NULL
+        """)
+
+        cursor.execute("""
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE name = 'UQ_ExcelMapping_Testcase' AND object_id = OBJECT_ID('[dbo].[ExcelMapping]')
+            )
+            CREATE UNIQUE INDEX UQ_ExcelMapping_Testcase ON [dbo].[ExcelMapping]([testcase_id])
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE name = 'IX_ExcelMapping_File' AND object_id = OBJECT_ID('[dbo].[ExcelMapping]')
+            )
+            CREATE INDEX IX_ExcelMapping_File ON [dbo].[ExcelMapping]([excel_file_id])
+        """)
+
+        conn.commit()
+        if owns_conn:
+            conn.close()
+        print("[SUCCESS] ExcelMapping table created/verified")
+    except Exception as e:
+        if owns_conn and conn:
+            conn.close()
+        print(f"[ERROR] Error creating ExcelMapping table: {str(e)}")
+
+def ensure_excel_mapping_infrastructure(conn=None):
+    """Ensure TestCases/Values/ExcelMapping infra exists for Excel mapping flows."""
+    create_testcases_table_if_missing(conn)
+    create_values_table_if_missing(conn)
+    create_excel_mapping_table_if_missing(conn)
+
 def create_pages_table():
     """Create pages table if it doesn't exist"""
     try:
@@ -9280,6 +9463,7 @@ def upload_excel_file():
         # No user authentication required for Excel upload
         conn = get_db_connection()
         cursor = conn.cursor()
+        ensure_excel_mapping_infrastructure(conn)
 
         # Check if file is present
         if 'file' not in request.files:
@@ -9350,6 +9534,7 @@ def get_excel_files():
 
         conn = get_db_connection()
         cursor = conn.cursor()
+        ensure_excel_mapping_infrastructure(conn)
 
         cursor.execute("""
             SELECT id, file_name, original_name, file_size, uploaded_by, uploaded_at, status
@@ -9389,6 +9574,7 @@ def parse_excel_file(file_id):
 
         conn = get_db_connection()
         cursor = conn.cursor()
+        ensure_excel_mapping_infrastructure(conn)
 
         # Get file info and verify ownership
         cursor.execute("""
@@ -9505,6 +9691,7 @@ def delete_excel_file(file_id):
 
         conn = get_db_connection()
         cursor = conn.cursor()
+        ensure_excel_mapping_infrastructure(conn)
 
         # Get file info and verify ownership
         cursor.execute("""
@@ -9970,14 +10157,7 @@ def get_mapped_excel_sheet(testcase_name):
         print(f"[GET_EXCEL] Fetching mapped Excel for test case: '{testcase_name}'")
         conn = get_db_connection()
         cursor = conn.cursor()
-        if not table_exists(cursor, 'TestCases'):
-            conn.close()
-            print("[GET_EXCEL] [FAIL] [dbo].[TestCases] not available")
-            return jsonify({'excelSheetName': '', 'found': False, 'dataSets': 0}), 200
-        if not table_exists(cursor, 'ExcelMapping'):
-            conn.close()
-            print("[GET_EXCEL] [FAIL] [dbo].[ExcelMapping] not available")
-            return jsonify({'excelSheetName': '', 'found': False, 'dataSets': 0}), 200
+        ensure_excel_mapping_infrastructure(conn)
         
         # First, try exact match
         cursor.execute("""
@@ -10098,12 +10278,10 @@ def update_mapped_excel_sheet(testcase_name):
         
         conn = get_db_connection()
         cursor = conn.cursor()
+        ensure_excel_mapping_infrastructure(conn)
         if not table_exists(cursor, 'TestCases'):
             conn.close()
             return jsonify({'error': "Table [dbo].[TestCases] does not exist or is not accessible."}), 500
-        if not table_exists(cursor, 'ExcelMapping'):
-            conn.close()
-            return jsonify({'error': "Table [dbo].[ExcelMapping] does not exist or is not accessible."}), 500
         
         # First check if test case exists (exact match)
         cursor.execute("""
@@ -10196,12 +10374,10 @@ def delete_mapped_excel_sheet(testcase_name):
         
         conn = get_db_connection()
         cursor = conn.cursor()
+        ensure_excel_mapping_infrastructure(conn)
         if not table_exists(cursor, 'TestCases'):
             conn.close()
             return jsonify({'success': False, 'error': "Table [dbo].[TestCases] does not exist or is not accessible."}), 500
-        if not table_exists(cursor, 'ExcelMapping'):
-            conn.close()
-            return jsonify({'success': True, 'message': 'No Excel mapping table found to delete from'}), 200
         
         # First check if test case exists (exact match)
         cursor.execute("""
@@ -10467,6 +10643,9 @@ if __name__ == '__main__':
     create_pages_master_table()
     create_pages_table()
     create_extension_xpaths_table()
+    create_testcases_table_if_missing()
+    create_values_table_if_missing()
+    create_excel_mapping_table_if_missing()
     create_brd_table()
     
     # Setup system monitoring routes

@@ -65,7 +65,7 @@ class ServerExecutionManager:
         self.server_host = "10.30.3.85"
 
         # DB config
-        DB_CONFIG = {
+        self.DB_CONFIG = {
             "server": "10.30.3.85",
             "port": "1433",
             "database": "AppDB",
