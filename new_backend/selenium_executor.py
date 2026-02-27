@@ -850,7 +850,8 @@ class SeleniumTestExecutor:
             chrome_options.add_argument("--disable-dev-shm-usage")
             if not self.enable_remote_viewing:
                 chrome_options.add_argument("--disable-software-rasterizer")
-            chrome_options.add_argument("--remote-debugging-port=9222")
+            # Use a dynamic DevTools port to avoid collisions across parallel/stale sessions
+            chrome_options.add_argument("--remote-debugging-port=0")
             chrome_options.add_argument("--disable-extensions")
             chrome_options.add_argument("--disable-plugins")
             chrome_options.add_argument("--disable-images")
@@ -992,7 +993,20 @@ class SeleniumTestExecutor:
                 print(f"[CHROMEDRIVER] Using WebDriver Manager: {driver_path}")
 
             print("[WEBDRIVER] Creating Chrome WebDriver...")
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            try:
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            except Exception as primary_launch_error:
+                print(f"[WEBDRIVER] Primary browser launch failed: {primary_launch_error}")
+                # In server mode, recover from unstable DISPLAY/VNC by falling back to headless.
+                if self.server_execution and not self.headless:
+                    print("[WEBDRIVER] Retrying launch in headless mode (server fallback)")
+                    self.headless = True
+                    self.enable_remote_viewing = False
+                    os.environ.pop("DISPLAY", None)
+                    chrome_options.add_argument("--headless=new")
+                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                else:
+                    raise
 
             if self.enable_remote_viewing:
                 self.driver.set_window_size(1920, 1080)

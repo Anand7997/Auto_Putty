@@ -1275,7 +1275,7 @@ class VNCSessionManager:
                 websockify_cmd = [
                     "/home/admin/Auto_Putty/venv_autoputty/bin/websockify",
                     "--web", self.novnc_install_path,
-                    f"{self.server_host}:{novnc_port}",
+                    f"0.0.0.0:{novnc_port}",
                     f"localhost:{vnc_port}"
                 ]
                 
@@ -1523,9 +1523,9 @@ class VNCSessionManager:
 
     def _start_x11vnc(self, display, vnc_port):
         disp = f":{display}"
+        x11vnc_binary = "/usr/bin/x11vnc" if os.path.exists("/usr/bin/x11vnc") else "x11vnc"
         cmd = [
-            "x11vnc",
-            "/usr/bin/x11vnc",
+            x11vnc_binary,
             "-display", disp,
             "-rfbport", str(vnc_port),
             "-forever",
