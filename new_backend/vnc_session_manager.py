@@ -16,7 +16,7 @@ import logging
 BASE_VNC_PORT = 6000
 BASE_NOVNC_PORT = 6100
 BASE_DISPLAY = 20
-MAX_PARALLEL_EXECUTIONS_PER_USER = 3
+MAX_PARALLEL_EXECUTIONS_PER_USER = 4
 
 
 class VNCSessionManager:
@@ -1661,7 +1661,7 @@ class VNCSessionManager:
                         print(f"[VNC_RATELIMIT] Active sessions: {list(self.active_sessions.keys())[:5]}...")  # Show first 5
                         return None
                     
-                    # Per-user parallel execution limit
+                    # Per-user parallel execution limit (tracks active/in-flight executions).
                     count = self.user_execution_count.get(email, 0)
                     if count >= MAX_PARALLEL_EXECUTIONS_PER_USER:
                         print(f"[VNC_RATELIMIT] Parallel execution limit reached for {email} ({count}/{MAX_PARALLEL_EXECUTIONS_PER_USER})")
@@ -1868,6 +1868,16 @@ class VNCSessionManager:
 
         print(f"[VNC_MGR] Session stopped: {session_id}")
         return True
+    
+    def mark_execution_complete(self, email):
+        """Decrement active execution count without stopping VNC session."""
+        if not email:
+            return
+        with self.session_lock:
+            if email in self.user_execution_count:
+                self.user_execution_count[email] -= 1
+                if self.user_execution_count[email] <= 0:
+                    del self.user_execution_count[email]
     
     def list_active_sessions(self):
         """Return list of active VNC sessions with metadata"""

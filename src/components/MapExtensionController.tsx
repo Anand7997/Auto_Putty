@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Globe, Copy, Clipboard, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
+import { Globe, Copy, Clipboard, RefreshCw, CheckCircle, AlertCircle, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { buildApiUrl } from '@/config/api';
 
@@ -610,6 +610,21 @@ const MapExtensionController: React.FC<MapExtensionControllerProps> = ({
     });
   };
 
+  const downloadExtension = () => {
+    const downloadUrl = buildApiUrl('/api/extension/download');
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = 'chrome-extension.zip';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast({
+      title: "Extension Download Started",
+      description: "Chrome extension package is being downloaded.",
+    });
+  };
+
   const testCommunication = async () => {
     console.log('Testing extension communication...');
     setConnectionStatus('connecting');
@@ -883,13 +898,12 @@ const MapExtensionController: React.FC<MapExtensionControllerProps> = ({
         <div className="mt-4 pt-4 border-t border-gray-200">
           <div className="flex flex-wrap gap-2">
             <Button
-              onClick={connectToExtension}
+              onClick={downloadExtension}
               size="sm"
               variant="outline"
-              disabled={connectionStatus === 'connected'}
             >
-              <Globe className="w-4 h-4 mr-2" />
-              {connectionStatus === 'connected' ? 'Connected' : 'Connect Extension'}
+              <Download className="w-4 h-4 mr-2" />
+              Download Extension
             </Button>
             
             {connectionStatus === 'connected' && (

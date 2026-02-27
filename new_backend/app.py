@@ -4,6 +4,8 @@ from flask_socketio import SocketIO, emit, join_room, leave_room
 import pyodbc
 import json
 import time
+import io
+import zipfile
 from datetime import datetime, timezone
 import traceback
 import re
@@ -5017,7 +5019,7 @@ def debug_vnc_counts():
         counts = vnc_manager.get_user_execution_counts()
         return jsonify({
             'user_execution_counts': counts,
-            'max_parallel_executions': 3
+            'max_parallel_executions': 4
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -5300,30 +5302,37 @@ def get_vnc_status(user_email):
 
 @app.route('/api/vnc/cleanup/<user_email>', methods=['POST'])
 def cleanup_vnc_for_user(user_email):
-    """Kill/cleanup VNC session for a specific user (individual cleanup by login credentials)"""
+    """Kill/cleanup all VNC sessions/ports for a specific user."""
     try:
         user_email = unquote(user_email)
         print(f"[VNC_CLEANUP] Cleanup request for user: {user_email}")
-        
+
         from vnc_lifecycle_manager import vnc_lifecycle_manager
-        
-        success = vnc_lifecycle_manager.cleanup_user_vnc_session(user_email)
-        
+
+        cleanup_result = vnc_lifecycle_manager.cleanup_all_user_sessions(user_email)
+        success = cleanup_result.get('success', False)
+
         if success:
-            print(f"[VNC_CLEANUP] ✓ Successfully cleaned up VNC for {user_email}")
+            sessions_terminated = cleanup_result.get('sessions_terminated', 0)
+            ports_cleaned = cleanup_result.get('ports_cleaned', [])
+            print(f"[VNC_CLEANUP] Successfully cleaned up VNC for {user_email}. sessions={sessions_terminated}, ports={ports_cleaned}")
             return jsonify({
                 'success': True,
-                'message': f'VNC session terminated for {user_email}',
-                'user_email': user_email
+                'message': cleanup_result.get('message', f'VNC sessions terminated for {user_email}'),
+                'user_email': user_email,
+                'sessions_terminated': sessions_terminated,
+                'ports_cleaned': ports_cleaned
             }), 200
-        else:
-            print(f"[VNC_CLEANUP] ⚠ No active session found for {user_email}")
-            return jsonify({
-                'success': False,
-                'message': f'No active VNC session found for {user_email}',
-                'user_email': user_email
-            }), 404
-        
+
+        print(f"[VNC_CLEANUP] No active session found for {user_email}")
+        return jsonify({
+            'success': False,
+            'message': cleanup_result.get('message', f'No active VNC session found for {user_email}'),
+            'user_email': user_email,
+            'sessions_terminated': cleanup_result.get('sessions_terminated', 0),
+            'ports_cleaned': cleanup_result.get('ports_cleaned', [])
+        }), 404
+
     except Exception as e:
         print(f"[VNC_CLEANUP_ERROR] {e}")
         return jsonify({'error': str(e), 'success': False}), 500
@@ -8683,6 +8692,37 @@ def delete_brd_file(file_id):
 
     except Exception as e:
         print(f"[ERROR] BRD delete failed: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/extension/download', methods=['GET'])
+def download_chrome_extension():
+    """Create and download the Chrome extension as a zip."""
+    try:
+        backend_dir = os.path.dirname(os.path.abspath(__file__))
+        extension_dir = os.path.abspath(os.path.join(backend_dir, '..', 'chrome-extension'))
+
+        if not os.path.isdir(extension_dir):
+            return jsonify({'error': f'Extension directory not found: {extension_dir}'}), 404
+
+        memory_file = io.BytesIO()
+        with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root, _, files in os.walk(extension_dir):
+                for filename in files:
+                    file_path = os.path.join(root, filename)
+                    rel_path = os.path.relpath(file_path, extension_dir)
+                    zipf.write(file_path, rel_path)
+
+        memory_file.seek(0)
+        return Response(
+            memory_file.getvalue(),
+            mimetype='application/zip',
+            headers={
+                'Content-Disposition': 'attachment; filename=chrome-extension.zip',
+                'Cache-Control': 'no-store'
+            }
+        )
+    except Exception as e:
+        print(f"[ERROR] Extension download failed: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/generate-testcases-from-brd', methods=['POST'])

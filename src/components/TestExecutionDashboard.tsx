@@ -952,17 +952,19 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
           }
         }
       );
-      
+
       const data = await response.json();
-      
+
       if (response.ok && data.success) {
+        const sessionsTerminated = data.sessions_terminated ?? 0;
         toast({
           title: "VNC Terminated",
-          description: `VNC session for ${currentUserEmail} has been killed`,
+          description: sessionsTerminated > 0
+            ? `Killed ${sessionsTerminated} VNC session(s) for ${currentUserEmail}`
+            : `VNC cleaned for ${currentUserEmail}`,
           variant: "default"
         });
         setVncStatus(null);
-        // Refresh status after a short delay
         setTimeout(() => checkVNCStatus(currentUserEmail), 1000);
       } else {
         toast({
@@ -2314,15 +2316,17 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
                   </Button>
 
                   {/* VNC Management Section */}
-                  {vncStatus && vncStatus.has_active_session && (
+                  {currentUserEmail && (
                     <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-md">
                       <div className="flex items-center justify-between mb-2">
                         <div>
                           <p className="text-sm font-medium text-amber-700">
-                            Active VNC Session
+                            VNC Management
                           </p>
                           <p className="text-xs text-amber-600 mt-1">
-                            Display: {vncStatus.display} | Port: {vncStatus.novnc_port}
+                            {vncStatus && vncStatus.has_active_session
+                              ? `Active sessions: ${vncStatus.active_session_count ?? 1}`
+                              : 'No active VNC session'}
                           </p>
                         </div>
                       </div>
@@ -2336,12 +2340,12 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
                         {isKillingVNC ? (
                           <>
                             <Clock className="w-4 h-4 mr-2 animate-spin" />
-                            Terminating VNC...
+                            Killing VNC...
                           </>
                         ) : (
                           <>
                             <XCircle className="w-4 h-4 mr-2" />
-                            Kill VNC Session
+                            Kill VNC
                           </>
                         )}
                       </Button>

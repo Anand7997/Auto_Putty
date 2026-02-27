@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+﻿import React, { useState, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Code2, Save, Play, ArrowUp, ArrowDown, ArrowRight, Plus, TestTube, List, Edit, Trash2, FolderPlus, FilePlus, Target, X, AlertTriangle, RefreshCw, Globe } from 'lucide-react';
@@ -137,7 +137,7 @@ const CreatePageSectionBlock: React.FC<{ onBack?: () => void; resetKey?: number;
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Failed to rename page');
-      toast({ title: 'Page Renamed', description: `"${current}" → "${newName}"` });
+      toast({ title: 'Page Renamed', description: `"${current}" â†’ "${newName}"` });
       await loadPages();
       if (pageName === current) {
         setPageName(newName);
@@ -240,7 +240,7 @@ const CreatePageSectionBlock: React.FC<{ onBack?: () => void; resetKey?: number;
   const loadExtensionXPaths = async () => {
     try {
       setIsLoadingExtensionXPaths(true);
-      console.log('📖 Loading unimplemented XPaths from database (sorted by created_at)...');
+      console.log('ðŸ“– Loading unimplemented XPaths from database (sorted by created_at)...');
 
       const response = await fetch(buildApiUrl('/api/extension-xpaths'));
 
@@ -251,23 +251,23 @@ const CreatePageSectionBlock: React.FC<{ onBack?: () => void; resetKey?: number;
 
       const data = await response.json();
       let allXPaths = Array.isArray(data) ? data : (data.xpaths || []);
-      console.log('✅ Unimplemented XPaths loaded from database:', allXPaths.length);
+      console.log('âœ… Unimplemented XPaths loaded from database:', allXPaths.length);
 
       if (allXPaths.length > 0) {
         const sortedXPaths = allXPaths.sort((a, b) =>
           new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
         );
 
-        console.log('✅ XPaths sorted by created_at');
+        console.log('âœ… XPaths sorted by created_at');
         setExtensionXPaths(sortedXPaths);
         return sortedXPaths;
       } else {
-        console.log('⚠️ No unimplemented XPaths found in database');
+        console.log('âš ï¸ No unimplemented XPaths found in database');
         setExtensionXPaths([]);
         return [];
       }
     } catch (error) {
-      console.error('❌ Error loading extension XPaths from database:', error);
+      console.error('âŒ Error loading extension XPaths from database:', error);
       return [];
     } finally {
       setIsLoadingExtensionXPaths(false);
@@ -275,15 +275,15 @@ const CreatePageSectionBlock: React.FC<{ onBack?: () => void; resetKey?: number;
   };
 
   const setupExtensionListener = () => {
-    console.log('🎯 Setting up extension listener...');
+    console.log('ðŸŽ¯ Setting up extension listener...');
 
     const handleXPathReceived = (event: CustomEvent) => {
-      console.log('🎯 Custom event received:', event);
+      console.log('ðŸŽ¯ Custom event received:', event);
       const { xpath, source, timestamp } = event.detail;
-      console.log('✅ Object Creation: Received XPath from MapExtensionController:', { xpath, source, timestamp });
+      console.log('âœ… Object Creation: Received XPath from MapExtensionController:', { xpath, source, timestamp });
 
       if (xpath && typeof xpath === 'string' && xpath.trim().length > 0) {
-        console.log('🎯 XPath validation passed:', xpath);
+        console.log('ðŸŽ¯ XPath validation passed:', xpath);
         setLastReceivedXPath(xpath);
 
         // Auto-populate the new object fields
@@ -293,13 +293,13 @@ const CreatePageSectionBlock: React.FC<{ onBack?: () => void; resetKey?: number;
         }));
 
         toast({
-          title: "✅ XPath Received from Extension",
+          title: "âœ… XPath Received from Extension",
           description: `XPath received: ${xpath.substring(0, 50)}...`,
         });
       } else {
-        console.warn('🎯 XPath validation failed:', { xpath });
+        console.warn('ðŸŽ¯ XPath validation failed:', { xpath });
         toast({
-          title: "⚠️ Invalid XPath Received",
+          title: "âš ï¸ Invalid XPath Received",
           description: "Received XPath is invalid or empty",
           variant: "destructive"
         });
@@ -307,16 +307,16 @@ const CreatePageSectionBlock: React.FC<{ onBack?: () => void; resetKey?: number;
     };
 
     const handleXPathBatchSaved = (event: MessageEvent) => {
-      console.log('🎯 Window message received:', event);
+      console.log('ðŸŽ¯ Window message received:', event);
       if (event.data && event.data.type === 'XPATH_BATCH_SAVED_TO_DATABASE') {
-        console.log('✅ Extension XPaths saved to database:', event.data);
+        console.log('âœ… Extension XPaths saved to database:', event.data);
         const { count, session_id, timestamp } = event.data;
 
         // Refresh the extension XPaths data
         loadExtensionXPaths();
 
         toast({
-          title: "✅ XPaths Saved to Database",
+          title: "âœ… XPaths Saved to Database",
           description: `${count} XPaths saved successfully from extension`,
         });
       }
@@ -324,7 +324,7 @@ const CreatePageSectionBlock: React.FC<{ onBack?: () => void; resetKey?: number;
 
     window.addEventListener('xpath-captured-from-extension', handleXPathReceived as EventListener);
     window.addEventListener('message', handleXPathBatchSaved);
-    console.log('🎯 Custom event listeners added successfully');
+    console.log('ðŸŽ¯ Custom event listeners added successfully');
 
     // Send ready signal
     window.postMessage({
@@ -332,20 +332,20 @@ const CreatePageSectionBlock: React.FC<{ onBack?: () => void; resetKey?: number;
       source: 'ObjectCreation',
       timestamp: Date.now()
     }, '*');
-    console.log('🎯 Object Creation: Ready signal sent');
+    console.log('ðŸŽ¯ Object Creation: Ready signal sent');
 
     setExtensionListener(() => {
       window.removeEventListener('xpath-captured-from-extension', handleXPathReceived as EventListener);
       window.removeEventListener('message', handleXPathBatchSaved);
-      console.log('🎯 Object Creation: Extension listeners cleaned up');
+      console.log('ðŸŽ¯ Object Creation: Extension listeners cleaned up');
     });
   };
 
   const handleImplementXPaths = (xpaths: Array<{element_name: string, xpath: string, page_name: string}>) => {
-    console.log('🔧 Implementing XPaths to objects:', xpaths);
+    console.log('ðŸ”§ Implementing XPaths to objects:', xpaths);
 
     if (!xpaths || xpaths.length === 0) {
-      console.warn('⚠️ No XPaths to implement');
+      console.warn('âš ï¸ No XPaths to implement');
       return;
     }
 
@@ -355,13 +355,13 @@ const CreatePageSectionBlock: React.FC<{ onBack?: () => void; resetKey?: number;
       xpath: xpathData.xpath
     }));
 
-    console.log('✅ Created new objects from XPaths:', newObjects);
+    console.log('âœ… Created new objects from XPaths:', newObjects);
 
     // Add to existing objects in the grid (prepend to beginning)
     setObjects(prev => [...newObjects, ...prev]);
 
     toast({
-      title: "✅ XPaths Implemented Successfully",
+      title: "âœ… XPaths Implemented Successfully",
       description: `Added ${xpaths.length} XPath(s) to objects`,
     });
   };
@@ -681,7 +681,7 @@ const CreatePageSectionBlock: React.FC<{ onBack?: () => void; resetKey?: number;
                                 const res = await fetch(buildApiUrl('/api/pages'), {
                                   method: 'POST',
                                   headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ page_name: pageName, object_name: name, xpath: xp })
+                                  body: JSON.stringify({ page_name: pageName, objects: [{ object_name: name, xpath: xp }] })
                                 });
                                 const data = await res.json();
                                 if (!res.ok) throw new Error(data?.error || 'Failed to add object');
@@ -891,9 +891,9 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
         throw new Error(`Failed to save steps: ${response.status} - ${errorData.error || 'Unknown error'}`);
       }
 
-      console.log('✅ Auto-saved test steps to database after XPath refresh');
+      console.log('âœ… Auto-saved test steps to database after XPath refresh');
     } catch (error) {
-      console.error('❌ Failed to auto-save test steps:', error);
+      console.error('âŒ Failed to auto-save test steps:', error);
       throw error; // Re-throw so the hook can handle the error
     }
   };
@@ -1178,21 +1178,21 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
         }
       };
 
-      console.log('🔧 CRUD Operations Created for:', testCase.name);
-      console.log('📋 Operations Available:', crudOperations);
+      console.log('ðŸ”§ CRUD Operations Created for:', testCase.name);
+      console.log('ðŸ“‹ Operations Available:', crudOperations);
 
       // Store CRUD operations in component state for use in steps view
       setTestCaseOperations(crudOperations);
 
       toast({
-        title: "✅ CRUD Operations Created",
+        title: "âœ… CRUD Operations Created",
         description: `Full CRUD functionality enabled for test case "${testCase.name}"`,
       });
 
     } catch (error) {
       console.error('Error creating CRUD operations:', error);
       toast({
-        title: "⚠️ CRUD Setup Warning",
+        title: "âš ï¸ CRUD Setup Warning",
         description: "CRUD operations created with limited functionality",
         variant: "destructive"
       });
@@ -1202,7 +1202,7 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
   const handleSaveTestCase = async () => {
     if (!testCaseName.trim()) {
       toast({
-        title: "⚠️ Validation Error",
+        title: "âš ï¸ Validation Error",
         description: "Please enter a test case name",
         variant: "destructive"
       });
@@ -1211,7 +1211,7 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
 
     if (testSteps.length === 0) {
       toast({
-        title: "⚠️ Validation Error", 
+        title: "âš ï¸ Validation Error", 
         description: "Please add at least one test step",
         variant: "destructive"
       });
@@ -1295,17 +1295,17 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
       }, 0);
 
       toast({
-        title: selectedTestCase?.id ? "✅ Test Case Updated" : "✅ Test Case Saved",
+        title: selectedTestCase?.id ? "âœ… Test Case Updated" : "âœ… Test Case Saved",
         description: `Test case "${testCaseName}" with ${testSteps.length} steps ${totalValues > 0 ? `(${totalValues} Excel values mapped) ` : ''}${selectedTestCase?.id ? 'updated' : 'saved'} successfully`,
       });
 
       // Optionally redirect or refresh data
-      console.log('🎉 Test Case Saved/Updated Successfully:', testCaseData);
+      console.log('ðŸŽ‰ Test Case Saved/Updated Successfully:', testCaseData);
 
     } catch (error) {
       console.error('Error saving test case:', error);
       toast({
-        title: "❌ Save Failed",
+        title: "âŒ Save Failed",
         description: "Failed to save test case. Please try again.",
         variant: "destructive"
       });
@@ -1381,10 +1381,10 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
           <div className="text-center py-6">
             <h3 className="text-xl font-semibold text-gray-900 mb-4">Development Workflow with CRUD Operations</h3>
             <p className="text-gray-600 mb-4">
-              1. Select Project & Module → 2. Choose/Create Test Case → 3. Build Test Steps with Full CRUD → 4. Save to Planning
+              1. Select Project & Module â†’ 2. Choose/Create Test Case â†’ 3. Build Test Steps with Full CRUD â†’ 4. Save to Planning
             </p>
             <div className="mb-6 p-4 bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg">
-              <h4 className="font-semibold text-green-800 mb-2">🛠️ CRUD Operations Available:</h4>
+              <h4 className="font-semibold text-green-800 mb-2">ðŸ› ï¸ CRUD Operations Available:</h4>
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div><strong>Test Cases:</strong> Create, Read, Update, Delete test cases</div>
                 <div><strong>Test Steps:</strong> Full manipulation of test steps with API integration</div>
@@ -1431,7 +1431,7 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
                   </div>
                 </div>
                 <div className="p-6 pt-0">
-                  <p className="text-gray-600 text-sm mb-4">Browse projects from planning and follow the flow: Project → Modules → Test Cases → Test Steps</p>
+                  <p className="text-gray-600 text-sm mb-4">Browse projects from planning and follow the flow: Project â†’ Modules â†’ Test Cases â†’ Test Steps</p>
                   <Button className="bg-blue-500 hover:bg-blue-600" onClick={() => setCurrentView('project-list')}>Manage Projects</Button>
                 </div>
               </div>
@@ -1609,7 +1609,7 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
                         setTestSteps(updatedSteps);
                         
                         toast({
-                          title: "✅ Test Step Created",
+                          title: "âœ… Test Step Created",
                           description: `Step ${newStep.step_no} added to "${selectedTestCase?.name || 'test case'}"`,
                         });
                       }}
@@ -1635,7 +1635,7 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
                       onClick={() => {
                         // Force enable full editing mode
                         toast({
-                          title: "✅ Editing Mode Active",
+                          title: "âœ… Editing Mode Active",
                           description: "All test steps are now fully editable with CRUD operations",
                         });
                       }}
@@ -1783,3 +1783,4 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
 };
 
 export default AutomationDevelopmentDashboard;
+
