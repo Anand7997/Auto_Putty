@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart XPath Recorder</title>
+    <style>
+        #xpath-recorder-panel {
+            position: fixed !important;
+            top: 100px !important;
+            right: 20px !important;
+            width: 380px !important;
+            height: auto !important;
+            background: linear-gradient(135deg, rgba(248, 250, 252, 0.98) 0%, rgba(226, 232, 240, 0.98) 100%) !important;
+            backdrop-filter: blur(10px) !important;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3) !important;
+            z-index: 2147483647 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
+            border-radius: 12px !important;
+            border: 1px solid rgba(0, 0, 0, 0.1) !important;
+            pointer-events: auto !important;
+            max-height: 80vh !important;
+            overflow-y: auto !important;
+        }
+
+        #xpath-recorder-panel * {
+            box-sizing: border-box !important;
+        }
+
+        .recorder-header {
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            padding: 12px 16px !important;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+            border-radius: 12px 12px 0 0 !important;
+            color: white !important;
+            cursor: move !important;
+            user-select: none !important;
+        }
+
+        .recorder-title {
+            font-weight: 600 !important;
+            font-size: 14px !important;
+            margin: 0 !important;
+        }
+
+        .recorder-controls {
+            display: flex !important;
+            gap: 4px !important;
+        }
+
+        .header-btn {
+            background: rgba(255, 255, 255, 0.2) !important;
+            border: none !important;
+            color: white !important;
+            width: 28px !important;
+            height: 28px !important;
+            border-radius: 6px !important;
+            cursor: pointer !important;
+            font-size: 16px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            transition: all 0.2s !important;
+        }
+
+        .header-btn:hover {
+            background: rgba(255, 255, 255, 0.3) !important;
+        }
+
+        .recorder-body {
+            padding: 16px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 12px !important;
+        }
+
+        .control-section {
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 8px !important;
+        }
+
+        .capture-controls {
+            display: flex !important;
+            gap: 8px !important;
+            flex-wrap: wrap !important;
+        }
+
+        .capture-btn {
+            flex: 1 !important;
+            padding: 10px 16px !important;
+            border: none !important;
+            border-radius: 8px !important;
+            font-weight: 600 !important;
+            font-size: 13px !important;
+            cursor: pointer !important;
+            transition: all 0.2s !important;
+            min-width: 120px !important;
+        }
+
+        .start-capture-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+            color: white !important;
+        }
+
+        .start-capture-btn:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4) !important;
+        }
+
+        .stop-capture-btn {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%) !important;
+            color: white !important;
+        }
+
+        .stop-capture-btn:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 4px 12px rgba(245, 87, 108, 0.4) !important;
+        }
+
+        .stop-capture-btn:disabled {
+            opacity: 0.5 !important;
+            cursor: not-allowed !important;
+        }
+
+        .recording-status {
+            font-size: 12px !important;
+            color: #666 !important;
+            text-align: center !important;
+            padding: 8px 12px !important;
+            background: rgba(0, 0, 0, 0.02) !important;
+            border-radius: 6px !important;
+        }
+
+        .recording-status.active {
+            background: rgba(102, 126, 234, 0.1) !important;
+            color: #667eea !important;
+        }
+
+        .xpath-list-header {
+            font-weight: 600 !important;
+            font-size: 13px !important;
+            color: #333 !important;
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            margin-bottom: 8px !important;
+        }
+
+        .score-badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+            color: white !important;
+            padding: 2px 8px !important;
+            border-radius: 12px !important;
+            font-size: 11px !important;
+            font-weight: 600 !important;
+        }
+
+        .xpath-list-content {
+            background: rgba(0, 0, 0, 0.02) !important;
+            border-radius: 8px !important;
+            max-height: 250px !important;
+            overflow-y: auto !important;
+            padding: 8px !important;
+        }
+
+        .selected-xpaths-list {
+            list-style: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        .selected-xpaths-list li {
+            padding: 8px 10px !important;
+            background: white !important;
+            border-radius: 6px !important;
+            margin-bottom: 6px !important;
+            font-size: 12px !important;
+            border-left: 3px solid #667eea !important;
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: start !important;
+            gap: 8px !important;
+        }
+
+        .xpath-item-content {
+            flex: 1 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 4px !important;
+        }
+
+        .xpath-item-name {
+            font-weight: 600 !important;
+            color: #333 !important;
+            word-break: break-word !important;
+        }
+
+        .xpath-item-xpath {
+            color: #666 !important;
+            font-family: monospace !important;
+            font-size: 11px !important;
+            word-break: break-all !important;
+            max-height: 60px !important;
+            overflow: hidden !important;
+            background: rgba(0, 0, 0, 0.02) !important;
+            padding: 4px 6px !important;
+            border-radius: 4px !important;
+        }
+
+        .xpath-item-delete {
+            background: #f5576c !important;
+            border: none !important;
+            color: white !important;
+            width: 24px !important;
+            height: 24px !important;
+            border-radius: 4px !important;
+            cursor: pointer !important;
+            font-size: 12px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            flex-shrink: 0 !important;
+            transition: all 0.2s !important;
+        }
+
+        .xpath-item-delete:hover {
+            background: #e63946 !important;
+        }
+
+        .empty-section {
+            padding: 20px !important;
+            text-align: center !important;
+            color: #999 !important;
+            font-size: 12px !important;
+        }
+
+        .xpath-actions {
+            display: flex !important;
+            gap: 8px !important;
+        }
+
+        .add-to-teststeps-btn {
+            flex: 1 !important;
+            padding: 10px 16px !important;
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%) !important;
+            border: none !important;
+            color: white !important;
+            border-radius: 8px !important;
+            font-weight: 600 !important;
+            font-size: 13px !important;
+            cursor: pointer !important;
+            transition: all 0.2s !important;
+        }
+
+        .add-to-teststeps-btn:hover:not(:disabled) {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 4px 12px rgba(79, 172, 254, 0.4) !important;
+        }
+
+        .add-to-teststeps-btn:disabled {
+            opacity: 0.5 !important;
+            cursor: not-allowed !important;
+        }
+
+        #xpath-recorder-panel.dragging {
+            opacity: 0.9 !important;
+        }
+    </style>
+</head>
+<body style="margin: 0; padding: 0;">
+    <div id="xpath-recorder-panel">
+        <div class="recorder-header" id="panel-header">
+            <h2 class="recorder-title">🎯 Smart XPath Recorder</h2>
+            <div class="recorder-controls">
+                <button class="header-btn" id="minimize-btn" title="Minimize">−</button>
+                <button class="header-btn" id="close-btn" title="Close">×</button>
+            </div>
+        </div>
+
+        <div class="recorder-body">
+            <!-- Control Section -->
+            <div class="control-section">
+                <div class="capture-controls">
+                    <button class="capture-btn start-capture-btn" id="start-capture-btn">🎯 Start Recording</button>
+                    <button class="capture-btn stop-capture-btn" id="stop-capture-btn" style="display: none;">🛑 Stop Recording</button>
+                </div>
+                <div class="recording-status" id="recording-status">Click "Start Recording" to begin capturing your interactions</div>
+            </div>
+
+            <!-- XPath List Section -->
+            <div class="control-section">
+                <div class="xpath-list-header">
+                    📋 Captured XPaths
+                    <span id="selected-count" class="score-badge">0</span>
+                </div>
+
+                <div class="xpath-list-content">
+                    <ul class="selected-xpaths-list" id="selected-xpaths-list">
+                        <li class="empty-section">No XPaths captured yet</li>
+                    </ul>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="xpath-actions">
+                    <button class="add-to-teststeps-btn" id="add-to-teststeps-btn" disabled>📌 Add to TestSteps</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="panel.js"></script>
+</body>
+</html>

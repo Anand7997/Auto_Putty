@@ -1,0 +1,699 @@
+{
+  "uuid": "7e6f5e75-405b-49c2-9b23-39732d10e0b8",
+  "historyId": "7e6f5e75-405b-49c2-9b23-39732d10e0b8",
+  "name": "[IxigoAutomation_Hotels_SearchingHL_TC001] SearchingHL",
+  "fullName": "Ixigo .Hotels.Regression.SearchingHL",
+  "status": "failed",
+  "stage": "finished",
+  "start": 1770974999481,
+  "stop": 1770975289643,
+  "description": "Execution Time: 0:04:50 | Test Run ID: Sample_SearchingHL_TR081 | Result ID: TC001_TR081",
+  "labels": [
+    {
+      "name": "epic",
+      "value": "Ixigo "
+    },
+    {
+      "name": "feature",
+      "value": "Hotels Module"
+    },
+    {
+      "name": "story",
+      "value": "Sample Suite"
+    },
+    {
+      "name": "suite",
+      "value": "Sample Tests"
+    },
+    {
+      "name": "testClass",
+      "value": "Hotels_Sample"
+    },
+    {
+      "name": "testMethod",
+      "value": "SearchingHL"
+    },
+    {
+      "name": "parentSuite",
+      "value": "[ROCKET] Ixigo "
+    },
+    {
+      "name": "subSuite",
+      "value": "[PACKAGE] Hotels -> Sample"
+    },
+    {
+      "name": "severity",
+      "value": "normal"
+    },
+    {
+      "name": "owner",
+      "value": "QA Team"
+    },
+    {
+      "name": "tag",
+      "value": "module:hotels"
+    },
+    {
+      "name": "tag",
+      "value": "suite:Sample"
+    },
+    {
+      "name": "testCaseId",
+      "value": "IxigoAutomation_Hotels_SearchingHL_TC001"
+    },
+    {
+      "name": "testRunId",
+      "value": "Sample_SearchingHL_TR081"
+    },
+    {
+      "name": "resultId",
+      "value": "TC001_TR081"
+    },
+    {
+      "name": "executionTime",
+      "value": "0:04:50"
+    }
+  ],
+  "parameters": [
+    {
+      "name": "Test Case ID",
+      "value": "IxigoAutomation_Hotels_SearchingHL_TC001"
+    },
+    {
+      "name": "Test Run ID",
+      "value": "Sample_SearchingHL_TR081"
+    },
+    {
+      "name": "Result ID",
+      "value": "TC001_TR081"
+    },
+    {
+      "name": "Suite Type",
+      "value": "Regression"
+    },
+    {
+      "name": "Module",
+      "value": "Hotels"
+    },
+    {
+      "name": "Project",
+      "value": "Ixigo "
+    },
+    {
+      "name": "Execution Time",
+      "value": "0:04:50"
+    },
+    {
+      "name": "Total Steps",
+      "value": "11"
+    },
+    {
+      "name": "[OK] Passed Steps",
+      "value": "0"
+    },
+    {
+      "name": "[X] Failed Steps",
+      "value": "11"
+    }
+  ],
+  "steps": [
+    {
+      "name": "[X] Step 1: Open Browser and Navigate to Ixigo",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1770974999481,
+      "stop": 1770975000481,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 1 (Element Highlighted)",
+          "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150028_799_After_Step_1_FAILED.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "OPEN_BROWSER"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Browser"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "N/A"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "Hyderabad"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:11"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed_highlighted"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: Message: invalid argument\n  (Session info: chrome=145.0.7632.46)\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x36f3b3\n\t0x36f3f4\n\t0x161ece\n\t0x151c2a\n\t0x150426\n\t0x15096a\n\t0x165b1e\n\t0x1ec554\n\t0x1cee1c\n\t0x1ebb23\n\t0x1cebb6\n\t0x1a0319\n\t0x1a10d4\n\t0x5c4684\n\t0x5bf989\n\t0x5dc920\n\t0x3880c8\n\t0x38fe1d\n\t0x377be8\n\t0x377db2\n\t0x3618ba\n\t0x76bd5d49\n\t0x7757d83b\n\t0x7757d7c1\n\t(nil)\n",
+        "trace": "Message: invalid argument\n  (Session info: chrome=145.0.7632.46)\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x36f3b3\n\t0x36f3f4\n\t0x161ece\n\t0x151c2a\n\t0x150426\n\t0x15096a\n\t0x165b1e\n\t0x1ec554\n\t0x1cee1c\n\t0x1ebb23\n\t0x1cebb6\n\t0x1a0319\n\t0x1a10d4\n\t0x5c4684\n\t0x5bf989\n\t0x5dc920\n\t0x3880c8\n\t0x38fe1d\n\t0x377be8\n\t0x377db2\n\t0x3618ba\n\t0x76bd5d49\n\t0x7757d83b\n\t0x7757d7c1\n\t(nil)\n"
+      }
+    },
+    {
+      "name": "[X] Step 2: Enter Destination",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1770975000481,
+      "stop": 1770975001481,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 2 (Element Highlighted)",
+          "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150102_427_After_Step_2_FAILED.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Destination"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(), 'Destination')]/following::input[1]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "Wed, 18 Jun"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:33"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed_highlighted"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: City selection failed for Destination",
+        "trace": "City selection failed for Destination"
+      }
+    },
+    {
+      "name": "[X] Step 3: Click and Select on Checkin date",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1770975001481,
+      "stop": 1770975002481,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 3 (Element Highlighted)",
+          "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150136_526_After_Step_3_FAILED.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Check in"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(),'Check-in')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": ""
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:34"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed_highlighted"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: Message: no such element: Unable to locate element: {\"method\":\"xpath\",\"selector\":\"//p[contains(text(),'Check-in')]\"}\n  (Session info: chrome=145.0.7632.46); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exception\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x36f3b3\n\t0x36f3f4\n\t0x162090\n\t0x1ac51a\n\t0x1ac7bb\n\t0x1ee212\n\t0x1cee64\n\t0x1ebb23\n\t0x1cebb6\n\t0x1a0319\n\t0x1a10d4\n\t0x5c4684\n\t0x5bf989\n\t0x5dc920\n\t0x3880c8\n\t0x38fe1d\n\t0x377be8\n\t0x377db2\n\t0x3618ba\n\t0x76bd5d49\n\t0x7757d83b\n\t0x7757d7c1\n\t(nil)\n",
+        "trace": "Message: no such element: Unable to locate element: {\"method\":\"xpath\",\"selector\":\"//p[contains(text(),'Check-in')]\"}\n  (Session info: chrome=145.0.7632.46); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exception\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x36f3b3\n\t0x36f3f4\n\t0x162090\n\t0x1ac51a\n\t0x1ac7bb\n\t0x1ee212\n\t0x1cee64\n\t0x1ebb23\n\t0x1cebb6\n\t0x1a0319\n\t0x1a10d4\n\t0x5c4684\n\t0x5bf989\n\t0x5dc920\n\t0x3880c8\n\t0x38fe1d\n\t0x377be8\n\t0x377db2\n\t0x3618ba\n\t0x76bd5d49\n\t0x7757d83b\n\t0x7757d7c1\n\t(nil)\n"
+      }
+    },
+    {
+      "name": "[X] Step 4: Click and Select on Checkout date field",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1770975002481,
+      "stop": 1770975003481,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 4 (Element Highlighted)",
+          "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150210_369_After_Step_4_FAILED.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Check out"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(),'Check-out')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "Sun, 22 Jun"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:33"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed_highlighted"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: Message: no such element: Unable to locate element: {\"method\":\"xpath\",\"selector\":\"//p[contains(text(),'Check-out')]\"}\n  (Session info: chrome=145.0.7632.46); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exception\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x36f3b3\n\t0x36f3f4\n\t0x162090\n\t0x1ac51a\n\t0x1ac7bb\n\t0x1ee212\n\t0x1cee64\n\t0x1ebb23\n\t0x1cebb6\n\t0x1a0319\n\t0x1a10d4\n\t0x5c4684\n\t0x5bf989\n\t0x5dc920\n\t0x3880c8\n\t0x38fe1d\n\t0x377be8\n\t0x377db2\n\t0x3618ba\n\t0x76bd5d49\n\t0x7757d83b\n\t0x7757d7c1\n\t(nil)\n",
+        "trace": "Message: no such element: Unable to locate element: {\"method\":\"xpath\",\"selector\":\"//p[contains(text(),'Check-out')]\"}\n  (Session info: chrome=145.0.7632.46); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exception\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x36f3b3\n\t0x36f3f4\n\t0x162090\n\t0x1ac51a\n\t0x1ac7bb\n\t0x1ee212\n\t0x1cee64\n\t0x1ebb23\n\t0x1cebb6\n\t0x1a0319\n\t0x1a10d4\n\t0x5c4684\n\t0x5bf989\n\t0x5dc920\n\t0x3880c8\n\t0x38fe1d\n\t0x377be8\n\t0x377db2\n\t0x3618ba\n\t0x76bd5d49\n\t0x7757d83b\n\t0x7757d7c1\n\t(nil)\n"
+      }
+    },
+    {
+      "name": "[X] Step 5: Click on Rooms and Guests section",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1770975003481,
+      "stop": 1770975004481,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 5 (Element Highlighted)",
+          "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150244_500_After_Step_5_FAILED.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Rooms&Guests"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[@class='body-xs text-secondary'][contains(text(),'Rooms & Guests')] | //input[@placeholder='Rooms & Guests']"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": ""
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:34"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed_highlighted"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: Message: no such element: Unable to locate element: {\"method\":\"xpath\",\"selector\":\"//p[@class='body-xs text-secondary'][contains(text(),'Rooms & Guests')] | //input[@placeholder='Rooms & Guests']\"}\n  (Session info: chrome=145.0.7632.46); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exception\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x36f3b3\n\t0x36f3f4\n\t0x162090\n\t0x1ac51a\n\t0x1ac7bb\n\t0x1ee212\n\t0x1cee64\n\t0x1ebb23\n\t0x1cebb6\n\t0x1a0319\n\t0x1a10d4\n\t0x5c4684\n\t0x5bf989\n\t0x5dc920\n\t0x3880c8\n\t0x38fe1d\n\t0x377be8\n\t0x377db2\n\t0x3618ba\n\t0x76bd5d49\n\t0x7757d83b\n\t0x7757d7c1\n\t(nil)\n",
+        "trace": "Message: no such element: Unable to locate element: {\"method\":\"xpath\",\"selector\":\"//p[@class='body-xs text-secondary'][contains(text(),'Rooms & Guests')] | //input[@placeholder='Rooms & Guests']\"}\n  (Session info: chrome=145.0.7632.46); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exception\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x36f3b3\n\t0x36f3f4\n\t0x162090\n\t0x1ac51a\n\t0x1ac7bb\n\t0x1ee212\n\t0x1cee64\n\t0x1ebb23\n\t0x1cebb6\n\t0x1a0319\n\t0x1a10d4\n\t0x5c4684\n\t0x5bf989\n\t0x5dc920\n\t0x3880c8\n\t0x38fe1d\n\t0x377be8\n\t0x377db2\n\t0x3618ba\n\t0x76bd5d49\n\t0x7757d83b\n\t0x7757d7c1\n\t(nil)\n"
+      }
+    },
+    {
+      "name": "[X] Step 6: Select number of Rooms",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1770975004481,
+      "stop": 1770975005481,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 6 (Element Highlighted)",
+          "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150301_871_After_Step_6_FAILED.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "SELECT_COUNT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "RoomsCount"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(),'Rooms')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": ""
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:17"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed_highlighted"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: invalid literal for int() with base 10: ''",
+        "trace": "invalid literal for int() with base 10: ''"
+      }
+    },
+    {
+      "name": "[X] Step 7: Select number of adults",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1770975005481,
+      "stop": 1770975006481,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 7 (Element Highlighted)",
+          "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150315_179_After_Step_7_FAILED.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "SELECT_COUNT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "AdultsCount"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(),'Adults')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "2"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:13"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed_highlighted"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: Counter element not found for adult at index 1",
+        "trace": "Counter element not found for adult at index 1"
+      }
+    },
+    {
+      "name": "[X] Step 8: Select number of Children",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1770975006481,
+      "stop": 1770975007481,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 8 (Element Highlighted)",
+          "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150328_661_After_Step_8_FAILED.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "SELECT_COUNT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "ChildrenCount"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(),'Children')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "4"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:13"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed_highlighted"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: Counter element not found for children at index 2",
+        "trace": "Counter element not found for children at index 2"
+      }
+    },
+    {
+      "name": "[X] Step 9: Select age of Child 1",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1770975007481,
+      "stop": 1770975008481,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 9 (Element Highlighted)",
+          "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150350_676_After_Step_9_FAILED.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Child 1"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//select[@id='child-age'] (//select[@data-testid='child-age-selector'])[1]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "2"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:22"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed_highlighted"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: No child age selectors found after waiting. Make sure children count is set first.",
+        "trace": "No child age selectors found after waiting. Make sure children count is set first."
+      }
+    },
+    {
+      "name": "[X] Step 10: Select age of Child 2",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1770975008481,
+      "stop": 1770975009481,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 10 (Element Highlighted)",
+          "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150414_824_After_Step_10_FAILED.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Child 2"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "(//select[@data-testid='child-age-selector'])[2]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "6"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:24"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed_highlighted"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: No child age selectors found after waiting. Make sure children count is set first.",
+        "trace": "No child age selectors found after waiting. Make sure children count is set first."
+      }
+    },
+    {
+      "name": "[X] Step 11: Click Search button to search Rooms",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1770975009481,
+      "stop": 1770975010481,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 11 (Element Highlighted)",
+          "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150448_679_After_Step_11_FAILED.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "SearchButton"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "/html/body/main/div[4]/div[2]/div/button"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": ""
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:33"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed_highlighted"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: Message: no such element: Unable to locate element: {\"method\":\"xpath\",\"selector\":\"/html/body/main/div[4]/div[2]/div/button\"}\n  (Session info: chrome=145.0.7632.46); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exception\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x36f3b3\n\t0x36f3f4\n\t0x162090\n\t0x1ac51a\n\t0x1ac7bb\n\t0x1ee212\n\t0x1cee64\n\t0x1ebb23\n\t0x1cebb6\n\t0x1a0319\n\t0x1a10d4\n\t0x5c4684\n\t0x5bf989\n\t0x5dc920\n\t0x3880c8\n\t0x38fe1d\n\t0x377be8\n\t0x377db2\n\t0x3618ba\n\t0x76bd5d49\n\t0x7757d83b\n\t0x7757d7c1\n\t(nil)\n",
+        "trace": "Message: no such element: Unable to locate element: {\"method\":\"xpath\",\"selector\":\"/html/body/main/div[4]/div[2]/div/button\"}\n  (Session info: chrome=145.0.7632.46); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exception\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x36f3b3\n\t0x36f3f4\n\t0x162090\n\t0x1ac51a\n\t0x1ac7bb\n\t0x1ee212\n\t0x1cee64\n\t0x1ebb23\n\t0x1cebb6\n\t0x1a0319\n\t0x1a10d4\n\t0x5c4684\n\t0x5bf989\n\t0x5dc920\n\t0x3880c8\n\t0x38fe1d\n\t0x377be8\n\t0x377db2\n\t0x3618ba\n\t0x76bd5d49\n\t0x7757d83b\n\t0x7757d7c1\n\t(nil)\n"
+      }
+    }
+  ],
+  "attachments": [
+    {
+      "name": "After_Step_1_FAILED",
+      "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150028_799_After_Step_1_FAILED.png",
+      "type": "image/png",
+      "size": 11937
+    },
+    {
+      "name": "After_Step_2_FAILED",
+      "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150102_427_After_Step_2_FAILED.png",
+      "type": "image/png",
+      "size": 11937
+    },
+    {
+      "name": "After_Step_3_FAILED",
+      "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150136_526_After_Step_3_FAILED.png",
+      "type": "image/png",
+      "size": 11937
+    },
+    {
+      "name": "After_Step_4_FAILED",
+      "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150210_369_After_Step_4_FAILED.png",
+      "type": "image/png",
+      "size": 11193
+    },
+    {
+      "name": "After_Step_5_FAILED",
+      "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150244_500_After_Step_5_FAILED.png",
+      "type": "image/png",
+      "size": 11193
+    },
+    {
+      "name": "After_Step_6_FAILED",
+      "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150301_871_After_Step_6_FAILED.png",
+      "type": "image/png",
+      "size": 11193
+    },
+    {
+      "name": "After_Step_7_FAILED",
+      "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150315_179_After_Step_7_FAILED.png",
+      "type": "image/png",
+      "size": 11193
+    },
+    {
+      "name": "After_Step_8_FAILED",
+      "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150328_661_After_Step_8_FAILED.png",
+      "type": "image/png",
+      "size": 11193
+    },
+    {
+      "name": "After_Step_9_FAILED",
+      "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150350_676_After_Step_9_FAILED.png",
+      "type": "image/png",
+      "size": 11193
+    },
+    {
+      "name": "After_Step_10_FAILED",
+      "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150414_824_After_Step_10_FAILED.png",
+      "type": "image/png",
+      "size": 11193
+    },
+    {
+      "name": "After_Step_11_FAILED",
+      "source": "7e6f5e75-405b-49c2-9b23-39732d10e0b8-20260213_150448_679_After_Step_11_FAILED.png",
+      "type": "image/png",
+      "size": 11193
+    }
+  ],
+  "statusDetails": {
+    "message": "All steps failed",
+    "trace": "All steps failed"
+  }
+}

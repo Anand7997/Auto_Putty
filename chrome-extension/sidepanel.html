@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QFast XPath Capture</title>
+    <link rel="stylesheet" href="xpath-side-panel.css">
+    <link rel="stylesheet" href="content.css">
+</head>
+<body>
+    <div id="xpath-side-panel">
+        <div class="xpath-panel-header">
+            <h2 class="xpath-panel-title">
+                🚀 QFast XPath Capture
+            </h2>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <div id="extension-status" class="extension-status" title="Extension status on current page">
+                    <span id="status-indicator">⏳</span>
+                    <span id="status-text">Checking...</span>
+                </div>
+                <button class="xpath-panel-close">
+                    ×
+                </button>
+            </div>
+        </div>
+
+        <div class="xpath-panel-content">
+            <!-- 🟦 SECTION A — Capture Area -->
+            <div class="section-a-container">
+                <div class="section-a-header">
+                    🟦 SECTION A — Capture Area
+                </div>
+
+                <div class="capture-controls">
+                    <button class="capture-btn start-capture-btn" id="start-capture-btn">
+                        🎯 Start Capture
+                    </button>
+                    <button class="capture-btn stop-capture-btn" id="stop-capture-btn" style="display: none;">
+                        🛑 Stop Capture
+                    </button>
+                </div>
+
+                <div class="section-a-content" id="section-a-content">
+                    <!-- Instructions removed as requested -->
+                </div>
+            </div>
+
+            <!-- 🟩 SECTION B — Panel / Selected XPaths -->
+            <div class="section-b-container">
+                <div class="section-b-header">
+                    🟩 SECTION B — Panel / Selected XPaths
+                    <span id="selected-count" class="score-badge">0</span>
+                </div>
+
+                <div class="section-b-content">
+                    <ul class="selected-xpaths-list" id="selected-xpaths-list">
+                        <li class="empty-section-b">No XPaths selected yet</li>
+                    </ul>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="xpath-actions">
+                    <button class="add-to-teststeps-btn" id="add-to-teststeps-btn" disabled>
+                        📌 Add to TestSteps
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="sidepanel.js"></script>
+</body>
+</html>

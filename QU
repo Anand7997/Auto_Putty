@@ -1,0 +1,142 @@
+# Quick Installation Guide for Chrome Launch Fix
+
+## 🚀 **Automatic Installation (Recommended)**
+
+### Step 1: Make Scripts Executable
+```bash
+chmod +x install_chrome_linux.sh
+chmod +x install_system_dependencies.sh
+chmod +x test_linux_setup.py
+```
+
+### Step 2: Run Automatic Installation
+```bash
+# For Ubuntu/Debian systems:
+sudo ./install_system_dependencies.sh
+
+# Then install Chrome:
+./install_chrome_linux.sh
+```
+
+### Step 3: Test Installation
+```bash
+python3 test_linux_setup.py
+```
+
+## 🤖 **What Gets Installed Automatically**
+
+The scripts are fully automated and will install:
+
+### `install_system_dependencies.sh` installs:
+- **System packages**: Xvfb (virtual display), X11 libraries, Chrome dependencies
+- **Desktop environment**: Fonts, libraries, drivers
+- **Python environment**: Python 3, pip, development tools
+- **Selenium dependencies**: selenium, webdriver-manager, etc.
+- **Network packages**: SSL, stunnel, etc.
+- **Development tools**: gcc, make, git, etc.
+
+### `install_chrome_linux.sh` installs:
+- **Google Chrome**: Latest stable version from official Google repository
+- **ChromeDriver**: Matching version for your Chrome installation
+- **Python packages**: All required Selenium and automation libraries
+- **Virtual display**: Xvfb setup for headless operation
+- **System symlinks**: Easy access to Chrome and ChromeDriver
+
+## 🔄 **Complete Automated Setup Commands**
+
+Copy and paste these commands exactly:
+
+```bash
+# 1. Make scripts executable
+chmod +x install_*.sh test_linux_setup.py
+
+# 2. Install system dependencies (may ask for sudo password)
+sudo ./install_system_dependencies.sh
+
+# 3. Install Chrome and ChromeDriver
+./install_chrome_linux.sh
+
+# 4. Test everything works
+python3 test_linux_setup.py
+```
+
+## ✅ **What the Scripts Do Automatically**
+
+### install_system_dependencies.sh:
+1. ✅ Detects your Linux distribution (Ubuntu/Debian/CentOS/etc.)
+2. ✅ Updates package manager
+3. ✅ Installs Xvfb (virtual display for headless Chrome)
+4. ✅ Installs Chrome dependencies (fonts, libraries, drivers)
+5. ✅ Installs Python 3 and pip
+6. ✅ Installs Selenium and automation packages
+7. ✅ Sets up virtual display (Xvfb :99)
+8. ✅ Configures system limits for automation
+9. ✅ Creates necessary directories
+10. ✅ Tests the complete setup
+
+### install_chrome_linux.sh:
+1. ✅ Detects your distribution
+2. ✅ Adds Google Chrome repository
+3. ✅ Downloads and installs Google Chrome
+4. ✅ Downloads matching ChromeDriver
+5. ✅ Sets up ChromeDriver at /usr/local/bin/chromedriver
+6. ✅ Creates symlinks for easy access
+7. ✅ Tests Chrome and ChromeDriver installation
+8. ✅ Verifies everything works together
+
+## 🧪 **Testing Phase**
+
+The `test_linux_setup.py` script tests:
+- ✅ System environment (OS, Python version)
+- ✅ Chrome installation and version
+- ✅ ChromeDriver installation and compatibility
+- ✅ Selenium installation
+- ✅ Display server (Xvfb) setup
+- ✅ Complete end-to-end Chrome launch test
+
+## 🎯 **Expected Output**
+
+After running the installation, you should see:
+
+```
+🎉 Installation completed successfully!
+
+Next steps:
+1. Restart your terminal or run: source ~/.bashrc
+2. Run your Selenium tests with: python3 your_test.py
+3. For headless mode, ensure your test uses: --headless=new
+```
+
+## 🔧 **If You Get Errors**
+
+If any script fails, the solution scripts provide detailed error messages. Common fixes:
+
+```bash
+# Update package manager first
+sudo apt-get update  # Ubuntu/Debian
+sudo yum update      # CentOS/RHEL
+
+# Run installation again
+sudo ./install_system_dependencies.sh
+./install_chrome_linux.sh
+
+# Test again
+python3 test_linux_setup.py
+```
+
+## 🚀 **After Installation**
+
+Once installed, you can run your Selenium automation directly:
+
+```python
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+
+options = Options()
+options.add_argument("--headless")
+options.add_argument("--no-sandbox")
+driver = webdriver.Chrome(options=options)
+# Your automation code here
+```
+
+**The scripts are completely automatic - no manual intervention required!**

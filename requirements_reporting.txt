@@ -1,0 +1,14 @@
+# Allure Reporting Dependencies
+allure-pytest==2.13.2
+allure-python-commons==2.13.2
+
+# Alternative Reporting Options
+pytest-html==4.1.1
+plotly==5.18.0
+dash==2.16.1
+pandas==2.1.4
+
+# For Custom Dashboard
+matplotlib==3.8.2
+seaborn==0.13.0
+

@@ -1,0 +1,11 @@
+{
+  "name": "cypress-runtime",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "cypress run"
+  },
+  "devDependencies": {
+    "cypress": "^15.0.0",
+    "cypress-xpath": "^2.0.1"
+  }
+}

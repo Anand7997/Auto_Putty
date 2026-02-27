@@ -1,0 +1,679 @@
+import React, { useState, useEffect } from 'react';
+import { SidebarProvider, SidebarInset, SidebarTrigger } from '@/components/ui/sidebar';
+import { ProfessionalSidebar } from '@/components/ProfessionalSidebar';
+import MainDashboard from '@/components/MainDashboard';
+import RecentResults from '@/components/RecentResults';
+import PerformanceDashboard from '@/components/PerformanceDashboard';
+import ProjectDashboard from '@/components/ProjectDashboard';
+import ModulesDashboard from '@/components/ModulesDashboard';
+import TestSuiteDashboard from '@/components/TestSuiteDashboard';
+import { TestSuite } from '@/components/TestSuite';
+import TestCaseDashboard from '@/components/TestCaseDashboard';
+import TestExecutionDashboard from '@/components/TestExecutionDashboard';
+import ReportingDashboard from '@/components/ReportingDashboard';
+import AnalyticsDashboard from '@/components/AnalyticsDashboard';
+import AutomationPlanningDashboard from '@/components/AutomationPlanningDashboard';
+import AutomationDevelopmentDashboard from '@/components/AutomationDevelopmentDashboard';
+import RequirementsAnalysisDashboard from '@/components/RequirementsAnalysisDashboard';
+import AuthorizeFunctions from '@/components/AuthorizeFunctions';
+import { UserManagement } from '@/components/UserManagement';
+import Monitor from '@/components/Monitor';
+import { Database, Sparkles, Zap } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { buildApiUrl } from '@/config/api';
+import { useAuthorization } from '@/hooks/useAuthorization';
+import LogoImage from '@/Logo.png';
+ 
+const Index = () => {
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [currentView, setCurrentView] = useState('main');
+  const [currentSection, setCurrentSection] = useState('');
+  const [navigationFlow, setNavigationFlow] = useState({
+    currentStep: 0,
+    sectionId: '',
+    steps: ['projects', 'modules', 'test-cases', 'test-steps']
+  });
+ 
+  // Initial subview for Automation Development dashboard (for sidebar quick actions)
+  const [devInitialView, setDevInitialView] = useState<'overview' | 'projects' | 'modules' | 'testcases' | 'steps'>('overview');
+ 
+  // State for selected items across different views
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [selectedModule, setSelectedModule] = useState(null);
+  const [selectedTestSuite, setSelectedTestSuite] = useState(null);
+  const [selectedTestCase, setSelectedTestCase] = useState(null);
+  const [selectedFunction, setSelectedFunction] = useState(null);
+ 
+  const { toast } = useToast();
+ 
+  // Authorization checks for different functions
+  const requirementsAuth = useAuthorization('requirements');
+  const planningAuth = useAuthorization('planning');
+  const developmentAuth = useAuthorization('development');
+  const testLabAuth = useAuthorization('test-lab');
+  const reportingAuth = useAuthorization('reporting');
+ 
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      setMousePosition({ x: e.clientX, y: e.clientY });
+    };
+ 
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
+ 
+ 
+ 
+  const handleSectionAction = (sectionId: string, actionId: string) => {
+    console.log(`Section: ${sectionId}, Action: ${actionId}`);
+    setCurrentSection(sectionId);
+ 
+    // Check authorization for different sections
+    if (sectionId === 'requirements' && !requirementsAuth.authorized && !requirementsAuth.loading) {
+      toast({
+        title: "Access Denied",
+        description: "You are not authorized to access Requirements & Feasibility Analysis. Please contact your administrator.",
+        variant: "destructive"
+      });
+      return;
+    }
+ 
+    if (sectionId === 'planning' && !planningAuth.authorized && !planningAuth.loading) {
+      toast({
+        title: "Access Denied",
+        description: "You are not authorized to access Automation Planning. Please contact your administrator.",
+        variant: "destructive"
+      });
+      return;
+    }
+ 
+    if (sectionId === 'development' && !developmentAuth.authorized && !developmentAuth.loading) {
+      toast({
+        title: "Access Denied",
+        description: "You are not authorized to access Automation Development. Please contact your administrator.",
+        variant: "destructive"
+      });
+      return;
+    }
+ 
+    // Handle navigation flow for planning and development sections
+    if (sectionId === 'planning' || sectionId === 'development') {
+      const flowSteps = ['projects', 'modules', 'test-cases', 'test-steps'];
+      const devFlowSteps = ['dev-projects', 'dev-modules', 'dev-test-cases', 'dev-test-steps'];
+ 
+      let currentStepIndex = 0;
+      let targetView = '';
+ 
+      // Determine current step and target view
+      if (sectionId === 'planning') {
+        currentStepIndex = flowSteps.indexOf(actionId);
+        switch (actionId) {
+          case 'projects':
+            targetView = 'projects';
+            break;
+          case 'modules':
+            targetView = 'modules';
+            break;
+          case 'test-cases':
+            targetView = 'test-cases';
+            break;
+          case 'test-steps':
+            targetView = 'test-cases'; // Test steps are part of test cases view
+            break;
+        }
+      } else if (sectionId === 'development') {
+        currentStepIndex = devFlowSteps.indexOf(actionId);
+        // Map dev actions to AutomationDevelopmentDashboard subviews
+        if (actionId === 'dev-projects') setDevInitialView('projects');
+        else if (actionId === 'dev-modules') setDevInitialView('modules');
+        else if (actionId === 'dev-test-cases') setDevInitialView('testcases');
+        else if (actionId === 'dev-test-steps') setDevInitialView('steps');
+        targetView = 'automation-development';
+      }
+ 
+      if (currentStepIndex !== -1 && targetView) {
+        setNavigationFlow({
+          currentStep: currentStepIndex,
+          sectionId: sectionId,
+          steps: sectionId === 'planning' ? flowSteps : devFlowSteps
+        });
+        setCurrentView(targetView);
+        return;
+      }
+    }
+   
+    // Handle other section actions
+    switch (actionId) {
+      // Requirements Analysis actions
+      case 'authorize-users':
+        if (!requirementsAuth.authorized && !requirementsAuth.loading) {
+          toast({
+            title: "Access Denied",
+            description: "You are not authorized to access Requirements & Feasibility Analysis. Please contact your administrator.",
+            variant: "destructive"
+          });
+          return;
+        }
+        setCurrentView('requirements-analysis');
+        break;
+      case 'authorize-functions':
+        if (!requirementsAuth.authorized && !requirementsAuth.loading) {
+          toast({
+            title: "Access Denied",
+            description: "You are not authorized to access Requirements & Feasibility Analysis. Please contact your administrator.",
+            variant: "destructive"
+          });
+          return;
+        }
+        setCurrentView('requirements-analysis');
+        break;
+ 
+      // Automation Development (match main tab behavior)
+      case 'dev-projects':
+      case 'dev-modules':
+      case 'dev-test-cases':
+      case 'dev-test-steps':
+        setCurrentView('automation-development');
+        break;
+ 
+      // Test Execution actions
+      case 'test-suite':
+        if (!testLabAuth.authorized && !testLabAuth.loading) {
+          toast({
+            title: "Access Denied",
+            description: "You are not authorized to access Test Lab functions. Please contact your administrator.",
+            variant: "destructive"
+          });
+          return;
+        }
+        setCurrentView('test-suite-management');
+        break;
+      case 'suite-selection':
+        if (!testLabAuth.authorized && !testLabAuth.loading) {
+          toast({
+            title: "Access Denied",
+            description: "You are not authorized to access Test Lab functions. Please contact your administrator.",
+            variant: "destructive"
+          });
+          return;
+        }
+        setCurrentView('test-suites');
+        break;
+      case 'test-cases-exec':
+        if (!testLabAuth.authorized && !testLabAuth.loading) {
+          toast({
+            title: "Access Denied",
+            description: "You are not authorized to access Test Lab functions. Please contact your administrator.",
+            variant: "destructive"
+          });
+          return;
+        }
+        setCurrentView('test-cases');
+        break;
+      case 'run-execution':
+        if (!testLabAuth.authorized && !testLabAuth.loading) {
+          toast({
+            title: "Access Denied",
+            description: "You are not authorized to access Test Lab functions. Please contact your administrator.",
+            variant: "destructive"
+          });
+          return;
+        }
+        setCurrentView('test-execution');
+        break;
+      case 'live-monitor':
+        if (!testLabAuth.authorized && !testLabAuth.loading) {
+          toast({
+            title: "Access Denied",
+            description: "You are not authorized to access Test Lab functions. Please contact your administrator.",
+            variant: "destructive"
+          });
+          return;
+        }
+        setCurrentView('live-monitor');
+        break;
+ 
+      // Reporting actions
+      case 'execution-history':
+        if (!reportingAuth.authorized && !reportingAuth.loading) {
+          toast({
+            title: "Access Denied",
+            description: "You are not authorized to access Reporting functions. Please contact your administrator.",
+            variant: "destructive"
+          });
+          return;
+        }
+        setCurrentView('reporting');
+        break;
+      case 'allure-reports':
+        if (!reportingAuth.authorized && !reportingAuth.loading) {
+          toast({
+            title: "Access Denied",
+            description: "You are not authorized to access Reporting functions. Please contact your administrator.",
+            variant: "destructive"
+          });
+          return;
+        }
+        // Directly trigger Allure report functionality
+        handleIntegrationAction('allure-reports');
+        break;
+     
+      // Legacy actions for backward compatibility
+      case 'projects':
+        setCurrentView('projects');
+        break;
+      case 'modules':
+        setCurrentView('modules');
+        break;
+      case 'test-cases':
+        setCurrentView('test-cases');
+        break;
+      case 'test-steps':
+        setCurrentView('test-cases');
+        break;
+      case 'strategy':
+      case 'timeline':
+      case 'req-analysis':
+      case 'feasibility':
+      case 'roi-calc':
+      case 'risk-assessment':
+        setCurrentView('automation-planning');
+        break;
+      case 'test-suites':
+        setCurrentView('test-suites');
+        break;
+      case 'run-tests':
+      case 'monitor':
+      case 'parallel-exec':
+      case 'debug':
+        setCurrentView('test-execution');
+        break;
+      case 'analytics':
+        setCurrentView('analytics');
+        break;
+      case 'export':
+        setCurrentView('reporting');
+        break;
+      case 'recent-results':
+        setCurrentView('reporting');
+        break;
+      case 'performance':
+        setCurrentView('performance');
+        break;
+     
+      default:
+        console.log(`Unhandled action: ${actionId}`);
+        toast({
+          title: "Feature Coming Soon",
+          description: `${actionId} functionality will be available soon.`,
+        });
+    }
+  };
+ 
+  const handleQuickAction = (actionId: string) => {
+    // Handle direct quick actions
+    handleSectionAction('quick', actionId);
+  };
+ 
+  // Handler functions for selection callbacks
+  const handleProjectSelect = (project: any) => {
+    setSelectedProject(project);
+    // Clear downstream selections when project changes
+    setSelectedModule(null);
+    setSelectedTestSuite(null);
+    setSelectedTestCase(null);
+  };
+ 
+  const handleModuleSelect = (module: any) => {
+    setSelectedModule(module);
+    // Clear downstream selections when module changes
+    setSelectedTestSuite(null);
+    setSelectedTestCase(null);
+  };
+ 
+  const handleTestSuiteSelect = (testSuite: any) => {
+    setSelectedTestSuite(testSuite);
+    // Clear downstream selections when test suite changes
+    setSelectedTestCase(null);
+  };
+ 
+  const handleTestCaseSelect = (testCase: any) => {
+    setSelectedTestCase(testCase);
+  };
+ 
+  const handleFunctionSelect = (func: any) => {
+    setSelectedFunction(func);
+    setCurrentView('user-management');
+  };
+ 
+  const handleNext = () => {
+    // Handle navigation flow progression
+    if (navigationFlow.currentStep < navigationFlow.steps.length - 1) {
+      const nextStep = navigationFlow.currentStep + 1;
+      const nextStepId = navigationFlow.steps[nextStep];
+     
+      setNavigationFlow(prev => ({
+        ...prev,
+        currentStep: nextStep
+      }));
+     
+      // Navigate to the appropriate view based on the next step
+      switch (nextStepId) {
+        case 'modules':
+        case 'dev-modules':
+          setCurrentView('modules');
+          break;
+        case 'test-cases':
+        case 'dev-test-cases':
+          setCurrentView('test-cases');
+          break;
+        case 'test-steps':
+        case 'dev-test-steps':
+          setCurrentView('test-cases'); // Test steps are part of test cases view
+          break;
+        default:
+          break;
+      }
+    }
+  };
+ 
+  const handleIntegrationAction = async (action: string) => {
+    switch (action) {
+      case 'allure-reports':
+        try {
+          // Show loading notification
+          toast({
+            title: "Loading Allure Report",
+            description: "Checking report status...",
+          });
+ 
+          // First check if Allure report is already available
+          const statusResponse = await fetch(buildApiUrl('/api/allure/status'));
+         
+          if (!statusResponse.ok) {
+            throw new Error('Backend not responding');
+          }
+         
+          const statusResult = await statusResponse.json();
+         
+          if (statusResult.report_ready && statusResult.report_url) {
+            // Report is already ready, open it directly
+            toast({
+              title: "Opening Allure Report",
+              description: "Report is ready and opening in new tab",
+            });
+            window.open(statusResult.report_url, '_blank');
+          } else if (statusResult.available) {
+            // Results are available but report needs to be generated
+            toast({
+              title: "Generating Allure Report",
+              description: "Test results found, generating report...",
+            });
+           
+            const generateResponse = await fetch(buildApiUrl('/api/allure/generate'), {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            });
+           
+            const generateResult = await generateResponse.json();
+           
+            if (generateResult.success) {
+              // Open the newly generated report
+              toast({
+                title: "Report Generated",
+                description: "Allure report opened in new tab",
+              });
+              window.open(generateResult.report_url, '_blank');
+            } else {
+              toast({
+                title: "Generation Failed",
+                description: generateResult.error || "Failed to generate Allure report",
+                variant: "destructive"
+              });
+            }
+          } else {
+            toast({
+              title: "No Test Results",
+              description: "Please run a test first to generate Allure results",
+              variant: "destructive"
+            });
+          }
+        } catch (error) {
+          console.error('Failed to access Allure report:', error);
+          toast({
+            title: "Connection Error",
+            description: "Failed to access Allure report. Please ensure the backend is running.",
+            variant: "destructive"
+          });
+        }
+        break;
+      case 'cicd-integration':
+        // Handle CI/CD integration setup
+        console.log('Opening CI/CD integration setup...');
+        break;
+      default:
+        console.log(`Unknown integration action: ${action}`);
+    }
+  };
+ 
+  const renderCurrentContent = () => {
+    const handleBack = () => {
+      setCurrentView('main');
+      setCurrentSection('');
+    };
+ 
+    switch (currentView) {
+      case 'automation-planning':
+        return <AutomationPlanningDashboard onBack={handleBack} />;
+     
+      case 'projects':
+        return (
+          <ProjectDashboard
+            onBack={handleBack}
+            onProjectSelect={handleProjectSelect}
+            onNext={handleNext}
+          />
+        );
+     
+      case 'modules':
+        return (
+          <ModulesDashboard
+            selectedProject={selectedProject}
+            onBack={handleBack}
+            onModuleSelect={handleModuleSelect}
+            onNext={handleNext}
+            readOnlyMode={currentSection === 'development'}
+          />
+        );
+     
+      case 'test-suites':
+        return (
+          <TestSuiteDashboard
+            selectedModule={selectedModule}
+            onBack={handleBack}
+            onNext={handleNext}
+            onSuiteSelect={handleTestSuiteSelect}
+          />
+        );
+     
+      case 'test-cases':
+        return (
+          <TestCaseDashboard
+            selectedProject={selectedProject}
+            selectedModule={selectedModule}
+            selectedTestSuite={selectedTestSuite}
+            onBack={handleBack}
+            onTestCaseSelect={handleTestCaseSelect}
+            onNext={handleNext}
+            readOnlyMode={currentSection === 'development'}
+          />
+        );
+     
+      case 'test-execution':
+        return <TestExecutionDashboard onBack={handleBack} />;
+ 
+      case 'live-monitor':
+        return <Monitor onBack={handleBack} />;
+ 
+      case 'test-suite-management':
+        return <TestSuite onBack={handleBack} />;
+     
+      case 'reporting':
+        return <ReportingDashboard onBack={handleBack} />;
+     
+      case 'analytics':
+        return <AnalyticsDashboard onBack={handleBack} />;
+     
+      case 'recent-results':
+        return <RecentResults onBack={handleBack} />;
+     
+      case 'performance':
+        return <PerformanceDashboard onBack={handleBack} />;
+ 
+      case 'automation-development':
+        return <AutomationDevelopmentDashboard onBack={handleBack} initialView={devInitialView} />;
+ 
+      case 'requirements-analysis':
+        return <RequirementsAnalysisDashboard onBack={handleBack} onFunctionSelect={handleFunctionSelect} />;
+ 
+      case 'user-management':
+        return (
+          <UserManagement
+            selectedFunction={selectedFunction}
+            onBack={handleBack}
+          />
+        );
+ 
+      default:
+        return <MainDashboard onFunctionSelect={handleFunctionSelect} />;
+    }
+  };
+ 
+  return (
+    <SidebarProvider>
+      <div className="min-h-screen flex w-full bg-gradient-to-br from-gray-50 via-blue-50 to-gray-50 cursor-glow">
+        {/* Animated background elements */}
+        <div className="fixed inset-0 overflow-hidden pointer-events-none">
+          <div
+            className="absolute w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-float"
+            style={{
+              left: mousePosition.x / 10 + 'px',
+              top: mousePosition.y / 10 + 'px',
+            }}
+          />
+          <div
+            className="absolute w-64 h-64 bg-indigo-500/10 rounded-full blur-2xl animate-float"
+            style={{
+              right: mousePosition.x / 20 + 'px',
+              bottom: mousePosition.y / 20 + 'px',
+              animationDelay: '1s',
+            }}
+          />
+        </div>
+ 
+        <ProfessionalSidebar
+          onSectionAction={handleSectionAction}
+          onQuickAction={handleQuickAction}
+          navigationFlow={navigationFlow}
+          onSectionSelect={(sectionId) => {
+            // Navigate to section overview when header is clicked
+            if (sectionId === 'requirements') {
+              if (!requirementsAuth.authorized && !requirementsAuth.loading) {
+                toast({
+                  title: "Access Denied",
+                  description: "You are not authorized to access Requirements & Feasibility Analysis. Please contact your administrator.",
+                  variant: "destructive"
+                });
+                return;
+              }
+              setCurrentSection('requirements');
+              setCurrentView('requirements-analysis');
+            } else if (sectionId === 'planning') {
+              if (!planningAuth.authorized && !planningAuth.loading) {
+                toast({
+                  title: "Access Denied",
+                  description: "You are not authorized to access Automation Planning. Please contact your administrator.",
+                  variant: "destructive"
+                });
+                return;
+              }
+              setCurrentSection('planning');
+              setCurrentView('automation-planning');
+            } else if (sectionId === 'development') {
+              if (!developmentAuth.authorized && !developmentAuth.loading) {
+                toast({
+                  title: "Access Denied",
+                  description: "You are not authorized to access Automation Development. Please contact your administrator.",
+                  variant: "destructive"
+                });
+                return;
+              }
+              setCurrentSection('development');
+              setDevInitialView('overview');
+              setCurrentView('automation-development');
+            }
+          }}
+          onHomeClick={() => {
+            setCurrentView('main');
+            setCurrentSection('');
+            // Reset navigation flow
+            setNavigationFlow({
+              currentStep: 0,
+              sectionId: '',
+              steps: ['projects', 'modules', 'test-cases', 'test-steps']
+            });
+            // Clear selections
+            setSelectedProject(null);
+            setSelectedModule(null);
+            setSelectedTestSuite(null);
+            setSelectedTestCase(null);
+          }}
+        />
+       
+        <SidebarInset className="flex-1">
+          {/* Enhanced Header */}
+          <div className="border-b border-gray-200 bg-white/90 backdrop-blur-sm sticky top-0 z-50 shadow-sm">
+            <div className="container mx-auto px-6 py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <SidebarTrigger className="hover:bg-gray-100 transition-colors" />
+                  <div className="flex items-center space-x-3">
+                    <img
+                      src={LogoImage}
+                      alt="Quinnox Logo"
+                      className="w-28 h-28 object-contain rounded-xl"
+                    />
+                    <div>
+                      <h1 className="text-3xl font-bold text-red-600">
+                      QFast-Quinnox's framework for AI driven Smart testing
+                      </h1>
+                      <p className="text-gray-600 text-sm flex items-center space-x-2">
+                        <Sparkles className="w-4 h-4" />
+                        <span>AI-Driven Smart testing Framework</span>
+                        <Zap className="w-4 h-4 text-yellow-400" />
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="glass-effect px-4 py-2 rounded-lg flex items-center space-x-2 text-sm text-gray-600">
+                  <Database className="w-4 h-4 text-green-400" />
+                  <span>Quinnox_TestAutomation DB</span>
+                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                </div>
+              </div>
+            </div>
+          </div>
+ 
+          {/* Main Content */}
+          <div className="w-full">
+          {renderCurrentContent()}
+          </div>
+        </SidebarInset>
+      </div>
+    </SidebarProvider>
+  );
+};
+ 
+export default Index;

@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""
+Create PNG icons for Chrome Extension using PIL
+Creates PNG icons in sizes: 16x16, 48x48, and 128x128
+"""
+
+from PIL import Image, ImageDraw, ImageFont
+import os
+
+def create_xpath_icon(size):
+    """Create an XPath icon with the same design as the SVG"""
+    
+    # Create a new image with RGBA mode for transparency
+    img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    
+    # Calculate scaling factors
+    scale = size / 128.0
+    
+    # Colors
+    bg_color = (102, 126, 234, 255)  # #667eea
+    circle_color = (118, 75, 162, 255)  # #764ba2
+    diamond_color = (255, 255, 255, 230)  # white with some transparency
+    
+    # Draw rounded rectangle background
+    corner_radius = int(16 * scale)
+    draw.rounded_rectangle(
+        [0, 0, size, size],
+        radius=corner_radius,
+        fill=bg_color
+    )
+    
+    # Draw main circle
+    circle_radius = int(40 * scale)
+    circle_center = size // 2
+    draw.ellipse(
+        [circle_center - circle_radius, circle_center - circle_radius,
+         circle_center + circle_radius, circle_center + circle_radius],
+        fill=circle_color
+    )
+    
+    # Draw diamond shape (rotated square)
+    diamond_points = []
+    diamond_size = int(44 * scale)  # Adjusted size for better proportion
+    
+    # Top, right, bottom, left points of diamond
+    top = (circle_center, circle_center - int(diamond_size * 0.7))
+    right = (circle_center + int(diamond_size * 0.7), circle_center)
+    bottom = (circle_center, circle_center + int(diamond_size * 0.7))
+    left = (circle_center - int(diamond_size * 0.7), circle_center)
+    
+    diamond_points = [top, right, bottom, left]
+    draw.polygon(diamond_points, fill=diamond_color)
+    
+    # Add "XPath" text if size is large enough
+    if size >= 48:
+        try:
+            # Try to use a default font, fallback to built-in if not available
+            font_size = max(8, int(12 * scale))
+            try:
+                # Try to use a system font
+                font = ImageFont.truetype("arial.ttf", font_size)
+            except:
+                try:
+                    # Try another common font
+                    font = ImageFont.truetype("arial.ttf", font_size)
+                except:
+                    # Use default font
+                    font = ImageFont.load_default()
+        except:
+            font = ImageFont.load_default()
+        
+        # Calculate text position (centered)
+        text = "XPath"
+        if hasattr(font, 'getbbox'):
+            bbox = font.getbbox(text)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+        else:
+            # Fallback for older PIL versions
+            text_width = len(text) * font_size * 0.6
+            text_height = font_size
+        
+        text_x = (size - text_width) // 2
+        text_y = (size - text_height) // 2
+        
+        # Draw text with a contrasting color
+        text_color = (102, 126, 234, 255)  # Same as background for contrast
+        draw.text((text_x, text_y), text, fill=text_color, font=font)
+    
+    return img
+
+def create_png_icons():
+    """Create all required PNG icons"""
+    
+    # Define the sizes required for Chrome extensions
+    sizes = [16, 48, 128]
+    
+    # Ensure icons directory exists
+    os.makedirs('icons', exist_ok=True)
+    
+    created_files = []
+    
+    for size in sizes:
+        # Create the icon
+        icon = create_xpath_icon(size)
+        
+        # Define output PNG file path
+        png_path = os.path.join('icons', f'icon{size}.png')
+        
+        try:
+            # Save the icon
+            icon.save(png_path, 'PNG')
+            created_files.append(png_path)
+            print(f"✓ Created {png_path} ({size}x{size})")
+            
+        except Exception as e:
+            print(f"✗ Error creating {png_path}: {str(e)}")
+            return False, []
+    
+    print("\nAll PNG icons created successfully!")
+    return True, created_files
+
+if __name__ == "__main__":
+    print("Creating PNG icons for Chrome Extension using PIL...")
+    success, files = create_png_icons()
+    
+    if success:
+        print("\nVerification - Listing created files:")
+        for file_path in files:
+            if os.path.exists(file_path):
+                size = os.path.getsize(file_path)
+                print(f"  {os.path.basename(file_path)} - {size} bytes")
+    else:
+        print("\nFailed to create some icons.")
+        exit(1)

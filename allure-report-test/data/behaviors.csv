@@ -1,0 +1,8 @@
+"Epic","Feature","Story","FAILED","BROKEN","PASSED","SKIPPED","UNKNOWN"
+"Ixigo ","Flights Module","Smoke Tests Suite","0","0","1","0","0"
+"Ixigo ","Hotels Module","Testing Suite","0","0","6","0","0"
+"Ixigo ","Flights Module","Sanity Tests Suite","0","0","4","0","0"
+"Ixigo ","Flights Module","Testing Suite","1","1","18","0","0"
+"Ixigo ","Hotels Module","Smoke Tests Suite","4","4","10","0","0"
+"IRCTC","DefaultModule Module","Smoke Suite","1","0","0","0","0"
+"Ixigo ","Hotels Module","Development Suite","1","0","0","0","0"

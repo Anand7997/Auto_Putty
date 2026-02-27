@@ -1,0 +1,32 @@
+Flask==2.3.3
+Flask-CORS==4.0.0
+pyodbc==5.2.0
+selenium==4.15.0
+webdriver-manager==4.0.1
+requests==2.31.0
+playwright==1.55.0
+Werkzeug==2.3.7
+opencv-python==4.8.1.78
+flask-socketio==5.3.6
+websockify==0.11.0
+numpy==1.26.4
+Pillow==10.0.1
+pyvirtualdisplay==3.0
+psutil==5.9.0
+websockets==11.0.3
+websocket-client==1.6.4
+asyncio-mqtt==0.16.2
+pynput==1.7.6
+pyautogui==0.9.54
+screeninfo==0.8.1
+mss==9.0.1
+PyPDF2==3.0.1
+python-docx==1.1.0
+openpyxl==3.1.2
+pandas==2.1.4
+groq==0.9.0
+httpx==0.28.0
+textract==1.6.3
+# Cypress is a Node.js test runner (not a Python package).
+# Install Cypress separately using npm in the repository root:
+#   npm install --save-dev cypress

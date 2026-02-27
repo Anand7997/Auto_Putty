@@ -1,0 +1,582 @@
+{
+  "uuid": "4fd8995e-4e63-48eb-9e26-933049e82975",
+  "historyId": "4fd8995e-4e63-48eb-9e26-933049e82975",
+  "name": "[IxigoAutomation_Hotels_SearchingHL_TC001] SearchingHL",
+  "fullName": "Ixigo .Hotels.Regression.SearchingHL",
+  "status": "failed",
+  "stage": "finished",
+  "start": 1769593337950,
+  "stop": 1769593425524,
+  "description": "Execution Time: 0:01:27 | Test Run ID: Sample_SearchingHL_TR051 | Result ID: TC001_TR051",
+  "labels": [
+    {
+      "name": "epic",
+      "value": "Ixigo "
+    },
+    {
+      "name": "feature",
+      "value": "Hotels Module"
+    },
+    {
+      "name": "story",
+      "value": "Sample Suite"
+    },
+    {
+      "name": "suite",
+      "value": "Sample Tests"
+    },
+    {
+      "name": "testClass",
+      "value": "Hotels_Sample"
+    },
+    {
+      "name": "testMethod",
+      "value": "SearchingHL"
+    },
+    {
+      "name": "parentSuite",
+      "value": "[ROCKET] Ixigo "
+    },
+    {
+      "name": "subSuite",
+      "value": "[PACKAGE] Hotels -> Sample"
+    },
+    {
+      "name": "severity",
+      "value": "normal"
+    },
+    {
+      "name": "owner",
+      "value": "QA Team"
+    },
+    {
+      "name": "tag",
+      "value": "module:hotels"
+    },
+    {
+      "name": "tag",
+      "value": "suite:Sample"
+    },
+    {
+      "name": "testCaseId",
+      "value": "IxigoAutomation_Hotels_SearchingHL_TC001"
+    },
+    {
+      "name": "testRunId",
+      "value": "Sample_SearchingHL_TR051"
+    },
+    {
+      "name": "resultId",
+      "value": "TC001_TR051"
+    },
+    {
+      "name": "executionTime",
+      "value": "0:01:27"
+    }
+  ],
+  "parameters": [
+    {
+      "name": "Test Case ID",
+      "value": "IxigoAutomation_Hotels_SearchingHL_TC001"
+    },
+    {
+      "name": "Test Run ID",
+      "value": "Sample_SearchingHL_TR051"
+    },
+    {
+      "name": "Result ID",
+      "value": "TC001_TR051"
+    },
+    {
+      "name": "Suite Type",
+      "value": "Regression"
+    },
+    {
+      "name": "Module",
+      "value": "Hotels"
+    },
+    {
+      "name": "Project",
+      "value": "Ixigo "
+    },
+    {
+      "name": "Execution Time",
+      "value": "0:01:27"
+    },
+    {
+      "name": "Total Steps",
+      "value": "11"
+    },
+    {
+      "name": "[OK] Passed Steps",
+      "value": "0"
+    },
+    {
+      "name": "[X] Failed Steps",
+      "value": "11"
+    }
+  ],
+  "steps": [
+    {
+      "name": "[X] Step 1: Open Browser and Navigate to Ixigo",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1769593337950,
+      "stop": 1769593338950,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 1 (Element Highlighted)",
+          "source": "4fd8995e-4e63-48eb-9e26-933049e82975-20260128_151258_720_After_Step_1_FAILED.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "OPEN_BROWSER"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Browser"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "N/A"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": null
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:12"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed_highlighted"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: Message: invalid argument: 'url' must be a string\n  (Session info: chrome=144.0.7559.98)\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x8f8543\n\t0x8f8584\n\t0x6eb4e0\n\t0x775fbd\n\t0x75821c\n\t0x7753a1\n\t0x757fb6\n\t0x7296f9\n\t0x72a4b4\n\t0xb4d034\n\t0xb482c9\n\t0xb66460\n\t0x911a68\n\t0x91988d\n\t0x900df8\n\t0x900fc2\n\t0x8eab3a\n\t0x75db5d49\n\t0x7712d5db\n\t0x7712d561\n",
+        "trace": "Message: invalid argument: 'url' must be a string\n  (Session info: chrome=144.0.7559.98)\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x8f8543\n\t0x8f8584\n\t0x6eb4e0\n\t0x775fbd\n\t0x75821c\n\t0x7753a1\n\t0x757fb6\n\t0x7296f9\n\t0x72a4b4\n\t0xb4d034\n\t0xb482c9\n\t0xb66460\n\t0x911a68\n\t0x91988d\n\t0x900df8\n\t0x900fc2\n\t0x8eab3a\n\t0x75db5d49\n\t0x7712d5db\n\t0x7712d561\n"
+      }
+    },
+    {
+      "name": "[X] Step 2: Enter Destination",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1769593338950,
+      "stop": 1769593339950,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 2 (Element Highlighted)",
+          "source": "4fd8995e-4e63-48eb-9e26-933049e82975-20260128_151332_438_After_Step_2_FAILED.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Destination"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(), 'Destination')]/following::input[1]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": null
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:33"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed_highlighted"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: City selection failed for Destination",
+        "trace": "City selection failed for Destination"
+      }
+    },
+    {
+      "name": "[X] Step 3: Click and Select on Checkin date",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1769593339950,
+      "stop": 1769593340950,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Check in"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(),'Check-in')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": null
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:07"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: Message: invalid session id\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x8f8543\n\t0x8f8584\n\t0x6eb31e\n\t0x728987\n\t0x7580d6\n\t0x753e31\n\t0x753333\n\t0x6be26b\n\t0x6be80e\n\t0x6beced\n\t0xb4d034\n\t0xb482c9\n\t0xb66460\n\t0x911a68\n\t0x91988d\n\t0x6bdde9\n\t0x6bd430\n\t0xc9936f\n\t0x75db5d49\n\t0x7712d5db\n\t0x7712d561\n",
+        "trace": "Message: invalid session id\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x8f8543\n\t0x8f8584\n\t0x6eb31e\n\t0x728987\n\t0x7580d6\n\t0x753e31\n\t0x753333\n\t0x6be26b\n\t0x6be80e\n\t0x6beced\n\t0xb4d034\n\t0xb482c9\n\t0xb66460\n\t0x911a68\n\t0x91988d\n\t0x6bdde9\n\t0x6bd430\n\t0xc9936f\n\t0x75db5d49\n\t0x7712d5db\n\t0x7712d561\n"
+      }
+    },
+    {
+      "name": "[X] Step 4: Click and Select on Checkout date field",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1769593340950,
+      "stop": 1769593341950,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Check out"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(),'Check-out')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": null
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:00"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: Message: invalid session id\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x8f8543\n\t0x8f8584\n\t0x6eb31e\n\t0x728987\n\t0x7580d6\n\t0x753e31\n\t0x753333\n\t0x6be26b\n\t0x6be80e\n\t0x6beced\n\t0xb4d034\n\t0xb482c9\n\t0xb66460\n\t0x911a68\n\t0x91988d\n\t0x6bdde9\n\t0x6bd430\n\t0xc9936f\n\t0x75db5d49\n\t0x7712d5db\n\t0x7712d561\n",
+        "trace": "Message: invalid session id\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x8f8543\n\t0x8f8584\n\t0x6eb31e\n\t0x728987\n\t0x7580d6\n\t0x753e31\n\t0x753333\n\t0x6be26b\n\t0x6be80e\n\t0x6beced\n\t0xb4d034\n\t0xb482c9\n\t0xb66460\n\t0x911a68\n\t0x91988d\n\t0x6bdde9\n\t0x6bd430\n\t0xc9936f\n\t0x75db5d49\n\t0x7712d5db\n\t0x7712d561\n"
+      }
+    },
+    {
+      "name": "[X] Step 5: Click on Rooms and Guests section",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1769593341950,
+      "stop": 1769593342950,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Rooms&Guests"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[@class='body-xs text-secondary'][contains(text(),'Rooms & Guests')] | //input[@placeholder='Rooms & Guests']"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": null
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:00"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: 'NoneType' object has no attribute 'upper'",
+        "trace": "'NoneType' object has no attribute 'upper'"
+      }
+    },
+    {
+      "name": "[X] Step 6: Select number of Rooms",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1769593342950,
+      "stop": 1769593343950,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "SELECT_COUNT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "RoomsCount"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(),'Rooms')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": null
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:00"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'",
+        "trace": "int() argument must be a string, a bytes-like object or a real number, not 'NoneType'"
+      }
+    },
+    {
+      "name": "[X] Step 7: Select number of adults",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1769593343950,
+      "stop": 1769593344950,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "SELECT_COUNT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "AdultsCount"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(),'Adults')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": null
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:00"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'",
+        "trace": "int() argument must be a string, a bytes-like object or a real number, not 'NoneType'"
+      }
+    },
+    {
+      "name": "[X] Step 8: Select number of Children",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1769593344950,
+      "stop": 1769593345950,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "SELECT_COUNT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "ChildrenCount"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(),'Children')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": null
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:00"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'",
+        "trace": "int() argument must be a string, a bytes-like object or a real number, not 'NoneType'"
+      }
+    },
+    {
+      "name": "[X] Step 9: Select age of Child 1",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1769593345950,
+      "stop": 1769593346950,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Child 1"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//select[@id='child-age'] (//select[@data-testid='child-age-selector'])[1]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": null
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:00"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: Message: invalid session id\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x8f8543\n\t0x8f8584\n\t0x6eb31e\n\t0x728987\n\t0x7580d6\n\t0x753e31\n\t0x753333\n\t0x6be26b\n\t0x6be80e\n\t0x6beced\n\t0xb4d034\n\t0xb482c9\n\t0xb66460\n\t0x911a68\n\t0x91988d\n\t0x6bdde9\n\t0x6bd430\n\t0xc9936f\n\t0x75db5d49\n\t0x7712d5db\n\t0x7712d561\n",
+        "trace": "Message: invalid session id\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x8f8543\n\t0x8f8584\n\t0x6eb31e\n\t0x728987\n\t0x7580d6\n\t0x753e31\n\t0x753333\n\t0x6be26b\n\t0x6be80e\n\t0x6beced\n\t0xb4d034\n\t0xb482c9\n\t0xb66460\n\t0x911a68\n\t0x91988d\n\t0x6bdde9\n\t0x6bd430\n\t0xc9936f\n\t0x75db5d49\n\t0x7712d5db\n\t0x7712d561\n"
+      }
+    },
+    {
+      "name": "[X] Step 10: Select age of Child 2",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1769593346950,
+      "stop": 1769593347950,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Child 2"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "(//select[@data-testid='child-age-selector'])[2]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": null
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:00"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: Message: invalid session id\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x8f8543\n\t0x8f8584\n\t0x6eb31e\n\t0x728987\n\t0x7580d6\n\t0x753e31\n\t0x753333\n\t0x6be26b\n\t0x6be80e\n\t0x6beced\n\t0xb4d034\n\t0xb482c9\n\t0xb66460\n\t0x911a68\n\t0x91988d\n\t0x6bdde9\n\t0x6bd430\n\t0xc9936f\n\t0x75db5d49\n\t0x7712d5db\n\t0x7712d561\n",
+        "trace": "Message: invalid session id\nStacktrace:\nSymbols not available. Dumping unresolved backtrace:\n\t0x8f8543\n\t0x8f8584\n\t0x6eb31e\n\t0x728987\n\t0x7580d6\n\t0x753e31\n\t0x753333\n\t0x6be26b\n\t0x6be80e\n\t0x6beced\n\t0xb4d034\n\t0xb482c9\n\t0xb66460\n\t0x911a68\n\t0x91988d\n\t0x6bdde9\n\t0x6bd430\n\t0xc9936f\n\t0x75db5d49\n\t0x7712d5db\n\t0x7712d561\n"
+      }
+    },
+    {
+      "name": "[X] Step 11: Click Search button to search Rooms",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1769593347950,
+      "stop": 1769593348950,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "SearchButton"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "/html/body/main/div[4]/div[2]/div/button"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": null
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:00"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: 'NoneType' object has no attribute 'upper'",
+        "trace": "'NoneType' object has no attribute 'upper'"
+      }
+    }
+  ],
+  "attachments": [
+    {
+      "name": "After_Step_1_FAILED",
+      "source": "4fd8995e-4e63-48eb-9e26-933049e82975-20260128_151258_720_After_Step_1_FAILED.png",
+      "type": "image/png",
+      "size": 11937
+    },
+    {
+      "name": "After_Step_2_FAILED",
+      "source": "4fd8995e-4e63-48eb-9e26-933049e82975-20260128_151332_438_After_Step_2_FAILED.png",
+      "type": "image/png",
+      "size": 11937
+    }
+  ],
+  "statusDetails": {
+    "message": "All steps failed",
+    "trace": "All steps failed"
+  }
+}

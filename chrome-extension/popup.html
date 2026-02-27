@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart XPath Capture</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 320px;
+      min-height: 250px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #333;
+    }
+
+    .header {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      padding: 15px;
+      text-align: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .header h1 {
+      color: white;
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 3px;
+    }
+
+    .header p {
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 11px;
+    }
+
+    .content {
+      padding: 15px;
+      background: white;
+      margin: 8px;
+      border-radius: 10px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    }
+
+    .mode-selector {
+      margin-bottom: 15px;
+    }
+
+    .mode-option {
+      display: flex;
+      align-items: center;
+      padding: 12px;
+      margin-bottom: 8px;
+      background: #f8f9fa;
+      border: 2px solid #e9ecef;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .mode-option:hover {
+      border-color: #667eea;
+      background: #f0f2ff;
+    }
+
+    .mode-option.active {
+      border-color: #667eea;
+      background: #f0f2ff;
+    }
+
+    .mode-icon {
+      width: 20px;
+      height: 20px;
+      margin-right: 10px;
+      background: #667eea;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 12px;
+      font-weight: bold;
+    }
+
+    .mode-info h3 {
+      font-size: 12px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 3px;
+    }
+
+    .mode-info p {
+      font-size: 11px;
+      color: #666;
+      line-height: 1.3;
+    }
+
+    .status {
+      margin-top: 15px;
+      padding: 10px;
+      border-radius: 5px;
+      font-size: 11px;
+      text-align: center;
+    }
+
+    .status.inactive {
+      background: #f8f9fa;
+      color: #6c757d;
+      border: 1px solid #e9ecef;
+    }
+
+    .status.active {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+
+    .status.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+
+    .xpath-input {
+      margin-top: 12px;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      width: 100%;
+      font-size: 11px;
+      font-family: 'Courier New', monospace;
+    }
+
+    .xpath-input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .btn {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      width: 100%;
+      margin-top: 8px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .btn-secondary {
+      background: #6c757d;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: #5a6268;
+    }
+
+    .test-section {
+      display: none;
+      margin-top: 15px;
+    }
+
+    .test-section.active {
+      display: block;
+    }
+
+    .radio-group {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 15px;
+    }
+
+    .radio-option {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+    }
+
+    .radio-option input[type="radio"] {
+      margin-right: 6px;
+    }
+
+    .footer {
+      padding: 12px 15px;
+      background: rgba(255, 255, 255, 0.1);
+      text-align: center;
+      border-top: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .footer p {
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 10px;
+    }
+
+    .api-status {
+      margin-top: 8px;
+      padding: 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      text-align: center;
+    }
+
+    .api-status.connected {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+
+    .api-status.disconnected {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .api-status.unknown {
+      background: #fff3cd;
+      color: #856404;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🎯QFastHub</h1>
+    <p>Intelligent Element Locator for Automation</p>
+  </div>
+
+  <div class="content">
+    <div class="mode-selector">
+      <div class="mode-option active" data-mode="capture" id="captureMode">
+        <div class="mode-icon">1</div>
+        <div class="mode-info">
+          <h3>Capture Mode</h3>
+          <p>Click elements on any webpage to generate intelligent XPath expressions</p>
+        </div>
+      </div>
+
+      <div class="mode-option" data-mode="test" id="testMode">
+        <div class="mode-icon">2</div>
+        <div class="mode-info">
+          <h3>Test XPath</h3>
+          <p>Test XPath expressions on the current page and highlight elements</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="test-section" id="testSection">
+      <label for="xpathInput">Enter XPath to test:</label>
+      <input type="text" id="xpathInput" class="xpath-input" placeholder="//button[@id='submit'] or .class-name">
+      <button id="testXPathBtn" class="btn btn-secondary">Test XPath</button>
+    </div>
+
+    <div class="status inactive" id="status">
+      Ready to capture XPath expressions
+    </div>
+
+    <button id="startBtn" class="btn btn-primary">Start Capture</button>
+    <button id="stopBtn" class="btn btn-secondary" style="display: none;">Stop Capture</button>
+
+    <div class="api-status unknown" id="apiStatus">
+      API Status: Unknown
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>Compatible with Selenium • Cypress • Playwright • Puppeteer</p>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
