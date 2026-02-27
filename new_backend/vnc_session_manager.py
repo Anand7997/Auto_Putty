@@ -978,7 +978,7 @@ class VNCSessionManager:
                     missing_binaries.append((binary, install_cmd))
             
             # Check websockify in venv
-            websockify_path = "/home/ubuntu/.local/bin/websockify"
+            websockify_path = "/home/admin/Auto_Putty/venv_autoputty/bin/websockify"
             if os.path.exists(websockify_path):
                 print(f"[VNC_MGR] ✅ websockify found: {websockify_path}")
             else:
@@ -1273,7 +1273,7 @@ class VNCSessionManager:
                 
                 # Start websockify
                 websockify_cmd = [
-                    "/home/ubuntu/.local/bin/websockify",
+                    "/home/admin/Auto_Putty/venv_autoputty/bin/websockify",
                     "--web", self.novnc_install_path,
                     f"{self.server_host}:{novnc_port}",
                     f"localhost:{vnc_port}"
@@ -1562,7 +1562,7 @@ class VNCSessionManager:
             print(f"[VNC_MGR] Starting websockify attempt {attempt + 1}/{max_retries}")
             
             cmd = [
-                "/home/ubuntu/.local/bin/websockify",
+                "/home/admin/Auto_Putty/venv_autoputty/bin/websockify",
                 "--web", self.novnc_install_path,
                 f"0.0.0.0:{novnc_port}",
                 f"localhost:{rfb_port}",
