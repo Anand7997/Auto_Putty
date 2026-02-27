@@ -71,10 +71,32 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
   const [testCaseValueSelections, setTestCaseValueSelections] = useState<Map<string, boolean>>(new Map());
   const [testCaseValueMappings, setTestCaseValueMappings] = useState<Map<string, any>>(new Map());
 
+  // State for VNC management
+  const [vncStatus, setVncStatus] = useState<any>(null);
+  const [isKillingVNC, setIsKillingVNC] = useState(false);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+
   // Check authorization for test-lab function
   const { authorized, loading: authLoading, error: authError } = useAuthorization('test-lab');
 
   const { toast } = useToast();
+  
+  // Initialize current user email
+  useEffect(() => {
+    const savedUser = localStorage.getItem('qfast_user');
+    if (savedUser) {
+      try {
+        const user = JSON.parse(savedUser);
+        setCurrentUserEmail(user.email);
+        // Check VNC status on component mount
+        if (user.email) {
+          checkVNCStatus(user.email);
+        }
+      } catch (e) {
+        console.error('Error parsing user from localStorage:', e);
+      }
+    }
+  }, []);
  
   // Icon mapping function for created test suites
   const getIconComponent = (iconName: string) => {
@@ -888,8 +910,78 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
     };
   };
 
+  const checkVNCStatus = async (userEmail: string) => {
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/vnc/status/${encodeURIComponent(userEmail)}`),
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        }
+      );
+      
+      if (response.ok) {
+        const status = await response.json();
+        setVncStatus(status);
+      }
+    } catch (error) {
+      console.error('Error checking VNC status:', error);
+    }
+  };
 
+  const handleKillVNC = async () => {
+    if (!currentUserEmail) {
+      toast({
+        title: "Error",
+        description: "User email not found",
+        variant: "destructive"
+      });
+      return;
+    }
 
+    setIsKillingVNC(true);
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/vnc/cleanup/${encodeURIComponent(currentUserEmail)}`),
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        }
+      );
+      
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        toast({
+          title: "VNC Terminated",
+          description: `VNC session for ${currentUserEmail} has been killed`,
+          variant: "default"
+        });
+        setVncStatus(null);
+        // Refresh status after a short delay
+        setTimeout(() => checkVNCStatus(currentUserEmail), 1000);
+      } else {
+        toast({
+          title: "Info",
+          description: data.message || 'No active VNC session to kill',
+          variant: "default"
+        });
+      }
+    } catch (error) {
+      console.error('Error killing VNC:', error);
+      toast({
+        title: "Error",
+        description: "Failed to kill VNC session",
+        variant: "destructive"
+      });
+    } finally {
+      setIsKillingVNC(false);
+    }
+  };
 
   const handleServerExecution = async () => {
     if (selectedCreatedSuites.length === 0) {
@@ -1064,8 +1156,11 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
           window.open(url, "_blank", "noopener,noreferrer");
         };
 
-        // Handle single test execution
-        if (executionData.novnc_url) {
+        const vncFailed = executionData.vnc_status?.vnc_failed || false;
+        const executionMode = vncFailed ? "🖥️ Headless" : "🎥 Live Stream";
+        const modeIndicator = vncFailed ? " (VNC Failed - Running Headless)" : "";
+
+        if (executionData.novnc_url && !vncFailed) {
           openVNC(executionData.novnc_url);
           
           toast({
@@ -1085,6 +1180,19 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
               </div>
             ),
             duration: 7000,
+          });
+        } else if (vncFailed) {
+          toast({
+            title: "⚠️ Server Execution Started (Headless)",
+            description: (
+              <div className="space-y-2">
+                <p>VNC connection failed - Running tests in headless mode</p>
+                <p className="text-xs text-gray-600">Execution ID: {executionData.execution_id}</p>
+                <p className="text-xs text-amber-600 font-medium">Tests will run without live visualization</p>
+              </div>
+            ),
+            duration: 7000,
+            variant: "destructive"
           });
         }
         // Handle multi-test execution
@@ -1561,20 +1669,23 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
         console.error('Failed to store execution results:', error);
       }
      
+      const hasHeadlessExecution = executionResults.some(r => r.vnc_status?.running_headless);
+      const headlessIndicator = hasHeadlessExecution ? " 🖥️ (Headless)" : "";
+
       if (failureCount === 0) {
         toast({
-          title: "✅ All Local Tests Passed",
+          title: `✅ All Local Tests Passed${headlessIndicator}`,
           description: `Successfully executed ${successCount} test executions using ${selectedExecutor.toUpperCase()} executor. Results saved to database. Check Test Results for detailed reports.`,
         });
       } else if (successCount === 0) {
         toast({
-          title: "❌ All Local Tests Failed",
+          title: `❌ All Local Tests Failed${headlessIndicator}`,
           description: `${failureCount} test executions failed using ${selectedExecutor.toUpperCase()} executor. Results saved to database. Check Test Results for details.`,
           variant: "destructive"
         });
       } else {
         toast({
-          title: "⚠️ Local Mixed Results",
+          title: `⚠️ Local Mixed Results${headlessIndicator}`,
           description: `${successCount} passed, ${failureCount} failed using ${selectedExecutor.toUpperCase()} executor. Results saved to database. Check Test Results for detailed reports.`,
           variant: "destructive"
         });
@@ -2201,6 +2312,41 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
                       </>
                     )}
                   </Button>
+
+                  {/* VNC Management Section */}
+                  {vncStatus && vncStatus.has_active_session && (
+                    <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-md">
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <p className="text-sm font-medium text-amber-700">
+                            Active VNC Session
+                          </p>
+                          <p className="text-xs text-amber-600 mt-1">
+                            Display: {vncStatus.display} | Port: {vncStatus.novnc_port}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        onClick={handleKillVNC}
+                        disabled={isKillingVNC}
+                        variant="destructive"
+                        size="sm"
+                        className="w-full"
+                      >
+                        {isKillingVNC ? (
+                          <>
+                            <Clock className="w-4 h-4 mr-2 animate-spin" />
+                            Terminating VNC...
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="w-4 h-4 mr-2" />
+                            Kill VNC Session
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
                 </div>
                
                 {lastExecutionResults.length > 0 && (

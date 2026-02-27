@@ -27,12 +27,18 @@ except ImportError:
         generate_result_id = None
         format_timestamp = None
 
-# VNC session manager
+# VNC session managers
 try:
     from vnc_session_manager import vnc_manager
 except ImportError:
     vnc_manager = None
     print("[WARNING] VNC session manager not available")
+
+try:
+    from vnc_lifecycle_manager import vnc_lifecycle_manager
+except ImportError:
+    vnc_lifecycle_manager = None
+    print("[WARNING] VNC lifecycle manager not available")
 
 
 class ServerExecutionManager:
@@ -77,6 +83,8 @@ class ServerExecutionManager:
         self.executor = None
         self.is_running = False
         self.vnc_session = vnc_session_info
+        self.vnc_failed = False
+        self.running_headless = False
 
         print(f"[SERVER_MGR] Initialized for execution {execution_id}")
         if self.vnc_session:
@@ -119,10 +127,11 @@ class ServerExecutionManager:
         print(f"[VNC_SESSION] Starting VNC for execution {self.execution_id}")
 
         if not vnc_manager:
-            print("[VNC_SESSION] VNC manager not available")
+            print("[VNC_SESSION] VNC manager not available, will run headless")
+            self.vnc_failed = True
+            self.running_headless = True
             return
 
-        # Try multiple times with exponential backoff
         max_retries = 3
         base_delay = 2
         
@@ -139,10 +148,25 @@ class ServerExecutionManager:
                     self.vnc_session = session
                     print(f"[VNC_SESSION] Started successfully on attempt {attempt + 1}: {session['novnc_url']}")
                     
-                    # Validate the session is actually working
                     if self._validate_vnc_session(session):
-                        print("[VNC_SESSION] Session validation successful")
-                        # Automatically open browser to VNC session for live viewing
+                        print("[VNC_SESSION] ✓ Session validation successful")
+                        
+                        if vnc_lifecycle_manager and self.user_email:
+                            try:
+                                vnc_lifecycle_manager.user_sessions[self.user_email] = {
+                                    'session_id': session.get('session_id'),
+                                    'display': session.get('display'),
+                                    'vnc_port': session.get('vnc_port'),
+                                    'novnc_port': session.get('novnc_port'),
+                                    'novnc_url': session.get('novnc_url'),
+                                    'pids': session.get('pids', []),
+                                    'created_at': datetime.now().isoformat(),
+                                    'status': 'active'
+                                }
+                                print(f"[VNC_SESSION] Registered session with lifecycle manager for {self.user_email}")
+                            except Exception as lm_error:
+                                print(f"[VNC_SESSION] Warning: Could not register with lifecycle manager: {lm_error}")
+                        
                         try:
                             webbrowser.open(session['novnc_url'])
                             print(f"[VNC_SESSION] Opened browser to: {session['novnc_url']}")
@@ -168,7 +192,10 @@ class ServerExecutionManager:
                     print(f"[VNC_SESSION] Waiting {delay}s before retry...")
                     time.sleep(delay)
                     
-        print("[VNC_SESSION] All retry attempts failed")
+        print("[VNC_SESSION] ✗ All retry attempts failed, falling back to headless execution")
+        self.vnc_failed = True
+        self.running_headless = True
+        self.vnc_session = None
 
     def _validate_vnc_session(self, session):
         """Validate that the VNC session is actually working"""
@@ -214,6 +241,10 @@ class ServerExecutionManager:
 
     def _execute_tests(self):
         print(f"[EXECUTE] Executing {len(self.test_cases)} test cases")
+        
+        if self.vnc_failed:
+            print(f"[EXECUTE] ⚠ VNC Failed - Running in Headless mode")
+            self.running_headless = True
 
         display_id = self.vnc_session.get('display') if self.vnc_session else None
         
@@ -221,7 +252,7 @@ class ServerExecutionManager:
             self.executor = PlaywrightTestExecutor(
                 enable_isolation=self.enable_isolation,
                 server_execution=True,
-                vnc_session=self.vnc_session if self.enable_streaming else None,
+                vnc_session=self.vnc_session if (self.enable_streaming and not self.vnc_failed) else None,
                 display_id=display_id,
             )
 
@@ -229,17 +260,17 @@ class ServerExecutionManager:
             self.executor = CypressTestExecutor(
                 enable_isolation=self.enable_isolation,
                 server_execution=True,
-                vnc_session=self.vnc_session if self.enable_streaming else None,
+                vnc_session=self.vnc_session if (self.enable_streaming and not self.vnc_failed) else None,
                 display_id=display_id,
             )
 
         else:
             self.executor = SeleniumTestExecutor(
                 enable_isolation=self.enable_isolation,
-                enable_remote_viewing=bool(self.vnc_session and self.enable_streaming),
+                enable_remote_viewing=bool(self.vnc_session and self.enable_streaming and not self.vnc_failed),
                 server_execution=True,
-                headless=None,  # AUTO
-                vnc_session=self.vnc_session if self.enable_streaming else None,
+                headless=True if self.vnc_failed else None,
+                vnc_session=self.vnc_session if (self.enable_streaming and not self.vnc_failed) else None,
                 display_id=display_id,
             )
 
@@ -374,7 +405,6 @@ class ServerExecutionManager:
             else:
                 overall_status = "UNKNOWN"
 
-            # Overwrite with correct metadata if executor returned defaults
             result["execution_id"] = self.execution_id
             result["executor_type"] = self.executor_type
             result["suite_type"] = suite_type
@@ -388,19 +418,33 @@ class ServerExecutionManager:
             result["execution_start_time"] = format_timestamp(execution_start_time) if format_timestamp else execution_start_time.isoformat().rstrip('Z')
             result["execution_date"] = execution_start_time.strftime('%d/%m/%Y, %H:%M:%S')
             
-            print(f"[SERVER_EXEC] Test {testcase_name} completed: Status={overall_status}, Pass Rate={pass_rate}%, Steps={passed_steps}/{total_steps}")
+            result["vnc_status"] = {
+                "vnc_failed": self.vnc_failed,
+                "running_headless": self.running_headless,
+                "execution_mode": "headless" if self.running_headless else "vnc"
+            }
+            
+            mode_str = "🖥️ Headless" if self.running_headless else "🎥 VNC"
+            print(f"[SERVER_EXEC] Test {testcase_name} completed [{mode_str}]: Status={overall_status}, Pass Rate={pass_rate}%, Steps={passed_steps}/{total_steps}")
             return result
 
         except Exception as e:
             print(f"[SERVER_EXEC] Test execution error: {e}")
             import traceback
             traceback.print_exc()
+            
+            mode_str = "🖥️ Headless" if self.running_headless else "🎥 VNC"
             return {
                 "testcase_name": test_case.get("name"),
                 "status": "ERROR",
                 "error": str(e),
                 "execution_id": self.execution_id,
                 "executor_type": self.executor_type,
+                "vnc_status": {
+                    "vnc_failed": self.vnc_failed,
+                    "running_headless": self.running_headless,
+                    "execution_mode": "headless" if self.running_headless else "vnc"
+                }
             }
 
     # -------------------------------------------------------
@@ -471,4 +515,9 @@ class ServerExecutionManager:
             "enable_streaming": self.enable_streaming,
             "novnc_url": self.vnc_session.get("novnc_url") if self.vnc_session else "",
             "novnc_port": self.vnc_session.get("novnc_port") if self.vnc_session else "",
+            "vnc_status": {
+                "vnc_failed": self.vnc_failed,
+                "running_headless": self.running_headless,
+                "execution_mode": "headless" if self.running_headless else "vnc"
+            }
         }

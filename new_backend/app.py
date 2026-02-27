@@ -23,6 +23,7 @@ from cypress_executor import CypressTestExecutor
 from server_execution_manager import ServerExecutionManager
 from system_monitor import setup_system_monitor_routes
 from vnc_session_manager import vnc_manager
+from vnc_lifecycle_manager import vnc_lifecycle_manager
 
 app = Flask(__name__)
 
@@ -5279,6 +5280,54 @@ def check_vnc_health(novnc_port):
         return jsonify({'error': str(e), 'ready': False}), 500
 
 
+@app.route('/api/vnc/status/<user_email>', methods=['GET'])
+def get_vnc_status(user_email):
+    """Get VNC session status for a specific user"""
+    try:
+        user_email = unquote(user_email)
+        print(f"[VNC_STATUS] Getting VNC status for user: {user_email}")
+        
+        from vnc_lifecycle_manager import vnc_lifecycle_manager
+        
+        status = vnc_lifecycle_manager.get_user_vnc_status(user_email)
+        
+        return jsonify(status), 200
+        
+    except Exception as e:
+        print(f"[VNC_STATUS_ERROR] {e}")
+        return jsonify({'error': str(e), 'has_active_session': False}), 500
+
+
+@app.route('/api/vnc/cleanup/<user_email>', methods=['POST'])
+def cleanup_vnc_for_user(user_email):
+    """Kill/cleanup VNC session for a specific user (individual cleanup by login credentials)"""
+    try:
+        user_email = unquote(user_email)
+        print(f"[VNC_CLEANUP] Cleanup request for user: {user_email}")
+        
+        from vnc_lifecycle_manager import vnc_lifecycle_manager
+        
+        success = vnc_lifecycle_manager.cleanup_user_vnc_session(user_email)
+        
+        if success:
+            print(f"[VNC_CLEANUP] ✓ Successfully cleaned up VNC for {user_email}")
+            return jsonify({
+                'success': True,
+                'message': f'VNC session terminated for {user_email}',
+                'user_email': user_email
+            }), 200
+        else:
+            print(f"[VNC_CLEANUP] ⚠ No active session found for {user_email}")
+            return jsonify({
+                'success': False,
+                'message': f'No active VNC session found for {user_email}',
+                'user_email': user_email
+            }), 404
+        
+    except Exception as e:
+        print(f"[VNC_CLEANUP_ERROR] {e}")
+        return jsonify({'error': str(e), 'success': False}), 500
+
 
 # Debug endpoint to simulate ID generation
 @app.route('/api/debug-id-generation', methods=['POST'])
@@ -5962,6 +6011,7 @@ def execute_server():
             novnc_url = vnc_session_info.get("novnc_url", "")
             session_id = vnc_session_info.get("session_id", "")
 
+        status = server_manager.get_status()
         response = {
             "success": True,
             "execution_id": execution_id,
@@ -5971,6 +6021,11 @@ def execute_server():
             "parallel_execution": enable_parallel,
             "max_concurrent": max_concurrent if enable_parallel else 1,
             "streaming_active": enable_streaming,
+            "vnc_status": status.get("vnc_status", {
+                "vnc_failed": False,
+                "running_headless": False,
+                "execution_mode": "vnc"
+            })
         }
 
         if novnc_url:
