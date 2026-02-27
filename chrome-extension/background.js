@@ -39,39 +39,44 @@ chrome.commands.onCommand.addListener((command) => {
 // Handle browser action click
 chrome.action.onClicked.addListener((tab) => {
   console.log('Browser action clicked');
-  openSidePanel();
+  openSidePanel(tab);
 });
 
-function openSidePanel() {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (tabs[0] && tabs[0].id) {
-      const activeTab = tabs[0];
-      const tabId = activeTab.id;
-      const windowId = activeTab.windowId;
+function openSidePanel(tabFromGesture = null) {
+  const openForTab = (activeTab) => {
+    if (!activeTab || !activeTab.id) return;
 
-      // Ensure side panel is enabled for the target tab before opening it.
-      chrome.sidePanel.setOptions({
-        tabId,
-        path: 'sidepanel.html',
-        enabled: true
-      }).then(() => {
-        return chrome.sidePanel.open({ tabId });
-      }).then(() => {
-        console.log('Side panel opened successfully for tab', tabId);
-      }).catch((error) => {
-        console.warn('Tab-scoped side panel open failed, retrying with window scope:', error);
-        chrome.sidePanel.setOptions({
-          path: 'sidepanel.html',
-          enabled: true
-        }).then(() => {
-          return chrome.sidePanel.open({ windowId });
-        }).then(() => {
-          console.log('Side panel opened successfully for window', windowId);
-        }).catch((fallbackError) => {
-          console.error('Failed to open side panel:', fallbackError);
-        });
+    const tabId = activeTab.id;
+    const windowId = activeTab.windowId;
+
+    // Configure side panel without awaiting to preserve user gesture context for open().
+    chrome.sidePanel.setOptions({
+      tabId,
+      path: 'sidepanel.html',
+      enabled: true
+    }).catch((setOptionsError) => {
+      console.warn('Failed to set tab side panel options:', setOptionsError);
+    });
+
+    chrome.sidePanel.open({ tabId }).then(() => {
+      console.log('Side panel opened successfully for tab', tabId);
+    }).catch((error) => {
+      console.warn('Tab-scoped side panel open failed:', error);
+      chrome.sidePanel.open({ windowId }).then(() => {
+        console.log('Side panel opened successfully for window', windowId);
+      }).catch((fallbackError) => {
+        console.error('Failed to open side panel:', fallbackError);
       });
-    }
+    });
+  };
+
+  if (tabFromGesture && tabFromGesture.id) {
+    openForTab(tabFromGesture);
+    return;
+  }
+
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    openForTab(tabs[0]);
   });
 }
 
