@@ -42,7 +42,7 @@ class SeleniumTestExecutor:
         self.enable_remote_viewing = enable_remote_viewing  # Flag to enable/disable remote viewing
         self.headless = headless  # Headless mode setting (None = auto-detect, True/False = explicit)
         self.server_execution = server_execution  # Flag to enable/disable server execution mode
-        self.grid_url = grid_url or "http://15.134.56.119:4444/wd/hub"  # Default Grid URL for server
+        self.grid_url = grid_url or "http://10.30.3.85:4444/wd/hub"  # Default Grid URL for server
         self.vnc_session = vnc_session  # VNC session information for streaming
         self.display_id = display_id  # VNC-assigned display ID
 

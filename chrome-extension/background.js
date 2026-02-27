@@ -192,7 +192,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         page_domain: xpath.page_domain || 'Unknown Domain'
       }));
 
-      const apiUrl = 'http://15.134.56.119:5000/api/extension-xpaths';
+      const apiUrl = 'http://10.30.3.85:5000/api/extension-xpaths';
       const requestData = {
         xpaths: enrichedXpaths,
         session_id: request.session_id

@@ -204,7 +204,7 @@ async function updateAPIStatus() {
     
     // Try server first, then localhost fallback
     const healthUrls = [
-        'http://15.134.56.119:5000/api/health'
+        'http://10.30.3.85:5000/api/health'
     ];
     
     let response;

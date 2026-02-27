@@ -62,16 +62,16 @@ class ServerExecutionManager:
         self.user_email = user_email
 
         # Server config
-        self.server_host = "172.31.18.64"
+        self.server_host = "10.30.3.85:5000"
 
         # DB config
-        self.DB_CONFIG = {
-            "server": "172.31.18.64",
+        DB_CONFIG = {
+            "server": "10.30.3.85",
             "port": "1433",
-            "database": "UIAutomationDB",
+            "database": "AppDB",
             "driver": "ODBC Driver 17 for SQL Server",
             "uid": "appuser",
-            "pwd": "Testing#@123!",
+            "pwd": "MyPass135",
         }
 
         self.executor = None

@@ -42,7 +42,6 @@ CORS(app,
         'https://127.0.0.1:8081',
         'https://127.0.0.1:3000',
         'https://10.30.3.85:8081',
-        'http://15.134.56.119:8081',
         'https://172.31.18.64:8081',
         # DevTunnels domains - for remote development
         'https://hsn9x7cd-5000.inc1.devtunnels.ms',
@@ -67,13 +66,11 @@ socketio = SocketIO(app, cors_allowed_origins=[
         'http://127.0.0.1:8081',
         'http://127.0.0.1:3000',
         'http://10.30.3.85:8081',
-        'http://15.134.56.119:8081',
         'https://localhost:8081',
         'https://localhost:3000',
         'https://127.0.0.1:8081',
         'https://127.0.0.1:3000',
         'https://10.30.3.85:8081',
-        'http://15.134.56.119:8081',
         'https://172.31.18.64:8081',
         # DevTunnels domains - for remote development
         'https://hsn9x7cd-5000.inc1.devtunnels.ms',
@@ -143,13 +140,12 @@ class RemoteViewingSession:
         }
 
 DB_CONFIG = {
-            "server": "172.31.18.64",
+            "server": "10.30.3.85",
             "port": "1433",
-            "database": "UIAutomationDB",
+            "database": "AppDB",
             "driver": "ODBC Driver 17 for SQL Server",
             "uid": "appuser",
-            "pwd": "Testing#@123!",
-
+            "pwd": "MyPass135",
         }
 
 def get_db_connection():
@@ -188,7 +184,7 @@ def table_exists(cursor, table_name: str, schema_name: str = 'dbo') -> bool:
 def get_allure_report_host():
     """Get the correct host for Allure report URL based on OS"""
     if platform.system() == 'Linux':
-        return '15.134.56.119:5000'
+        return '10.30.3.85:5000'
     else:
         return 'localhost:5000'
 
@@ -5059,7 +5055,7 @@ def check_vnc_health(novnc_port):
         import socket
         
         novnc_port = int(novnc_port)
-        server_host = '15.134.56.119'
+        server_host = '10.30.3.85'
         
         http_ok = False
         websocket_ok = False

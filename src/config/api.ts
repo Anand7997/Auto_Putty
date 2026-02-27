@@ -6,7 +6,7 @@ console.log('🔍 Environment variables:', {
   MODE: import.meta.env.MODE
 });
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://15.134.56.119:5000'; // Default fallback
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://10.30.3.85:5000'; // Default fallback
 
 console.log('🎯 Final API_BASE_URL:', API_BASE_URL);
 

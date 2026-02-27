@@ -27,7 +27,7 @@ class VNCSessionManager:
     - Automatic fallback to global VNC server when individual sessions fail
     """
 
-    def __init__(self, server_host="15.134.56.119", novnc_install_path="/home/ubuntu/Auto_Delta/noVNC"):
+    def __init__(self, server_host="10.30.3.85", novnc_install_path="/home/admin/Anand_QFast/novnc_local"):
         self.server_host = server_host
         self.novnc_install_path = novnc_install_path
 
@@ -243,8 +243,8 @@ class VNCSessionManager:
             
             # Extract novnc_port from URL
             # Handles two URL formats:
-            # 1. Direct noVNC: http://15.134.56.119:6130/vnc.html (extract port from URL)
-            # 2. Global VNC API: http://15.134.56.119:5000/api/vnc/viewer/6145 (extract from path)
+            # 1. Direct noVNC: http://10.30.3.85:6130/vnc.html (extract port from URL)
+            # 2. Global VNC API: http://10.30.3.85:5000/api/vnc/viewer/6145 (extract from path)
             import re
             
             # Try to extract from /viewer/(\d+) pattern first (global VNC API)
@@ -1501,7 +1501,7 @@ class VNCSessionManager:
                 except Exception:
                     pass
 
-        cmd = ["Xvfb", disp, "-screen", "0", "1920x1080x24", "-ac", "-nolisten", "tcp"]
+        cmd = ["/usr/bin/Xvfb", disp, "-screen", "0", "1920x1080x24", "-ac", "-nolisten", "tcp"]
 
         print(f"[VNC_MGR] Starting Xvfb: {' '.join(cmd)}")
 
@@ -1525,6 +1525,7 @@ class VNCSessionManager:
         disp = f":{display}"
         cmd = [
             "x11vnc",
+            "/usr/bin/x11vnc",
             "-display", disp,
             "-rfbport", str(vnc_port),
             "-forever",
@@ -1934,6 +1935,6 @@ class VNCSessionManager:
 
 # singleton
 vnc_manager = VNCSessionManager(
-    server_host="15.134.56.119",
-    novnc_install_path="/home/ubuntu/Auto_Delta/noVNC",
+    server_host="10.30.3.85",
+    novnc_install_path="/home/admin/Anand_QFast/novnc_local",
 )
