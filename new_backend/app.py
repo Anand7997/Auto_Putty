@@ -271,7 +271,7 @@ def generate_testcase_id(project_name: str, module_name: str, testcase_name: str
         if tc_id.startswith(exact_prefix):
             # Extract the part after the prefix and before _TC
             remaining = tc_id[len(exact_prefix):]
-            if re.match(r'^.+_TC\d{3}$', remaining):
+            if re.match(r'^.+_TC\d+$', remaining):
                 existing_ids.append(row)
     
     print(f"[DEBUG] Found {len(all_matching_ids)} potential matches, {len(existing_ids)} exact matches")
@@ -283,7 +283,7 @@ def generate_testcase_id(project_name: str, module_name: str, testcase_name: str
         for row in existing_ids:
             tc_id = row[0]
             # Extract the TC number from the end using regex
-            match = re.search(r'_TC(\d{3})$', tc_id)
+            match = re.search(r'_TC(\d+)$', tc_id)
             if match:
                 tc_num = int(match.group(1))
                 existing_numbers.append(tc_num)
@@ -401,19 +401,20 @@ def migrate_test_steps(source_testcase_name: str, target_testcase_name: str, con
             IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='{target_table}' AND xtype='U')
             CREATE TABLE [{target_table}] (
                 id INT IDENTITY(1,1) PRIMARY KEY,
-                tc_id NVARCHAR(255),
+                tc_id NVARCHAR(MAX),
                 step_no INT,
-                test_step_description NVARCHAR(500),
-                element_name NVARCHAR(255),
-                action_type NVARCHAR(100),
-                xpath NVARCHAR(1000),
-                [values] NVARCHAR(500),
-                expected_result NVARCHAR(500),
-                actual_result NVARCHAR(500),
+                test_step_description NVARCHAR(MAX),
+                element_name NVARCHAR(MAX),
+                action_type NVARCHAR(MAX),
+                xpath NVARCHAR(MAX),
+                [values] NVARCHAR(MAX),
+                expected_result NVARCHAR(MAX),
+                actual_result NVARCHAR(MAX),
                 status NVARCHAR(20) DEFAULT 'Not Executed',
-                page NVARCHAR(255) NULL
+                page NVARCHAR(MAX) NULL
             )
         """)
+        ensure_test_steps_columns_unlimited(cursor, target_table)
         
         # Get the proper testcase_id for the target test case
         cursor.execute("SELECT testcase_id FROM TestCases WHERE name = ?", (target_testcase_name,))
@@ -470,7 +471,7 @@ def renumber_testcases_after_deletion(cursor, project_name: str, module_name: st
             if tc_id and tc_id.startswith(exact_prefix):
                 # Extract the part after the prefix and before _TC
                 remaining = tc_id[len(exact_prefix):]
-                match = re.match(r'^(.+)_TC(\d{3})$', remaining)
+                match = re.match(r'^(.+)_TC(\d+)$', remaining)
                 if match:
                     tc_name_part = match.group(1)
                     tc_num = int(match.group(2))
@@ -625,7 +626,7 @@ def create_selenium_results_table():
                 step_details NVARCHAR(MAX),
                 browser_info NVARCHAR(500),
                 created_date DATETIME DEFAULT GETUTCDATE(),
-                testcase_id NVARCHAR(255),
+                testcase_id NVARCHAR(MAX),
                 testrun_id NVARCHAR(255),
                 result_id NVARCHAR(255)
             )
@@ -654,7 +655,17 @@ def create_selenium_results_table():
 
         cursor.execute("""
             IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'selenium_results' AND COLUMN_NAME = 'testcase_id')
-            ALTER TABLE selenium_results ADD testcase_id NVARCHAR(255)
+            ALTER TABLE selenium_results ADD testcase_id NVARCHAR(MAX)
+        """)
+        cursor.execute("""
+            IF EXISTS (
+                SELECT 1
+                FROM sys.columns
+                WHERE object_id = OBJECT_ID('selenium_results')
+                  AND name = 'testcase_id'
+                  AND max_length <> -1
+            )
+            ALTER TABLE selenium_results ALTER COLUMN testcase_id NVARCHAR(MAX)
         """)
 
         cursor.execute("""
@@ -709,12 +720,13 @@ def create_testcases_table_if_missing(conn=None):
             IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='TestCases' AND xtype='U')
             CREATE TABLE [dbo].[TestCases] (
                 id INT IDENTITY(1,1) PRIMARY KEY,
-                name NVARCHAR(255) NOT NULL,
+                name NVARCHAR(MAX) NOT NULL,
+                description NVARCHAR(MAX) NULL,
                 status NVARCHAR(50) DEFAULT 'Active',
                 project_id INT NULL,
                 module_id INT NULL,
                 suite_type NVARCHAR(100) NULL,
-                testcase_id NVARCHAR(255) NULL,
+                testcase_id NVARCHAR(MAX) NULL,
                 mapped_excel_file_name NVARCHAR(255) NULL,
                 mapped_excel_sheet_name NVARCHAR(255) NULL,
                 created_date DATETIME DEFAULT GETUTCDATE(),
@@ -736,7 +748,11 @@ def create_testcases_table_if_missing(conn=None):
         """)
         cursor.execute("""
             IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'TestCases' AND COLUMN_NAME = 'testcase_id')
-            ALTER TABLE [dbo].[TestCases] ADD testcase_id NVARCHAR(255) NULL
+            ALTER TABLE [dbo].[TestCases] ADD testcase_id NVARCHAR(MAX) NULL
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'TestCases' AND COLUMN_NAME = 'description')
+            ALTER TABLE [dbo].[TestCases] ADD description NVARCHAR(MAX) NULL
         """)
         cursor.execute("""
             IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'TestCases' AND COLUMN_NAME = 'mapped_excel_file_name')
@@ -756,11 +772,58 @@ def create_testcases_table_if_missing(conn=None):
         """)
 
         cursor.execute("""
-            IF NOT EXISTS (
-                SELECT 1 FROM sys.indexes
-                WHERE name = 'IX_TestCases_Name' AND object_id = OBJECT_ID('[dbo].[TestCases]')
+            IF EXISTS (
+                SELECT 1
+                FROM sys.columns
+                WHERE object_id = OBJECT_ID('[dbo].[TestCases]')
+                  AND name = 'name'
+                  AND max_length <> -1
             )
-            CREATE INDEX IX_TestCases_Name ON [dbo].[TestCases]([name])
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.indexes
+                    WHERE name = 'IX_TestCases_Name' AND object_id = OBJECT_ID('[dbo].[TestCases]')
+                )
+                CREATE INDEX IX_TestCases_Name ON [dbo].[TestCases]([name])
+            END
+        """)
+
+        cursor.execute("""
+            IF EXISTS (
+                SELECT 1
+                FROM sys.columns
+                WHERE object_id = OBJECT_ID('[dbo].[TestCases]')
+                  AND name = 'name'
+                  AND max_length <> -1
+            )
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM sys.indexes
+                    WHERE name = 'IX_TestCases_Name' AND object_id = OBJECT_ID('[dbo].[TestCases]')
+                )
+                DROP INDEX IX_TestCases_Name ON [dbo].[TestCases]
+                ALTER TABLE [dbo].[TestCases] ALTER COLUMN [name] NVARCHAR(MAX) NOT NULL
+            END
+        """)
+        cursor.execute("""
+            IF EXISTS (
+                SELECT 1
+                FROM sys.columns
+                WHERE object_id = OBJECT_ID('[dbo].[TestCases]')
+                  AND name = 'description'
+                  AND max_length <> -1
+            )
+            ALTER TABLE [dbo].[TestCases] ALTER COLUMN description NVARCHAR(MAX) NULL
+        """)
+        cursor.execute("""
+            IF EXISTS (
+                SELECT 1
+                FROM sys.columns
+                WHERE object_id = OBJECT_ID('[dbo].[TestCases]')
+                  AND name = 'testcase_id'
+                  AND max_length <> -1
+            )
+            ALTER TABLE [dbo].[TestCases] ALTER COLUMN testcase_id NVARCHAR(MAX) NULL
         """)
 
         conn.commit()
@@ -892,17 +955,38 @@ def create_pages_table():
                 id INT IDENTITY(1,1) PRIMARY KEY,
                 page_name NVARCHAR(255) NOT NULL,
                 object_name NVARCHAR(255) NOT NULL,
-                xpath NVARCHAR(1000) NOT NULL,
+                xpath NVARCHAR(MAX) NOT NULL,
                 created_at DATETIME DEFAULT GETUTCDATE(),
                 updated_at DATETIME DEFAULT GETUTCDATE()
             )
             """
         )
+        cursor.execute("""
+            IF COL_LENGTH('pages', 'xpath') IS NOT NULL AND COL_LENGTH('pages', 'xpath') <> -1
+            BEGIN
+                ALTER TABLE pages ALTER COLUMN xpath NVARCHAR(MAX) NOT NULL;
+            END
+        """)
         conn.commit()
         conn.close()
         print("[SUCCESS] pages table created/verified")
     except Exception as e:
         print(f"[ERROR] Error creating pages table: {str(e)}")
+
+def ensure_xpath_column_max(cursor, table_name: str, nullable: bool = True) -> None:
+    """Best-effort: widen xpath column to NVARCHAR(MAX) for dynamic test steps tables."""
+    try:
+        escaped_table_name = table_name.replace(']', ']]')
+        table_literal = table_name.replace("'", "''")
+        nullability = "NULL" if nullable else "NOT NULL"
+        cursor.execute(f"""
+            IF COL_LENGTH('{table_literal}', 'xpath') IS NOT NULL AND COL_LENGTH('{table_literal}', 'xpath') <> -1
+            BEGIN
+                ALTER TABLE [{escaped_table_name}] ALTER COLUMN xpath NVARCHAR(MAX) {nullability};
+            END
+        """)
+    except Exception as e:
+        print(f"[WARNING] Could not widen xpath column for {table_name}: {str(e)}")
 
 def create_brd_table_if_not_exists():
     """Create BRD table if it doesn't exist"""
@@ -2006,12 +2090,18 @@ def ensure_extension_xpaths_table(conn) -> bool:
             CREATE TABLE [dbo].[ExtensionXpaths] (
                 id INT IDENTITY(1,1) PRIMARY KEY,
                 element_name NVARCHAR(255) NOT NULL,
-                xpath NVARCHAR(1000) NOT NULL,
+                xpath NVARCHAR(MAX) NOT NULL,
                 page_name NVARCHAR(255) NULL,
                 created_at DATETIME DEFAULT GETDATE(),
                 session_id NVARCHAR(255) NULL
             )
         """)
+    cursor.execute("""
+        IF COL_LENGTH('dbo.ExtensionXpaths', 'xpath') IS NOT NULL AND COL_LENGTH('dbo.ExtensionXpaths', 'xpath') <> -1
+        BEGIN
+            ALTER TABLE [dbo].[ExtensionXpaths] ALTER COLUMN xpath NVARCHAR(MAX) NOT NULL;
+        END
+    """)
 
     cursor.execute("""
         IF COL_LENGTH('dbo.ExtensionXpaths', 'page_url') IS NULL
@@ -2899,6 +2989,7 @@ def update_page_object(object_id):
                         steps_count = count_result[0]
 
                         # Update XPath for all matching steps
+                        ensure_xpath_column_max(cursor, table_name, nullable=True)
                         cursor.execute(f"""
                             UPDATE [{table_name}]
                             SET xpath = ?
@@ -4387,23 +4478,24 @@ def create_testcase():
                 IF OBJECT_ID(N'[dbo].[{escaped_table_name}]', N'U') IS NULL
                 CREATE TABLE [dbo].[{escaped_table_name}] (
                     id INT IDENTITY(1,1) PRIMARY KEY,
-                    tc_id NVARCHAR(50),
+                    tc_id NVARCHAR(MAX),
                     step_no INT,
-                    test_step_description NVARCHAR(500),
-                    element_name NVARCHAR(255),
-                    action_type NVARCHAR(100),
-                    xpath NVARCHAR(1000),
-                    [values] NVARCHAR(500),
-                    expected_result NVARCHAR(500),
-                    actual_result NVARCHAR(500),
+                    test_step_description NVARCHAR(MAX),
+                    element_name NVARCHAR(MAX),
+                    action_type NVARCHAR(MAX),
+                    xpath NVARCHAR(MAX),
+                    [values] NVARCHAR(MAX),
+                    expected_result NVARCHAR(MAX),
+                    actual_result NVARCHAR(MAX),
                     status NVARCHAR(20) DEFAULT 'Not Executed',
-                    page NVARCHAR(255) NULL
+                    page NVARCHAR(MAX) NULL
                 )
             """)
             conn.commit()
             test_steps_table_created = True
         except Exception as table_err:
             print(f"[WARNING] Could not create test steps table '{table_name}': {table_err}")
+        ensure_test_steps_columns_unlimited(cursor, table_name)
 
         conn.close()
         
@@ -4883,17 +4975,17 @@ def create_teststeps_bulk(testcase_name):
             cursor.execute(f"""
                 CREATE TABLE [{table_name}] (
                     id INT IDENTITY(1,1) PRIMARY KEY,
-                    tc_id NVARCHAR(255),
+                    tc_id NVARCHAR(MAX),
                     step_no INT,
-                    test_step_description NVARCHAR(500),
-                    element_name NVARCHAR(255),
-                    action_type NVARCHAR(100),
-                    xpath NVARCHAR(1000),
-                    [values] NVARCHAR(500),
-                    expected_result NVARCHAR(500),
-                    actual_result NVARCHAR(500),
+                    test_step_description NVARCHAR(MAX),
+                    element_name NVARCHAR(MAX),
+                    action_type NVARCHAR(MAX),
+                    xpath NVARCHAR(MAX),
+                    [values] NVARCHAR(MAX),
+                    expected_result NVARCHAR(MAX),
+                    actual_result NVARCHAR(MAX),
                     status NVARCHAR(20) DEFAULT 'Not Executed',
-                    page NVARCHAR(255) NULL
+                    page NVARCHAR(MAX) NULL
                 )
             """)
             print(f"[SUCCESS] Created table {table_name}")
@@ -4908,22 +5000,23 @@ def create_teststeps_bulk(testcase_name):
             cursor.execute(f"""
                 CREATE TABLE [{table_name}] (
                     id INT IDENTITY(1,1) PRIMARY KEY,
-                    tc_id NVARCHAR(255),
+                    tc_id NVARCHAR(MAX),
                     step_no INT,
-                    test_step_description NVARCHAR(500),
-                    element_name NVARCHAR(255),
-                    action_type NVARCHAR(100),
-                    xpath NVARCHAR(1000),
-                    [values] NVARCHAR(500),
-                    expected_result NVARCHAR(500),
-                    actual_result NVARCHAR(500),
+                    test_step_description NVARCHAR(MAX),
+                    element_name NVARCHAR(MAX),
+                    action_type NVARCHAR(MAX),
+                    xpath NVARCHAR(MAX),
+                    [values] NVARCHAR(MAX),
+                    expected_result NVARCHAR(MAX),
+                    actual_result NVARCHAR(MAX),
                     status NVARCHAR(20) DEFAULT 'Not Executed',
-                    page NVARCHAR(255) NULL
+                    page NVARCHAR(MAX) NULL
                 )
             """)
             print(f"[SUCCESS] Created table {table_name}")
         else:
             ensure_page_column_exists(cursor, table_name)
+        ensure_test_steps_columns_unlimited(cursor, table_name)
 
         # Get the proper testcase_id from TestCases table
         cursor.execute("SELECT testcase_id FROM TestCases WHERE name = ?", (testcase_name,))
@@ -4964,8 +5057,31 @@ def ensure_page_column_exists(cursor, table_name):
     """Ensure the 'page' column exists in the given test step table."""
     cursor.execute(f"""
         IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ? AND COLUMN_NAME = 'page')
-        ALTER TABLE [{table_name}] ADD page NVARCHAR(255) NULL
+        ALTER TABLE [{table_name}] ADD page NVARCHAR(MAX) NULL
     """, (table_name,))
+
+def ensure_test_steps_columns_unlimited(cursor, table_name):
+    """Ensure test step text columns are NVARCHAR(MAX) to avoid length caps."""
+    escaped_table_name = table_name.replace(']', ']]')
+    for column_name in [
+        'test_step_description',
+        'element_name',
+        'action_type',
+        'values',
+        'expected_result',
+        'actual_result',
+        'page'
+    ]:
+        cursor.execute(f"""
+            IF EXISTS (
+                SELECT 1
+                FROM sys.columns
+                WHERE object_id = OBJECT_ID(N'[dbo].[{escaped_table_name}]')
+                  AND name = '{column_name}'
+                  AND max_length <> -1
+            )
+            ALTER TABLE [dbo].[{escaped_table_name}] ALTER COLUMN [{column_name}] NVARCHAR(MAX) NULL
+        """)
 
 # Debug endpoint to see what test cases exist
 @app.route('/api/debug-testcases', methods=['GET'])
@@ -5375,14 +5491,14 @@ def debug_id_generation():
             tc_id = row[0]
             if tc_id.startswith(exact_prefix):
                 remaining = tc_id[len(exact_prefix):]
-                if re.match(r'^.+_TC\d{3}$', remaining):
+                if re.match(r'^.+_TC\d+$', remaining):
                     existing_ids.append(row)
         
         # Extract TC numbers
         existing_numbers = []
         for row in existing_ids:
             tc_id = row[0]
-            match = re.search(r'_TC(\d{3})$', tc_id)
+            match = re.search(r'_TC(\d+)$', tc_id)
             if match:
                 tc_num = int(match.group(1))
                 existing_numbers.append(tc_num)
@@ -9357,19 +9473,20 @@ def generate_testcases_from_brd():
                     IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='{table_name}' AND xtype='U')
                     CREATE TABLE [{table_name}] (
                         id INT IDENTITY(1,1) PRIMARY KEY,
-                        tc_id NVARCHAR(255),
+                        tc_id NVARCHAR(MAX),
                         step_no INT,
-                        test_step_description NVARCHAR(500),
-                        element_name NVARCHAR(255),
-                        action_type NVARCHAR(100),
-                        xpath NVARCHAR(1000),
-                        [values] NVARCHAR(500),
-                        expected_result NVARCHAR(500),
-                        actual_result NVARCHAR(500),
+                        test_step_description NVARCHAR(MAX),
+                        element_name NVARCHAR(MAX),
+                        action_type NVARCHAR(MAX),
+                        xpath NVARCHAR(MAX),
+                        [values] NVARCHAR(MAX),
+                        expected_result NVARCHAR(MAX),
+                        actual_result NVARCHAR(MAX),
                         status NVARCHAR(20) DEFAULT 'Not Executed',
-                        page NVARCHAR(255) NULL
+                        page NVARCHAR(MAX) NULL
                     )
                 """)
+                ensure_test_steps_columns_unlimited(cursor, table_name)
 
                 # Insert test steps
                 for step in tc_data.get('test_steps', []):
@@ -10793,3 +10910,5 @@ if __name__ == '__main__':
             ssl_context=ssl_context
         )
   #Working
+
+
