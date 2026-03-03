@@ -973,6 +973,32 @@ def create_pages_table():
     except Exception as e:
         print(f"[ERROR] Error creating pages table: {str(e)}")
 
+def ensure_pages_timestamp_columns(cursor) -> None:
+    """Best-effort: ensure legacy `pages` table has timestamp columns used by update flows."""
+    try:
+        cursor.execute("""
+            IF OBJECT_ID('pages', 'U') IS NOT NULL
+            AND NOT EXISTS (
+                SELECT * FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'pages' AND COLUMN_NAME = 'updated_at'
+            )
+            BEGIN
+                ALTER TABLE pages ADD updated_at DATETIME DEFAULT GETUTCDATE();
+            END
+        """)
+        cursor.execute("""
+            IF OBJECT_ID('pages', 'U') IS NOT NULL
+            AND NOT EXISTS (
+                SELECT * FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'pages' AND COLUMN_NAME = 'created_at'
+            )
+            BEGIN
+                ALTER TABLE pages ADD created_at DATETIME DEFAULT GETUTCDATE();
+            END
+        """)
+    except Exception as e:
+        print(f"[WARNING] Failed to ensure pages timestamp columns: {str(e)}")
+
 def ensure_xpath_column_max(cursor, table_name: str, nullable: bool = True) -> None:
     """Best-effort: widen xpath column to NVARCHAR(MAX) for dynamic test steps tables."""
     try:
@@ -2777,6 +2803,7 @@ def bulk_insert_page_objects():
 
         conn = get_db_connection()
         cursor = conn.cursor()
+        ensure_pages_timestamp_columns(cursor)
 
         # Validate objects and track changes for auto-update
         valid_objects = []
@@ -2930,6 +2957,7 @@ def update_page_object(object_id):
 
         conn = get_db_connection()
         cursor = conn.cursor()
+        ensure_pages_timestamp_columns(cursor)
 
         # Check if object exists and get old values
         cursor.execute("SELECT object_name, xpath, page_name FROM pages WHERE id = ?", (object_id,))
@@ -3063,24 +3091,7 @@ def get_page_objects_changes():
         cursor = conn.cursor()
 
         # Ensure updated_at and created_at columns exist
-        cursor.execute("""
-            IF NOT EXISTS (
-                SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
-                WHERE TABLE_NAME = 'pages' AND COLUMN_NAME = 'updated_at'
-            )
-            BEGIN
-                ALTER TABLE pages ADD updated_at DATETIME DEFAULT GETUTCDATE();
-            END
-        """)
-        cursor.execute("""
-            IF NOT EXISTS (
-                SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
-                WHERE TABLE_NAME = 'pages' AND COLUMN_NAME = 'created_at'
-            )
-            BEGIN
-                ALTER TABLE pages ADD created_at DATETIME DEFAULT GETUTCDATE();
-            END
-        """)
+        ensure_pages_timestamp_columns(cursor)
         conn.commit()
 
         # Query objects modified after timestamp

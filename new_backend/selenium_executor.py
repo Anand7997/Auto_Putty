@@ -2628,16 +2628,20 @@ class SeleniumTestExecutor:
             current_state = checkbox.is_selected()
             print(f"[CURRENT] Current: {current_state} | Target: {should_be_checked}")
             
-            # Only click if state needs to change
-            if current_state != should_be_checked:
-                # JavaScript click works best for ixigo - use it first
+            # Always clear default checked state first for deterministic behavior.
+            if current_state:
                 self.driver.execute_script("arguments[0].click();", checkbox)
-                time.sleep(0.1)  # Minimal wait for UI update
-                
-                action_text = "checked" if should_be_checked else "unchecked"
-                print(f"[SUCCESS] {element_name} {action_text}")
+                time.sleep(0.1)
+                print(f"[CHECKBOX] Cleared default checked state for {element_name}")
+
+            if should_be_checked:
+                post_clear_state = checkbox.is_selected()
+                if not post_clear_state:
+                    self.driver.execute_script("arguments[0].click();", checkbox)
+                    time.sleep(0.1)
+                print(f"[SUCCESS] {element_name} checked")
             else:
-                print(f"[SUCCESS] {element_name} already in desired state")
+                print(f"[SUCCESS] {element_name} unchecked")
             
         except Exception as e:
             print(f"[ERROR] Error with checkbox '{element_name}': {str(e)}")
@@ -3064,9 +3068,20 @@ class SeleniumTestExecutor:
     def perform_robust_text_input(self, element, text):
         """Perform robust text input with error handling"""
         try:
-            # Clear existing text first
+            # Clear existing text first, including default/prefilled values.
+            try:
+                element.click()
+                time.sleep(0.05)
+            except Exception:
+                pass
             element.clear()
             time.sleep(0.1)
+            try:
+                element.send_keys(Keys.CONTROL, "a")
+                element.send_keys(Keys.DELETE)
+                time.sleep(0.05)
+            except Exception:
+                pass
             
             # Type the text
             element.send_keys(text)
@@ -3075,7 +3090,13 @@ class SeleniumTestExecutor:
             print(f"[WARNING] Regular text input failed: {e}")
             try:
                 # Fallback: JavaScript value setting
-                self.driver.execute_script(f"arguments[0].value = '{text}';", element)
+                escaped_text = (text or "").replace("\\", "\\\\").replace("'", "\\'")
+                self.driver.execute_script(
+                    f"arguments[0].value = '{escaped_text}';"
+                    "arguments[0].dispatchEvent(new Event('input', {bubbles:true}));"
+                    "arguments[0].dispatchEvent(new Event('change', {bubbles:true}));",
+                    element
+                )
                 print(f"[SUCCESS] JavaScript text input successful: {text}")
             except Exception as e:
                 print(f"[ERROR] All text input methods failed: {e}")

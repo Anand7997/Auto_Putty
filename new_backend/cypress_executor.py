@@ -385,9 +385,16 @@ describe('{testcase_name}', () => {{
             elif action_type == "HANDLE_CHECKBOX":
                 should_check = test_data.upper() in ["TRUE", "1", "YES"]
                 if should_check:
-                    return f"cy.xpathOrCSS('{xpath_escaped}', true).scrollIntoView().check()"
+                    return (
+                        f"cy.xpathOrCSS('{xpath_escaped}', true).scrollIntoView()"
+                        ".then(($el) => { if ($el.prop('checked')) { cy.wrap($el).uncheck({ force: true }); } })"
+                        ".check({ force: true })"
+                    )
                 else:
-                    return f"cy.xpathOrCSS('{xpath_escaped}', true).scrollIntoView().uncheck()"
+                    return (
+                        f"cy.xpathOrCSS('{xpath_escaped}', true).scrollIntoView()"
+                        ".then(($el) => { if ($el.prop('checked')) { cy.wrap($el).uncheck({ force: true }); } })"
+                    )
 
             elif action_type == "NAVIGATE_TO_URL":
                 return f"cy.visit('{test_data_escaped}')"

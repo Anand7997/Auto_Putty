@@ -627,13 +627,41 @@ class PlaywrightTestExecutor:
         locator.click(timeout=10000)
         self.page.wait_for_timeout(300)
         
-        # Clear the field using Playwright's built-in clear method
-        locator.clear()
-        self.page.wait_for_timeout(200)
+        # Clear any default/prefilled value before typing.
+        self.clear_prefilled_input(locator, element_name)
         
         # Fill the field with the test data
         locator.fill(test_data)
         self.page.wait_for_timeout(300)
+
+    def clear_prefilled_input(self, locator, element_name):
+        """Aggressively clear input field so click-and-type never appends to default values."""
+        try:
+            locator.clear(timeout=3000)
+        except Exception:
+            pass
+
+        try:
+            locator.press("Control+A", timeout=2000)
+            locator.press("Backspace", timeout=2000)
+        except Exception:
+            pass
+
+        try:
+            locator.evaluate(
+                """el => {
+                    if ('value' in el) {
+                        el.value = '';
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }"""
+            )
+        except Exception:
+            pass
+
+        self.page.wait_for_timeout(150)
+        print(f"[CLEAR] Cleared existing value for {element_name}")
 
     def safe_field_interaction_method(self, locator, text, element_name):
         """Safe field interaction method that avoids unwanted scrolling and selecting behaviors."""
@@ -652,9 +680,8 @@ class PlaywrightTestExecutor:
             locator.click(timeout=5000)
             self.page.wait_for_timeout(300)
             
-            # Clear field using Playwright's safe clear method
-            locator.clear()
-            self.page.wait_for_timeout(200)
+            # Clear any default/prefilled value first.
+            self.clear_prefilled_input(locator, element_name)
             
             # Fill the text
             locator.fill(text)
@@ -2315,10 +2342,20 @@ class PlaywrightTestExecutor:
         should_be_checked = test_data.upper() in ["TRUE", "1", "YES"]
         normalized_xpath = self.normalize_selector(xpath)
         checkbox = self.page.locator(normalized_xpath)
-        if should_be_checked:
-            checkbox.check()
-        else:
+        current_state = checkbox.is_checked()
+
+        # Clear default checked state first for deterministic behavior.
+        if current_state:
             checkbox.uncheck()
+            self.page.wait_for_timeout(100)
+            print(f"[CHECKBOX] Cleared default checked state for {element_name}")
+
+        if should_be_checked:
+            if not checkbox.is_checked():
+                checkbox.check()
+            print(f"[CHECKBOX] {element_name} checked")
+        else:
+            print(f"[CHECKBOX] {element_name} unchecked")
 
     # --- Window/Page Management ---
 
