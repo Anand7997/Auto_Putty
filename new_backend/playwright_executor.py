@@ -1814,15 +1814,38 @@ class PlaywrightTestExecutor:
             date_field.click()
             self.page.wait_for_timeout(1000)  # Wait for calendar to appear
 
-            # Parse the input date string
+            # Parse and normalize date input safely.
+            # Supports ISO strings, slash dates, and "Tue, 03 Mar" style UI values.
             try:
-                if date_string.count('/') == 2 and len(date_string.split('/')[2]) == 4:
-                    # DD/MM/YYYY format (for buses)
-                    target_date = datetime.strptime(date_string, "%d/%m/%Y")
-                else:
-                    # "EEE, dd MMM" format (for flights, trains, hotels)
-                    date_with_year = f"{date_string} {datetime.now(pytz.timezone('Asia/Kolkata')).year}"
-                    target_date = datetime.strptime(date_with_year, "%a, %d %b %Y")
+                normalized_date = str(date_string).strip()
+                normalized_date = re.sub(r"\s+", " ", normalized_date)
+                normalized_date = re.sub(r"^(\d{4}-\d{2}-\d{2})\s+\d{4}$", r"\1", normalized_date)
+
+                parse_candidates = [
+                    ("%Y-%m-%d", True),
+                    ("%d/%m/%Y", True),
+                    ("%Y/%m/%d", True),
+                    ("%a, %d %b %Y", True),
+                    ("%a, %d %b", False),
+                    ("%d %b %Y", True),
+                    ("%d %b", False),
+                ]
+
+                target_date = None
+                current_year = datetime.now(pytz.timezone('Asia/Kolkata')).year
+                for fmt, has_year in parse_candidates:
+                    try:
+                        parsed_date = datetime.strptime(normalized_date, fmt)
+                        if has_year:
+                            target_date = parsed_date
+                        else:
+                            target_date = parsed_date.replace(year=current_year)
+                        break
+                    except ValueError:
+                        continue
+
+                if target_date is None:
+                    raise ValueError(f"Unsupported date format: {date_string}")
             except ValueError as e:
                 print(f"[ERROR] Failed to parse date: {date_string}")
                 raise e

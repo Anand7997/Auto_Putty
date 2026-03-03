@@ -79,6 +79,7 @@ class SeleniumTestExecutor:
 
         # Temporary user data directory for Chrome isolation
         self.temp_user_data_dir = None
+        self.last_launch_error = None
 
         # Grid execution configuration
         self.grid_capabilities = {
@@ -100,6 +101,114 @@ class SeleniumTestExecutor:
         print(f"[INIT] Window management enabled with {self.window_switch_timeout}s timeout")
         print(f"[INIT] Grid capabilities configured for remote execution")
         print(f"[INIT] VNC session: {'AVAILABLE' if vnc_session else 'NONE'}")
+
+    def _normalize_chromedriver_path(self, driver_path):
+        """Ensure the selected path points to an executable chromedriver binary."""
+        if not driver_path:
+            return None
+
+        normalized = os.path.normpath(driver_path)
+        lower_name = os.path.basename(normalized).lower()
+
+        # webdriver-manager may occasionally return THIRD_PARTY_NOTICES.chromedriver
+        # instead of the actual executable.
+        if lower_name.startswith("third_party_notices"):
+            candidate_dir = normalized if os.path.isdir(normalized) else os.path.dirname(normalized)
+            candidates = [
+                os.path.join(candidate_dir, "chromedriver.exe"),
+                os.path.join(candidate_dir, "chromedriver"),
+            ]
+            for candidate in candidates:
+                if os.path.exists(candidate):
+                    print(f"[CHROMEDRIVER] Corrected non-executable driver path to: {candidate}")
+                    return candidate
+
+        return normalized
+
+    def _extract_major_version(self, version_text):
+        """Extract major version number from arbitrary version output text."""
+        if not version_text:
+            return None
+        match = re.search(r"\b(\d+)\.(\d+)\.(\d+)\.(\d+)\b", str(version_text))
+        if match:
+            return int(match.group(1))
+        return None
+
+    def _get_windows_chrome_major_from_registry(self):
+        """Read installed Chrome major version from Windows registry."""
+        try:
+            import winreg
+        except Exception:
+            return None
+
+        reg_paths = [
+            (winreg.HKEY_CURRENT_USER, r"Software\Google\Chrome\BLBeacon"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\Google\Chrome\BLBeacon"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Google\Chrome\BLBeacon"),
+        ]
+
+        for hive, path in reg_paths:
+            try:
+                with winreg.OpenKey(hive, path) as key:
+                    version, _ = winreg.QueryValueEx(key, "version")
+                    major = self._extract_major_version(version)
+                    if major:
+                        print(f"[CHROME_BINARY] Registry version: {version}")
+                        return major
+            except Exception:
+                continue
+
+        return None
+
+    def _get_binary_version_output(self, binary_path):
+        """Return '--version' output for a binary, or empty string on failure."""
+        try:
+            result = subprocess.run([binary_path, '--version'], capture_output=True, text=True, timeout=10)
+            return (result.stdout or result.stderr or "").strip()
+        except Exception:
+            return ""
+
+    def _install_windows_chromedriver(self, chrome_major=None):
+        """Install chromedriver on Windows with best-effort version targeting."""
+        install_errors = []
+
+        # Try explicit major version first when available.
+        if chrome_major:
+            try:
+                path = ChromeDriverManager(driver_version=str(chrome_major)).install()
+                path = self._normalize_chromedriver_path(path)
+                if path and os.path.exists(path):
+                    print(f"[CHROMEDRIVER] Downloaded major-matched driver for Chrome {chrome_major}: {path}")
+                    return path
+            except Exception as e:
+                install_errors.append(f"major={chrome_major}: {e}")
+
+        # Fallback to default resolver.
+        try:
+            path = ChromeDriverManager().install()
+            path = self._normalize_chromedriver_path(path)
+            if path and os.path.exists(path):
+                print(f"[CHROMEDRIVER] Downloaded driver with default resolver: {path}")
+                return path
+        except Exception as e:
+            install_errors.append(f"default: {e}")
+
+        raise RuntimeError(" | ".join(install_errors) if install_errors else "Unable to install ChromeDriver")
+
+    def _sync_driver_to_bundled_path(self, source_path):
+        """Copy downloaded driver into project bundled location for future offline runs."""
+        try:
+            import shutil
+            bundled_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Chrome_driver")
+            os.makedirs(bundled_dir, exist_ok=True)
+            target_path = os.path.join(bundled_dir, "chromedriver.exe")
+            if os.path.abspath(source_path) != os.path.abspath(target_path):
+                shutil.copy2(source_path, target_path)
+                print(f"[CHROMEDRIVER] Updated bundled driver cache: {target_path}")
+            return target_path
+        except Exception as copy_error:
+            print(f"[CHROMEDRIVER] Warning: could not update bundled cache: {copy_error}")
+            return source_path
     
     def clear_old_allure_results(self):
         """Manage allure results - keep history but limit file count"""
@@ -836,6 +945,8 @@ class SeleniumTestExecutor:
             self.viewing_session_id = str(uuid.uuid4())
             print(f"[REMOTE_VIEWING] Generated session ID: {self.viewing_session_id}")
 
+        self.last_launch_error = None
+
         try:
             print("[SETUP] Setting up Chrome options...")
             chrome_options = webdriver.ChromeOptions()
@@ -848,8 +959,6 @@ class SeleniumTestExecutor:
 
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
-            if not self.enable_remote_viewing:
-                chrome_options.add_argument("--disable-software-rasterizer")
             # Use a dynamic DevTools port to avoid collisions across parallel/stale sessions
             chrome_options.add_argument("--remote-debugging-port=0")
             chrome_options.add_argument("--disable-extensions")
@@ -857,7 +966,6 @@ class SeleniumTestExecutor:
             chrome_options.add_argument("--disable-images")
             chrome_options.add_argument("--disable-web-security")
             chrome_options.add_argument("--allow-running-insecure-content")
-            chrome_options.add_argument("--use-gl=swiftshader")
             chrome_options.add_argument("--disable-features=TranslateUI")
             chrome_options.add_argument("--disable-hang-monitor")
             chrome_options.add_argument("--disable-prompt-on-repost")
@@ -883,6 +991,9 @@ class SeleniumTestExecutor:
 
             if not self.enable_remote_viewing and self.headless:
                 chrome_options.add_argument("--headless=new")
+                # Headless-only rendering stability flags
+                chrome_options.add_argument("--disable-software-rasterizer")
+                chrome_options.add_argument("--use-gl=swiftshader")
                 print("[HEADLESS] Enabled")
             else:
                 chrome_options.add_argument("--window-size=1280,720")
@@ -935,20 +1046,30 @@ class SeleniumTestExecutor:
                 print("[ERROR] Chrome not found at any location")
                 if current_os == "windows":
                     print("[ERROR] Checked: PATH, C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe, C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe")
+                self.last_launch_error = "Chrome browser binary was not found on this machine."
                 return False
 
             chrome_options.binary_location = chrome_binary
             print(f"[CHROME_BINARY] {chrome_binary}")
 
             # Check Chrome version
+            chrome_version_output = ""
+            chrome_major_version = None
             try:
                 result = subprocess.run([chrome_binary, '--version'], capture_output=True, text=True, timeout=10)
                 if result.returncode == 0:
-                    print(f"[CHROME_BINARY] Version: {result.stdout.strip()}")
+                    chrome_version_output = (result.stdout or "").strip()
+                    print(f"[CHROME_BINARY] Version: {chrome_version_output}")
                 else:
-                    print(f"[CHROME_BINARY] Could not get version: {result.stderr}")
+                    chrome_version_output = (result.stderr or "").strip()
+                    print(f"[CHROME_BINARY] Could not get version: {chrome_version_output}")
             except Exception as version_error:
                 print(f"[CHROME_BINARY] Error checking version: {version_error}")
+            chrome_major_version = self._extract_major_version(chrome_version_output)
+            if current_os == "windows" and not chrome_major_version:
+                chrome_major_version = self._get_windows_chrome_major_from_registry()
+                if chrome_major_version:
+                    print(f"[CHROME_BINARY] Resolved major version from registry: {chrome_major_version}")
 
             from selenium.webdriver.chrome.service import Service
 
@@ -988,17 +1109,59 @@ class SeleniumTestExecutor:
                     print(f"[CHROMEDRIVER] Error checking version: {version_error}")
 
             else:
-                driver_path = ChromeDriverManager().install()
+                bundled_driver = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Chrome_driver", "chromedriver.exe")
+                using_bundled_driver = False
+                if os.path.exists(bundled_driver):
+                    driver_path = bundled_driver
+                    using_bundled_driver = True
+                    print(f"[CHROMEDRIVER] Using bundled driver: {driver_path}")
+                    bundled_version_output = self._get_binary_version_output(driver_path)
+                    bundled_major_version = self._extract_major_version(bundled_version_output)
+                    if bundled_major_version:
+                        print(f"[CHROMEDRIVER] Bundled version: {bundled_version_output}")
+                    if chrome_major_version and bundled_major_version and bundled_major_version != chrome_major_version:
+                        print(
+                            f"[CHROMEDRIVER] Bundled driver major {bundled_major_version} != "
+                            f"Chrome major {chrome_major_version}. Auto-updating driver."
+                        )
+                        driver_path = self._install_windows_chromedriver(chrome_major_version)
+                        driver_path = self._sync_driver_to_bundled_path(driver_path)
+                        using_bundled_driver = False
+                else:
+                    driver_path = self._install_windows_chromedriver(chrome_major_version)
+                    driver_path = self._sync_driver_to_bundled_path(driver_path)
+
+                driver_path = self._normalize_chromedriver_path(driver_path)
+                if not driver_path or not os.path.exists(driver_path):
+                    raise RuntimeError(f"Resolved ChromeDriver path is invalid: {driver_path}")
+
                 service = Service(driver_path)
-                print(f"[CHROMEDRIVER] Using WebDriver Manager: {driver_path}")
 
             print("[WEBDRIVER] Creating Chrome WebDriver...")
             try:
                 self.driver = webdriver.Chrome(service=service, options=chrome_options)
             except Exception as primary_launch_error:
                 print(f"[WEBDRIVER] Primary browser launch failed: {primary_launch_error}")
+                primary_error_text = str(primary_launch_error).lower()
+
+                # Windows/local mode fallback: if bundled driver is stale, download matching driver.
+                if current_os == "windows" and 'using_bundled_driver' in locals() and using_bundled_driver and "only supports chrome version" in primary_error_text:
+                    print("[WEBDRIVER] Bundled ChromeDriver version mismatch detected. Retrying with WebDriver Manager.")
+                    driver_path = self._install_windows_chromedriver(chrome_major_version)
+                    driver_path = self._sync_driver_to_bundled_path(driver_path)
+                    if not driver_path or not os.path.exists(driver_path):
+                        raise RuntimeError(f"Resolved ChromeDriver path is invalid after fallback: {driver_path}")
+                    service = Service(driver_path)
+                    print(f"[CHROMEDRIVER] Fallback WebDriver Manager driver: {driver_path}")
+                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                    print("[WEBDRIVER] Launch succeeded using fallback ChromeDriver.")
+                # Final Windows fallback: use Selenium Manager (no explicit service).
+                elif current_os == "windows":
+                    print("[WEBDRIVER] Retrying with Selenium Manager (no explicit chromedriver service).")
+                    self.driver = webdriver.Chrome(options=chrome_options)
+                    print("[WEBDRIVER] Launch succeeded using Selenium Manager.")
                 # In server mode, recover from unstable DISPLAY/VNC by falling back to headless.
-                if self.server_execution and not self.headless:
+                elif self.server_execution and not self.headless:
                     print("[WEBDRIVER] Retrying launch in headless mode (server fallback)")
                     self.headless = True
                     self.enable_remote_viewing = False
@@ -1027,6 +1190,7 @@ class SeleniumTestExecutor:
         except Exception as e:
             print("[ERROR] Browser launch failed")
             print(traceback.format_exc())
+            self.last_launch_error = f"{e}\n{traceback.format_exc()}"
 
             try:
                 if self.driver:
@@ -1091,7 +1255,8 @@ class SeleniumTestExecutor:
                     try:
                         if not self.launch_browser():
                             print("[ERROR] Browser launch returned False")
-                            raise Exception("Failed to launch browser - launch_browser() returned False")
+                            details = self.last_launch_error or "launch_browser() returned False"
+                            raise Exception(f"Failed to launch browser - {details}")
                         print("[BROWSER] Browser launched successfully")
                         # Initialize window/tab tracking after successful launch
                         self.initialize_window_tracking()
@@ -1100,7 +1265,7 @@ class SeleniumTestExecutor:
                         print(f"[ERROR] Browser launch exception type: {type(e).__name__}")
                         import traceback
                         print(f"[ERROR] Browser launch traceback: {traceback.format_exc()}")
-                        raise Exception(f"Failed to launch browser: {str(e)}")
+                        raise Exception(f"Failed to launch browser: {str(e)}") from e
                 
                 # Execute each step based on isolation mode
                 for i, step in enumerate(test_steps, 1):
@@ -2263,15 +2428,38 @@ class SeleniumTestExecutor:
             self.perform_robust_click(date_field)
             time.sleep(1)  # Wait for calendar to appear
             
-            # Parse the input date string
+            # Parse and normalize date input safely.
+            # Supports ISO strings, slash dates, and "Tue, 03 Mar" style UI values.
             try:
-                if date_string.count('/') == 2 and len(date_string.split('/')[2]) == 4:
-                    # DD/MM/YYYY format (for buses)
-                    target_date = datetime.strptime(date_string, "%d/%m/%Y")
-                else:
-                    # "EEE, dd MMM" format (for flights, trains, hotels)
-                    date_with_year = f"{date_string} {datetime.now(pytz.timezone('Asia/Kolkata')).year}"
-                    target_date = datetime.strptime(date_with_year, "%a, %d %b %Y")
+                normalized_date = str(date_string).strip()
+                normalized_date = re.sub(r"\s+", " ", normalized_date)
+                normalized_date = re.sub(r"^(\d{4}-\d{2}-\d{2})\s+\d{4}$", r"\1", normalized_date)
+
+                parse_candidates = [
+                    ("%Y-%m-%d", True),
+                    ("%d/%m/%Y", True),
+                    ("%Y/%m/%d", True),
+                    ("%a, %d %b %Y", True),
+                    ("%a, %d %b", False),
+                    ("%d %b %Y", True),
+                    ("%d %b", False),
+                ]
+
+                target_date = None
+                current_year = datetime.now(pytz.timezone('Asia/Kolkata')).year
+                for fmt, has_year in parse_candidates:
+                    try:
+                        parsed_date = datetime.strptime(normalized_date, fmt)
+                        if has_year:
+                            target_date = parsed_date
+                        else:
+                            target_date = parsed_date.replace(year=current_year)
+                        break
+                    except ValueError:
+                        continue
+
+                if target_date is None:
+                    raise ValueError(f"Unsupported date format: {date_string}")
             except ValueError as e:
                 print(f"[ERROR] Failed to parse date: {date_string}")
                 raise e
