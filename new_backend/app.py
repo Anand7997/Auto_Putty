@@ -6108,11 +6108,31 @@ def execute_server():
             vnc_session_info=vnc_session_info,
         )
 
+        execution_results[execution_id] = {
+            'status': 'running',
+            'execution_id': execution_id,
+            'user_email': user_email,
+            'started_at': format_timestamp(datetime.now(pytz.timezone('Asia/Kolkata'))),
+            'executor_type': executor_type,
+            'test_cases_count': len(test_cases),
+            'results': []
+        }
+
         def run_execution():
             try:
                 print(f"[SERVER_EXECUTE] Background execution started: {execution_id}")
                 results = server_manager.execute()
                 print(f"[SERVER_EXECUTE] Background execution completed: {execution_id}")
+
+                results = results or []
+                pass_count = 0
+                fail_count = 0
+                for result in results:
+                    final_status = str(result.get('overall_status') or result.get('status') or '').upper()
+                    if final_status == 'PASS':
+                        pass_count += 1
+                    else:
+                        fail_count += 1
 
                 if results:
                     for result in results:
@@ -6130,10 +6150,37 @@ def execute_server():
                 except Exception as report_err:
                     print(f"[ALLURE] Report generation failed: {report_err}")
 
+                execution_results[execution_id] = {
+                    'status': 'completed',
+                    'execution_id': execution_id,
+                    'user_email': user_email,
+                    'started_at': execution_results.get(execution_id, {}).get('started_at'),
+                    'completed_at': format_timestamp(datetime.now(pytz.timezone('Asia/Kolkata'))),
+                    'executor_type': executor_type,
+                    'test_cases_count': len(test_cases),
+                    'results': results,
+                    'summary': {
+                        'total': len(results),
+                        'passed': pass_count,
+                        'failed': fail_count
+                    }
+                }
+
             except Exception as e:
                 print(f"[SERVER_EXECUTE] Execution failed: {e}")
                 import traceback
                 traceback.print_exc()
+                execution_results[execution_id] = {
+                    'status': 'failed',
+                    'execution_id': execution_id,
+                    'user_email': user_email,
+                    'started_at': execution_results.get(execution_id, {}).get('started_at'),
+                    'completed_at': format_timestamp(datetime.now(pytz.timezone('Asia/Kolkata'))),
+                    'executor_type': executor_type,
+                    'test_cases_count': len(test_cases),
+                    'error': str(e),
+                    'results': []
+                }
 
         execution_thread = threading.Thread(
             target=run_execution,
@@ -6178,6 +6225,42 @@ def execute_server():
         return jsonify({
             "success": False,
             "error": str(e)
+        }), 500
+
+
+@app.route('/api/execute/server/status/<execution_id>', methods=['GET'])
+def get_execute_server_status(execution_id):
+    """Get status for a server execution started via /api/execute/server"""
+    try:
+        current_user_email = request.headers.get('X-User-Email')
+        if not current_user_email:
+            return jsonify({'error': 'Authentication required'}), 401
+
+        execution_data = execution_results.get(execution_id)
+        if not execution_data:
+            return jsonify({'error': 'Execution not found'}), 404
+
+        owner_email = execution_data.get('user_email')
+        if owner_email and owner_email != current_user_email:
+            return jsonify({'error': 'Not authorized to view this execution'}), 403
+
+        return jsonify({
+            'success': True,
+            'execution_id': execution_id,
+            'status': execution_data.get('status', 'unknown'),
+            'started_at': execution_data.get('started_at'),
+            'completed_at': execution_data.get('completed_at'),
+            'executor_type': execution_data.get('executor_type'),
+            'test_cases_count': execution_data.get('test_cases_count', 0),
+            'summary': execution_data.get('summary', {}),
+            'results': execution_data.get('results', []),
+            'error': execution_data.get('error')
+        }), 200
+    except Exception as e:
+        print(f"[SERVER_EXECUTE_STATUS_ERROR] {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
         }), 500
 
 

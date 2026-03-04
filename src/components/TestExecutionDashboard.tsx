@@ -931,6 +931,121 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
     }
   };
 
+  const normalizeServerExecutionResults = (results: any[], executionId: string) => {
+    return (results || []).map((result: any) => {
+      const finalStatus = String(result.overall_status || result.status || 'FAIL').toUpperCase();
+      const mappedStatus = finalStatus === 'PASS' ? 'PASS' : 'FAIL';
+      return {
+        testCase: result.testcase_name || result.testCase || 'Unknown Test',
+        status: mappedStatus,
+        result,
+        execution_id: result.execution_id || executionId,
+        testrun_id: result.testrun_id,
+        result_id: result.result_id,
+        error: mappedStatus === 'FAIL' ? (result.error || result.error_message || result.message) : undefined
+      };
+    });
+  };
+
+  const monitorServerExecution = async (executionId: string) => {
+    const pollIntervalMs = 5000;
+    const maxAttempts = 180; // 15 minutes
+
+    const savedUser = localStorage.getItem('qfast_user');
+    const userEmail = savedUser ? JSON.parse(savedUser).email : null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const statusResponse = await fetch(
+          buildApiUrl(`/api/execute/server/status/${encodeURIComponent(executionId)}`),
+          {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(userEmail && { 'X-User-Email': userEmail }),
+            }
+          }
+        );
+
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json();
+          const status = String(statusData?.status || '').toLowerCase();
+
+          if (status === 'completed') {
+            const serverResults = normalizeServerExecutionResults(statusData.results || [], executionId);
+            const passedCount = serverResults.filter(r => r.status === 'PASS').length;
+            const failedCount = serverResults.filter(r => r.status === 'FAIL').length;
+
+            setLastExecutionResults(serverResults);
+
+            try {
+              const existingResults = JSON.parse(localStorage.getItem('recentExecutionResults') || '[]');
+              const retainedResults = existingResults.filter((item: any) => item.execution_id !== executionId);
+              const executionBatch = Date.now();
+              const completionResults = serverResults.map(result => ({
+                ...result,
+                timestamp: new Date().toISOString(),
+                executionBatch,
+                executionMode: 'server'
+              }));
+              const updatedResults = [...completionResults, ...retainedResults].slice(0, 100);
+              localStorage.setItem('recentExecutionResults', JSON.stringify(updatedResults));
+            } catch (storageError) {
+              console.error('Failed to update server execution results in localStorage:', storageError);
+            }
+
+            toast({
+              title: "Server Execution Completed",
+              description: `${passedCount} passed, ${failedCount} failed. Check Test Results for detailed reports.`,
+            });
+
+            window.dispatchEvent(new CustomEvent('testExecutionCompleted', {
+              detail: {
+                results: serverResults,
+                timestamp: new Date().toISOString(),
+                executionMode: 'server',
+                execution_id: executionId
+              }
+            }));
+            return;
+          }
+
+          if (status === 'failed') {
+            const errorMessage = statusData?.error || 'Server execution failed';
+            toast({
+              title: "Server Execution Failed",
+              description: `${errorMessage}. Check Test Results/Monitor for details.`,
+              variant: "destructive"
+            });
+
+            window.dispatchEvent(new CustomEvent('testExecutionCompleted', {
+              detail: {
+                results: [],
+                timestamp: new Date().toISOString(),
+                executionMode: 'server',
+                execution_id: executionId,
+                error: errorMessage
+              }
+            }));
+            return;
+          }
+        } else if (statusResponse.status !== 404) {
+          console.warn(`[SERVER_POLL] Status API returned ${statusResponse.status} for execution ${executionId}`);
+        }
+      } catch (pollError) {
+        console.warn(`[SERVER_POLL] Error checking status for execution ${executionId}:`, pollError);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    }
+
+    toast({
+      title: "Server Execution Still Running",
+      description: "Execution is still in progress. Check Monitor/Test Results in a few minutes.",
+      variant: "default"
+    });
+  };
+
   const handleKillVNC = async () => {
     if (!currentUserEmail) {
       toast({
@@ -1245,15 +1360,8 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
       // Reset selections after successful execution start
       setSelectedTestCases([]);
 
-      // Trigger a refresh of test results if there's a way to do so
-      window.dispatchEvent(new CustomEvent('testExecutionCompleted', {
-        detail: {
-          results: [],
-          timestamp: new Date().toISOString(),
-          executionMode: 'server',
-          execution_id: executionData.execution_id
-        }
-      }));
+      // Start polling for completion so server mode shows final status like local execution
+      monitorServerExecution(executionData.execution_id);
 
     } catch (error) {
       console.error('❌ Server execution error:', error);
