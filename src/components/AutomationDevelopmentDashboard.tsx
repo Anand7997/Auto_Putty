@@ -1632,21 +1632,6 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
                     </Button> */}
                     
                     <Button 
-                      onClick={() => {
-                        // Force enable full editing mode
-                        toast({
-                          title: "âœ… Editing Mode Active",
-                          description: "All test steps are now fully editable with CRUD operations",
-                        });
-                      }}
-                      className="bg-purple-500 hover:bg-purple-600"
-                      disabled={!selectedTestCase}
-                    >
-                      <Edit className="w-4 h-4 mr-2" />
-                      Enable Full Editing
-                    </Button>
-                    
-                    <Button 
                       onClick={() => setShowSaveDialog(true)}
                       className="bg-purple-500 hover:bg-purple-600"
                       disabled={testSteps.length === 0}

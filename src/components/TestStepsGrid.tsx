@@ -581,20 +581,9 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
             <p className="text-gray-500 mb-4">
               {readOnlyMode
                 ? "No test steps are available for this test case. Test steps are read-only in this view."
-                : "Start by adding your first test step using the button below"
+                : "Start by adding your first test step using the Add Step button"
               }
             </p>
-            {!readOnlyMode && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleAddNewStep}
-                className="border-blue-200 text-blue-600 hover:bg-blue-50"
-              >
-                <PlusCircle className="w-4 h-4 mr-2" />
-                Add First Step
-              </Button>
-            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -978,5 +967,3 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
 TestStepsGrid.displayName = 'TestStepsGrid';
 
 export default TestStepsGrid;
-
-
