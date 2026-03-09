@@ -5146,7 +5146,7 @@ def debug_vnc_counts():
         counts = vnc_manager.get_user_execution_counts()
         return jsonify({
             'user_execution_counts': counts,
-            'max_parallel_executions': 4
+            'max_parallel_executions': 10
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
