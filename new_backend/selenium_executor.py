@@ -1408,13 +1408,15 @@ class SeleniumTestExecutor:
     
     def execute_step(self, step, step_number):
         """Execute a single test step with 10-second timeout"""
+        normalized_action_type = self.normalize_action_type(step.get('action_type', ''))
         step_result = {
             'tc_id': step.get('tc_id', ''),
             'step_no': step_number,
             'description': step.get('test_step_description', ''),
             'test_step_description': step.get('test_step_description', ''),
             'element_name': step.get('element_name', ''),
-            'action_type': step.get('action_type', ''),
+            # Persist normalized action type so execution history reflects actual runtime behavior.
+            'action_type': normalized_action_type,
             'xpath': step.get('xpath', ''),
             'values': step.get('values', ''),
             'status': 'UNKNOWN',
@@ -1534,13 +1536,15 @@ class SeleniumTestExecutor:
     
     def execute_step_with_isolation(self, step, step_number):
         """Execute a single test step with proper isolation to prevent failures from affecting other elements"""
+        normalized_action_type = self.normalize_action_type(step.get('action_type', ''))
         step_result = {
             'tc_id': step.get('tc_id', ''),
             'step_no': step_number,
             'description': step.get('test_step_description', ''),
             'test_step_description': step.get('test_step_description', ''),
             'element_name': step.get('element_name', ''),
-            'action_type': step.get('action_type', ''),
+            # Persist normalized action type so execution history reflects actual runtime behavior.
+            'action_type': normalized_action_type,
             'xpath': step.get('xpath', ''),
             'values': step.get('values', ''),
             'status': 'UNKNOWN',
@@ -2227,6 +2231,26 @@ class SeleniumTestExecutor:
                 except Exception as e:
                     print(f"[UNIFIED_SELECT] Age selection error: {str(e)}")
                     raise e
+
+            elif selection_type == "COUNT_SELECTION":
+                # Handle count selection for rooms/adults/children (legacy SELECT_COUNT behavior)
+                try:
+                    print(f"[UNIFIED_SELECT] Handling count selection for {element_name}")
+                    if element_name.upper() == "ROOMSCOUNT":
+                        self.set_count_by_increment("room", int(test_data))
+                    elif element_name.upper() == "ADULTSCOUNT":
+                        self.set_count_by_increment("adult", int(test_data))
+                    elif element_name.upper() == "CHILDRENCOUNT":
+                        children_count = int(test_data)
+                        self.set_count_by_increment("children", children_count)
+                        if children_count > 0:
+                            self.wait_for_child_age_dropdowns(children_count)
+                    else:
+                        # Fallback for other count-like flows
+                        self.handle_count_selection_fast(test_data, xpath, element_name)
+                except Exception as e:
+                    print(f"[UNIFIED_SELECT] Count selection error: {str(e)}")
+                    raise e
                     
             elif selection_type == "GENERIC_CLICK":
                 # Handle generic element click
@@ -2271,6 +2295,11 @@ class SeleniumTestExecutor:
                 return "AGE_SELECTION"
             if element_name.upper().startswith("CHILD ") and test_data.isdigit():
                 return "AGE_SELECTION"
+
+            # Check for count selection (legacy SELECT_COUNT behavior)
+            count_element_names = {"ROOMSCOUNT", "ADULTSCOUNT", "CHILDRENCOUNT"}
+            if element_name.upper() in count_element_names and test_data and str(test_data).strip().isdigit():
+                return "COUNT_SELECTION"
             
             # Check for quick date selection
             quick_date_keywords = ["today", "tomorrow", "day after", "day-after-tomorrow"]

@@ -16,16 +16,31 @@ from cypress_executor import CypressTestExecutor
 
 # Optional imports from main app
 try:
-    from new_backend.app import generate_unique_table_name, sanitize_table_name, generate_testrun_id, generate_result_id, format_timestamp
+    from new_backend.app import (
+        generate_unique_table_name,
+        sanitize_table_name,
+        generate_testrun_id,
+        generate_result_id,
+        format_timestamp,
+        get_db_connection,
+    )
 except ImportError:
     try:
-        from app import generate_unique_table_name, sanitize_table_name, generate_testrun_id, generate_result_id, format_timestamp
+        from app import (
+            generate_unique_table_name,
+            sanitize_table_name,
+            generate_testrun_id,
+            generate_result_id,
+            format_timestamp,
+            get_db_connection,
+        )
     except ImportError:
         generate_unique_table_name = None
         sanitize_table_name = None
         generate_testrun_id = None
         generate_result_id = None
         format_timestamp = None
+        get_db_connection = None
 
 # VNC session managers
 try:
@@ -452,6 +467,12 @@ class ServerExecutionManager:
     # -------------------------------------------------------
 
     def _get_db_connection(self):
+        if callable(get_db_connection):
+            try:
+                return get_db_connection()
+            except Exception as e:
+                print(f"[SERVER_DB] App DB connection unavailable, using fallback config: {e}")
+
         conn_str = (
             f"DRIVER={{{self.DB_CONFIG['driver']}}};"
             f"SERVER={self.DB_CONFIG['server']};"
@@ -466,16 +487,36 @@ class ServerExecutionManager:
         cursor = conn.cursor()
 
         name = test_case.get("name")
+        table = None
 
-        table = self._generate_unique_table_name(
-            test_case.get("project", ""),
-            test_case.get("module", ""),
-            name,
+        try:
+            # Resolve table using testcase metadata from DB (same strategy as local execution).
+            cursor.execute("""
+                SELECT COALESCE(p1.name, p2.name, 'Unknown') as project_name,
+                       COALESCE(m.module_name, 'Unknown') as module_name
+                FROM TestCases tc
+                LEFT JOIN Modules m ON tc.module_id = m.id
+                LEFT JOIN Projects p1 ON tc.project_id = p1.id
+                LEFT JOIN Projects p2 ON m.project_id = p2.id
+                WHERE tc.name = ?
+            """, (name,))
+            metadata = cursor.fetchone()
+            if metadata:
+                table = self._generate_unique_table_name(metadata[0], metadata[1], name)
+        except Exception as e:
+            print(f"[SERVER_EXEC] Table resolution by metadata failed for '{name}': {e}")
+
+        if not table:
+            table = self._generate_unique_table_name(
+                test_case.get("project", ""),
+                test_case.get("module", ""),
+                name,
+            )
+
+        cursor.execute(
+            f"SELECT tc_id, step_no, test_step_description, element_name, action_type, xpath, [values] FROM [{table}] ORDER BY step_no"
         )
-
-        cursor.execute(f"SELECT * FROM [{table}] ORDER BY step_no")
         rows = cursor.fetchall()
-        conn.close()
 
         steps = []
         for r in rows:
@@ -488,7 +529,168 @@ class ServerExecutionManager:
                 "values": r.values,
             })
 
+        # Mirror local execution behavior: apply Excel mapping when with_values is enabled.
+        with_values = bool(test_case.get("with_values"))
+        value_set_index = test_case.get("value_set_index")
+        if with_values and value_set_index is not None:
+            try:
+                mapped = self._apply_excel_values_to_steps(cursor, name, steps, value_set_index)
+                if mapped:
+                    steps = mapped
+            except Exception as e:
+                print(f"[SERVER_EXEC] Excel mapping skipped for '{name}': {e}")
+
+        conn.close()
+
         return steps
+
+    def _apply_excel_values_to_steps(self, cursor, testcase_name, steps, value_set_index):
+        if not steps:
+            return steps
+
+        try:
+            value_set_index = int(value_set_index)
+        except Exception:
+            print(f"[SERVER_EXEC] Invalid value_set_index '{value_set_index}' for {testcase_name}")
+            return steps
+
+        cursor.execute("""
+            SELECT TOP 1 v.original_name, em.sheet_name
+            FROM [dbo].[ExcelMapping] em
+            INNER JOIN [dbo].[TestCases] tc ON tc.id = em.testcase_id
+            LEFT JOIN [dbo].[Values] v ON v.id = em.excel_file_id
+            WHERE tc.name = ?
+        """, (testcase_name,))
+        result = cursor.fetchone()
+
+        if not result or not result[0]:
+            cursor.execute("""
+                SELECT mapped_excel_file_name, mapped_excel_sheet_name
+                FROM [dbo].[TestCases]
+                WHERE name = ?
+            """, (testcase_name,))
+            result = cursor.fetchone()
+
+        mapped_excel_name = result[0] if result and result[0] else None
+        mapped_sheet_name = result[1] if result and len(result) > 1 and result[1] else None
+
+        if not mapped_excel_name:
+            print(f"[SERVER_EXEC] No mapped Excel file for {testcase_name}")
+            return steps
+
+        cursor.execute("""
+            SELECT TOP 1 file_path
+            FROM [dbo].[Values]
+            WHERE original_name = ? AND status = 'Active'
+            ORDER BY id DESC
+        """, (mapped_excel_name,))
+        file_row = cursor.fetchone()
+
+        if not file_row:
+            cursor.execute("""
+                SELECT TOP 1 file_path
+                FROM [dbo].[Values]
+                WHERE LOWER(original_name) = LOWER(?) AND status = 'Active'
+                ORDER BY id DESC
+            """, (mapped_excel_name,))
+            file_row = cursor.fetchone()
+
+        if not file_row or not file_row[0] or not os.path.exists(file_row[0]):
+            print(f"[SERVER_EXEC] Mapped Excel file not found for {testcase_name}: {mapped_excel_name}")
+            return steps
+
+        from openpyxl import load_workbook
+
+        file_path = file_row[0]
+        workbook = load_workbook(file_path, data_only=True, read_only=True)
+        try:
+            if not workbook.sheetnames:
+                return steps
+
+            if mapped_sheet_name and mapped_sheet_name in workbook.sheetnames:
+                sheet = workbook[mapped_sheet_name]
+            else:
+                sheet = workbook[workbook.sheetnames[0]]
+
+            all_rows = list(sheet.iter_rows(values_only=True))
+            if not all_rows:
+                return steps
+
+            headers = list(all_rows[0]) if all_rows else []
+            data_rows = all_rows[1:] if len(all_rows) > 1 else []
+
+            active_col_indices = []
+            for col_idx, header_value in enumerate(headers):
+                header_text = '' if header_value is None else str(header_value).strip()
+                has_non_empty_data = any(
+                    (col_idx < len(row_vals))
+                    and (row_vals[col_idx] is not None)
+                    and str(row_vals[col_idx]).strip() != ''
+                    for row_vals in data_rows
+                )
+                if header_text != '' or has_non_empty_data:
+                    active_col_indices.append(col_idx)
+
+            active_row_indices = []
+            for row_idx, row_vals in enumerate(data_rows):
+                has_non_empty_data = any(
+                    (actual_col_idx < len(row_vals))
+                    and (row_vals[actual_col_idx] is not None)
+                    and str(row_vals[actual_col_idx]).strip() != ''
+                    for actual_col_idx in active_col_indices
+                )
+                if has_non_empty_data:
+                    active_row_indices.append(row_idx)
+
+            num_cols = len(active_col_indices)
+            if value_set_index < 0 or value_set_index >= num_cols:
+                print(
+                    f"[SERVER_EXEC] value_set_index {value_set_index} out of range for {testcase_name} (columns={num_cols})"
+                )
+                return steps
+
+            selected_col = active_col_indices[value_set_index]
+            selected_header = headers[selected_col] if selected_col < len(headers) else ''
+            selected_header = '' if selected_header is None else str(selected_header).strip()
+            header_is_url = bool(re.match(r'^https?://', selected_header, re.IGNORECASE))
+
+            mapped_steps = []
+            for step_index, step in enumerate(steps):
+                mapped_step = dict(step)
+                if step_index == 0 and header_is_url:
+                    cell_value = selected_header
+                else:
+                    row_index = step_index - 1 if header_is_url else step_index
+                    if row_index < 0 or row_index >= len(active_row_indices):
+                        cell_value = ''
+                    else:
+                        actual_row_idx = active_row_indices[row_index]
+                        row_vals = data_rows[actual_row_idx] if actual_row_idx < len(data_rows) else ()
+                        raw = row_vals[selected_col] if selected_col < len(row_vals) else None
+                        if raw is None:
+                            cell_value = ''
+                        elif hasattr(raw, 'isoformat'):
+                            cell_value = raw.isoformat()
+                        else:
+                            cell_value = str(raw)
+
+                mapped_step["values"] = cell_value
+
+                if mapped_step.get("element_name") and "{{" in str(mapped_step.get("element_name", "")):
+                    mapped_step["element_name"] = re.sub(
+                        r"\{\{\s*\w+\s*\}\}",
+                        cell_value,
+                        str(mapped_step["element_name"]),
+                    )
+
+                mapped_steps.append(mapped_step)
+
+            print(
+                f"[SERVER_EXEC] Applied Excel mapping for {testcase_name}: dataset={value_set_index}, steps={len(mapped_steps)}"
+            )
+            return mapped_steps
+        finally:
+            workbook.close()
 
     # -------------------------------------------------------
     # TABLE NAMING
