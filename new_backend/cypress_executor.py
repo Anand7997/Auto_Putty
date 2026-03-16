@@ -298,7 +298,7 @@ describe('{testcase_name}', () => {{
                     continue
                 
                 step_description = step.get('test_step_description', f'Step {i}')
-                action_type = step.get('action_type', '').upper()
+                action_type = self.normalize_action_type(step.get('action_type', ''))
                 xpath = step.get('xpath', '')
                 element_name = step.get('element_name', '')
                 test_data = step.get('values', '')
@@ -341,10 +341,24 @@ describe('{testcase_name}', () => {{
         text = text.replace('"', '\\"')
         return text
 
+    def normalize_action_type(self, action_type):
+        """Normalize legacy action names to current supported action set."""
+        normalized = (action_type or "").upper().strip()
+        legacy_select_actions = {
+            "CLICK_AND_SELECT_DATE",
+            "CLICK_QUICK_DATE",
+            "CLICK_BUS_QUICK_DATE",
+            "CLICK_AND_SELECT_AGE",
+            "SELECT_COUNT",
+        }
+        if normalized in legacy_select_actions:
+            return "CLICK_AND_SELECT"
+        return normalized
+
     def generate_cypress_command(self, action_type, xpath, element_name, test_data, step_number):
         """Generate Cypress command for a specific action"""
         try:
-            action_type = action_type.upper()
+            action_type = self.normalize_action_type(action_type)
             
             # Escape strings for JavaScript
             xpath_escaped = self.escape_string_for_js(xpath)
@@ -363,6 +377,10 @@ describe('{testcase_name}', () => {{
                     return self.generate_date_selection_command(xpath_escaped, element_name, test_data_escaped)
                 elif selection_type == "QUICK_DATE_SELECTION":
                     return self.generate_quick_date_command(element_name, test_data_escaped)
+                elif selection_type == "AGE_SELECTION":
+                    return self.generate_age_selection_command(xpath_escaped, element_name, test_data_escaped)
+                elif selection_type == "COUNT_SELECTION":
+                    return self.generate_count_selection_command(test_data_escaped, xpath_escaped, element_name)
                 else:
                     return f"cy.xpathOrCSS('{xpath_escaped}', true).scrollIntoView().click({{ force: true }})"
 
@@ -378,9 +396,6 @@ describe('{testcase_name}', () => {{
                     return f"cy.contains('Tomorrow').scrollIntoView().click({{ force: true }})"
                 else:
                     return f"cy.xpathOrCSS('{xpath_escaped}', true).scrollIntoView().click({{ force: true }})"
-
-            elif action_type == "SELECT_COUNT":
-                return self.generate_count_selection_command(test_data_escaped, xpath_escaped, element_name)
 
             elif action_type == "HANDLE_CHECKBOX":
                 should_check = test_data.upper() in ["TRUE", "1", "YES"]
@@ -430,6 +445,11 @@ describe('{testcase_name}', () => {{
                 return "AGE_SELECTION"
             if element_name.upper().startswith("CHILD ") and test_data.isdigit():
                 return "AGE_SELECTION"
+
+            # Check for count selection (legacy SELECT_COUNT behavior)
+            count_element_names = {"ROOMSCOUNT", "ADULTSCOUNT", "CHILDRENCOUNT"}
+            if element_name.upper() in count_element_names and test_data and str(test_data).strip().isdigit():
+                return "COUNT_SELECTION"
 
             # Check for quick date selection
             quick_date_keywords = ["today", "tomorrow", "day after", "day-after-tomorrow"]
@@ -517,6 +537,12 @@ describe('{testcase_name}', () => {{
             return "cy.contains('Day After').scrollIntoView().click({ force: true })"
         else:
             return f"cy.contains('{quick_date_option}').scrollIntoView().click({{ force: true }})"
+
+    def generate_age_selection_command(self, xpath, element_name, age_value):
+        """Generate Cypress command for child age selection."""
+        return f"""
+    cy.xpathOrCSS('{xpath}', true).scrollIntoView().select('{age_value}', {{ force: true }})
+    cy.wait(500)"""
 
     def generate_travel_class_command(self, class_name, xpath, element_name):
         """Generate Cypress command for travel class selection"""

@@ -32,18 +32,22 @@ interface TestConfigDashboardProps {
   onSave?: () => void;
 }
 
-const ACTION_TYPES = [
-  'OPEN_BROWSER',
-  'CLICK_AND_SELECT',
-  'CLICK_AND_SELECT_DATE',
-  'CLICK_QUICK_DATE',
-  'CLICK_BUS_QUICK_DATE',
-  'CLICK',
-  'CLICK_AND_TYPE',
-  'SELECT_COUNT',
-  'CLICK_AND_SELECT_AGE',
-  'HANDLE_CHECKBOX'
-];
+const ACTION_TYPES = ['OPEN_BROWSER', 'CLICK', 'CLICK_AND_SELECT', 'CLICK_AND_TYPE', 'HANDLE_CHECKBOX'];
+
+const LEGACY_TO_CURRENT_ACTION: Record<string, string> = {
+  CLICK_AND_SELECT_DATE: 'CLICK_AND_SELECT',
+  CLICK_QUICK_DATE: 'CLICK_AND_SELECT',
+  CLICK_BUS_QUICK_DATE: 'CLICK_AND_SELECT',
+  CLICK_AND_SELECT_AGE: 'CLICK_AND_SELECT',
+  SELECT_COUNT: 'CLICK_AND_SELECT',
+};
+
+const normalizeActionType = (actionType?: string): string => {
+  const raw = (actionType || 'CLICK').toUpperCase().trim();
+  if (raw in LEGACY_TO_CURRENT_ACTION) return LEGACY_TO_CURRENT_ACTION[raw];
+  if (ACTION_TYPES.includes(raw)) return raw;
+  return 'CLICK';
+};
 
 const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({ 
   selectedTestCase, 
@@ -138,7 +142,9 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
 
   const updateGridStep = (stepId: number, field: string, value: string | number) => {
     setGridSteps(gridSteps.map(step => 
-      step.id === stepId ? { ...step, [field]: value } : step
+      step.id === stepId
+        ? { ...step, [field]: field === 'action_type' ? normalizeActionType(String(value)) : value }
+        : step
     ));
   };
 
@@ -238,7 +244,7 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
       step_no: step.step_no,
       test_step_description: step.test_step_description,
       element_name: step.element_name,
-      action_type: step.action_type,
+      action_type: normalizeActionType(step.action_type),
       xpath: step.xpath,
       values: step.values
     });
@@ -499,15 +505,11 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                 ))}
               </select>
               <p className="text-xs text-gray-500 mt-1">
-                {formData.action_type === 'OPEN_BROWSER' && 'Open browser and navigate to URL (use Values field for URL)'}
-                {formData.action_type === 'CLICK_AND_SELECT' && 'Click and select city/destination (use Values field for city name)'}
-                {formData.action_type === 'CLICK_AND_SELECT_DATE' && 'Click and select date (use Values field for date)'}
-                {formData.action_type === 'CLICK_QUICK_DATE' && 'Select quick date option (use Values: TODAY, TOMORROW, DAY-AFTER-TOMORROW)'}
-                {formData.action_type === 'CLICK_BUS_QUICK_DATE' && 'Select bus quick date option (use Values: TODAY, TOMORROW)'}
-                {formData.action_type === 'CLICK' && 'Click on an element or special actions (use Values for special cases)'}
-                {formData.action_type === 'SELECT_COUNT' && 'Select count for rooms/adults/children (use Values field for count)'}
-                {formData.action_type === 'CLICK_AND_SELECT_AGE' && 'Select child age (use Values field for age, Element Name: CHILD 1, CHILD 2, etc.)'}
-                {formData.action_type === 'HANDLE_CHECKBOX' && 'Handle checkbox actions (use Values field for checkbox state)'}
+                {normalizeActionType(formData.action_type) === 'OPEN_BROWSER' && 'Use Values for URL (e.g. https://example.com).'}
+                {normalizeActionType(formData.action_type) === 'CLICK_AND_SELECT' && 'Use for selection flows (city/date/age/count) with Values as the input.'}
+                {normalizeActionType(formData.action_type) === 'CLICK' && 'Use for pure click actions where no selection/input is needed.'}
+                {normalizeActionType(formData.action_type) === 'CLICK_AND_TYPE' && 'Clicks the element and types the text from Values.'}
+                {normalizeActionType(formData.action_type) === 'HANDLE_CHECKBOX' && 'Use Values: true/false, yes/no, or 1/0.'}
               </p>
             </div>
             <div className="col-span-2">
@@ -631,8 +633,8 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                       </td>
                       <td className="py-2 px-2">
                         <select
-                          value={step.action_type}
-                          onChange={(e) => updateGridStep(step.id, 'action_type', e.target.value)}
+                                value={normalizeActionType(step.action_type)}
+                                onChange={(e) => updateGridStep(step.id, 'action_type', e.target.value)}
                           className="w-full h-8 text-xs bg-white border border-gray-200 rounded-md px-2"
                         >
                           {ACTION_TYPES.map(action => (
@@ -703,7 +705,7 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                     <td className="py-3 px-2 text-gray-900 max-w-xs truncate">{step.test_step_description}</td>
                     <td className="py-3 px-2 text-gray-900">{step.element_name}</td>
                     <td className="py-3 px-2">
-                      <Badge className="bg-blue-500/20 text-blue-600">{step.action_type}</Badge>
+                      <Badge className="bg-blue-500/20 text-blue-600">{normalizeActionType(step.action_type)}</Badge>
                     </td>
                     <td className="py-3 px-2 text-gray-900 max-w-xs truncate">{step.xpath}</td>
                     <td className="py-3 px-2 text-gray-900">{step.values}</td>

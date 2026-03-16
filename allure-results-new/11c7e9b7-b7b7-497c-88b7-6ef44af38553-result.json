@@ -1,0 +1,507 @@
+{
+  "uuid": "11c7e9b7-b7b7-497c-88b7-6ef44af38553",
+  "historyId": "11c7e9b7-b7b7-497c-88b7-6ef44af38553",
+  "name": "[IxigoAutomation_Hotels_SearchingHL_TC001] SearchingHL",
+  "fullName": "Ixigo .Hotels.Regression.SearchingHL",
+  "status": "passed",
+  "stage": "finished",
+  "start": 1773395704618,
+  "stop": 1773395740174,
+  "description": "Execution Time: 0:00:35 | Test Run ID: Sample_SearchingHL_TR127 | Result ID: TC001_TR127",
+  "labels": [
+    {
+      "name": "epic",
+      "value": "Ixigo "
+    },
+    {
+      "name": "feature",
+      "value": "Hotels Module"
+    },
+    {
+      "name": "story",
+      "value": "Sample Suite"
+    },
+    {
+      "name": "suite",
+      "value": "Sample Tests"
+    },
+    {
+      "name": "testClass",
+      "value": "Hotels_Sample"
+    },
+    {
+      "name": "testMethod",
+      "value": "SearchingHL"
+    },
+    {
+      "name": "parentSuite",
+      "value": "[ROCKET] Ixigo "
+    },
+    {
+      "name": "subSuite",
+      "value": "[PACKAGE] Hotels -> Sample"
+    },
+    {
+      "name": "severity",
+      "value": "normal"
+    },
+    {
+      "name": "owner",
+      "value": "QA Team"
+    },
+    {
+      "name": "tag",
+      "value": "module:hotels"
+    },
+    {
+      "name": "tag",
+      "value": "suite:Sample"
+    },
+    {
+      "name": "testCaseId",
+      "value": "IxigoAutomation_Hotels_SearchingHL_TC001"
+    },
+    {
+      "name": "testRunId",
+      "value": "Sample_SearchingHL_TR127"
+    },
+    {
+      "name": "resultId",
+      "value": "TC001_TR127"
+    },
+    {
+      "name": "executionTime",
+      "value": "0:00:35"
+    }
+  ],
+  "parameters": [
+    {
+      "name": "Test Case ID",
+      "value": "IxigoAutomation_Hotels_SearchingHL_TC001"
+    },
+    {
+      "name": "Test Run ID",
+      "value": "Sample_SearchingHL_TR127"
+    },
+    {
+      "name": "Result ID",
+      "value": "TC001_TR127"
+    },
+    {
+      "name": "Suite Type",
+      "value": "Regression"
+    },
+    {
+      "name": "Module",
+      "value": "Hotels"
+    },
+    {
+      "name": "Project",
+      "value": "Ixigo "
+    },
+    {
+      "name": "Execution Time",
+      "value": "0:00:35"
+    },
+    {
+      "name": "Total Steps",
+      "value": "11"
+    },
+    {
+      "name": "[OK] Passed Steps",
+      "value": "11"
+    },
+    {
+      "name": "[X] Failed Steps",
+      "value": "0"
+    }
+  ],
+  "steps": [
+    {
+      "name": "[OK] Step 1: Open Browser and Navigate to Ixigo",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773395704618,
+      "stop": 1773395705618,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "OPEN_BROWSER"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Browser"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "N/A"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "https://www.ixigo.com/hotels"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:03"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 2: Enter Destination",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773395705618,
+      "stop": 1773395706618,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Destination"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(), 'Destination')]/following::input[1]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "Hyderabad"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:08"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 3: Click and Select on Checkin date",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773395706618,
+      "stop": 1773395707618,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Check in"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(),'Check-in')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "Mon, 29 Sep"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:05"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 4: Click and Select on Checkout date field",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773395707618,
+      "stop": 1773395708618,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Check out"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(),'Check-out')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "Tue, 30 Sep"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:03"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 5: Click on Rooms and Guests section",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773395708618,
+      "stop": 1773395709618,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Rooms&Guests"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[@class='body-xs text-secondary'][contains(text(),'Rooms & Guests')] | //input[@placeholder='Rooms & Guests']"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "Na"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:00"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 6: Select number of Rooms",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773395709618,
+      "stop": 1773395710618,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "SELECT_COUNT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "RoomsCount"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(),'Rooms')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "2"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:01"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 7: Select number of adults",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773395710618,
+      "stop": 1773395711618,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "SELECT_COUNT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "AdultsCount"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(),'Adults')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "4"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:02"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 8: Select number of Children",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773395711618,
+      "stop": 1773395712618,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "SELECT_COUNT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "ChildrenCount"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(),'Children')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "2"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:02"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 9: Select age of Child 1",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773395712618,
+      "stop": 1773395713618,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Child 1"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//select[@id='child-age'] (//select[@data-testid='child-age-selector'])[1]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "6"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:01"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 10: Select age of Child 2",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773395713618,
+      "stop": 1773395714618,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Child 2"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "(//select[@data-testid='child-age-selector'])[2]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "9"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:01"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 11: Click Search button to search Rooms",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773395714618,
+      "stop": 1773395715618,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "SearchButton"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "/html/body/main/div[4]/div[2]/div/button"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "Na"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:02"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    }
+  ],
+  "attachments": []
+}

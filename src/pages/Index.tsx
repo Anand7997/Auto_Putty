@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { SidebarProvider, SidebarInset, SidebarTrigger } from '@/components/ui/sidebar';
 import { ProfessionalSidebar } from '@/components/ProfessionalSidebar';
 import MainDashboard from '@/components/MainDashboard';
@@ -25,7 +25,6 @@ import { useAuthorization } from '@/hooks/useAuthorization';
 import LogoImage from '@/Logo.png';
  
 const Index = () => {
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [currentView, setCurrentView] = useState('main');
   const [currentSection, setCurrentSection] = useState('');
   const [navigationFlow, setNavigationFlow] = useState({
@@ -52,17 +51,6 @@ const Index = () => {
   const developmentAuth = useAuthorization('development');
   const testLabAuth = useAuthorization('test-lab');
   const reportingAuth = useAuthorization('reporting');
- 
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      setMousePosition({ x: e.clientX, y: e.clientY });
-    };
- 
-    window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, []);
- 
- 
  
   const handleSectionAction = (sectionId: string, actionId: string) => {
     console.log(`Section: ${sectionId}, Action: ${actionId}`);
@@ -553,26 +541,7 @@ const Index = () => {
  
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-gradient-to-br from-gray-50 via-blue-50 to-gray-50 cursor-glow">
-        {/* Animated background elements */}
-        <div className="fixed inset-0 overflow-hidden pointer-events-none">
-          <div
-            className="absolute w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-float"
-            style={{
-              left: mousePosition.x / 10 + 'px',
-              top: mousePosition.y / 10 + 'px',
-            }}
-          />
-          <div
-            className="absolute w-64 h-64 bg-indigo-500/10 rounded-full blur-2xl animate-float"
-            style={{
-              right: mousePosition.x / 20 + 'px',
-              bottom: mousePosition.y / 20 + 'px',
-              animationDelay: '1s',
-            }}
-          />
-        </div>
- 
+      <div className="app-shell min-h-screen flex w-full">
         <ProfessionalSidebar
           onSectionAction={handleSectionAction}
           onQuickAction={handleQuickAction}
@@ -633,34 +602,33 @@ const Index = () => {
         />
        
         <SidebarInset className="flex-1">
-          {/* Enhanced Header */}
-          <div className="border-b border-gray-200 bg-white/90 backdrop-blur-sm sticky top-0 z-50 shadow-sm">
+          <div className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur-sm">
             <div className="container mx-auto px-6 py-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
-                  <SidebarTrigger className="hover:bg-gray-100 transition-colors" />
+                  <SidebarTrigger className="hover:bg-accent transition-colors" />
                   <div className="flex items-center space-x-3">
                     <img
                       src={LogoImage}
                       alt="Quinnox Logo"
-                      className="w-28 h-28 object-contain rounded-xl"
+                      className="h-14 w-14 object-contain rounded-md border border-border bg-card p-1"
                     />
                     <div>
-                      <h1 className="text-3xl font-bold text-red-600">
-                      QFast-Quinnox's framework for AI driven Smart testing
+                      <h1 className="text-lg md:text-2xl font-bold text-foreground tracking-tight">
+                        QFast Automation Platform
                       </h1>
-                      <p className="text-gray-600 text-sm flex items-center space-x-2">
-                        <Sparkles className="w-4 h-4" />
-                        <span>AI-Driven Smart testing Framework</span>
-                        <Zap className="w-4 h-4 text-yellow-400" />
+                      <p className="text-muted-foreground text-xs md:text-sm flex items-center space-x-2">
+                        <Sparkles className="w-3.5 h-3.5 text-primary" />
+                        <span>Quinnox Framework for AI-Driven Smart Testing</span>
+                        <Zap className="w-3.5 h-3.5 text-primary" />
                       </p>
                     </div>
                   </div>
                 </div>
-                <div className="glass-effect px-4 py-2 rounded-lg flex items-center space-x-2 text-sm text-gray-600">
-                  <Database className="w-4 h-4 text-green-400" />
+                <div className="glass-effect px-4 py-2 rounded-lg hidden lg:flex items-center space-x-2 text-sm text-muted-foreground">
+                  <Database className="w-4 h-4 text-primary" />
                   <span>Quinnox_TestAutomation DB</span>
-                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                  <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
                 </div>
               </div>
             </div>

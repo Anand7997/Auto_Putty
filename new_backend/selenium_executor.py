@@ -97,7 +97,8 @@ class SeleniumTestExecutor:
         print(f"[INIT] Remote viewing mode: {'ENABLED' if enable_remote_viewing else 'DISABLED'}")
         print(f"[INIT] Server execution mode: {'ENABLED' if server_execution else 'DISABLED'}")
         print(f"[INIT] Grid URL: {self.grid_url}")
-        print(f"[INIT] Headless mode: {'AUTO' if headless is None else ('ENABLED' if headless else 'DISABLED')}")
+        effective_headless = self.headless
+        print(f"[INIT] Headless mode: {'AUTO' if effective_headless is None else ('ENABLED' if effective_headless else 'DISABLED')}")
         print(f"[INIT] Window management enabled with {self.window_switch_timeout}s timeout")
         print(f"[INIT] Grid capabilities configured for remote execution")
         print(f"[INIT] VNC session: {'AVAILABLE' if vnc_session else 'NONE'}")
@@ -953,17 +954,34 @@ class SeleniumTestExecutor:
 
             import tempfile, shutil, os, platform, subprocess, traceback
 
-            temp_user_data_dir = tempfile.mkdtemp(prefix="chrome_user_data_")
-            self.temp_user_data_dir = temp_user_data_dir
-            chrome_options.add_argument(f"--user-data-dir={temp_user_data_dir}")
+            current_os = platform.system().lower()
+            print(f"[OS_DETECT] Detected OS: {current_os}")
+
+            is_local_visible_run = (
+                current_os == "windows"
+                and not self.server_execution
+                and not self.enable_remote_viewing
+                and not self.headless
+            )
+
+            # For local visible runs, let Chrome start with Selenium defaults.
+            # For managed/server runs, keep strict profile isolation.
+            if is_local_visible_run:
+                self.temp_user_data_dir = None
+                print("[SETUP] Local visible mode: using Selenium-managed temporary profile")
+            else:
+                temp_user_data_dir = tempfile.mkdtemp(prefix="chrome_user_data_")
+                self.temp_user_data_dir = temp_user_data_dir
+                chrome_options.add_argument(f"--user-data-dir={temp_user_data_dir}")
 
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
-            # Use a dynamic DevTools port to avoid collisions across parallel/stale sessions
-            chrome_options.add_argument("--remote-debugging-port=0")
+            # Use a dynamic DevTools port to avoid collisions across parallel/stale sessions.
+            # Skip in local visible mode to avoid window-handle instability on Windows.
+            if not is_local_visible_run:
+                chrome_options.add_argument("--remote-debugging-port=0")
             chrome_options.add_argument("--disable-extensions")
             chrome_options.add_argument("--disable-plugins")
-            chrome_options.add_argument("--disable-images")
             chrome_options.add_argument("--disable-web-security")
             chrome_options.add_argument("--allow-running-insecure-content")
             chrome_options.add_argument("--disable-features=TranslateUI")
@@ -984,10 +1002,9 @@ class SeleniumTestExecutor:
             chrome_options.add_argument("--disable-popup-blocking")
             chrome_options.add_argument("--disable-print-preview")
             chrome_options.add_argument("--no-service-autorun")
-            chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-
-            current_os = platform.system().lower()
-            print(f"[OS_DETECT] Detected OS: {current_os}")
+            if not is_local_visible_run:
+                chrome_options.add_argument("--disable-images")
+                chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
             if not self.enable_remote_viewing and self.headless:
                 chrome_options.add_argument("--headless=new")
@@ -996,6 +1013,9 @@ class SeleniumTestExecutor:
                 chrome_options.add_argument("--use-gl=swiftshader")
                 print("[HEADLESS] Enabled")
             else:
+                # Keep local UI runs visibly attached to an on-screen browser window.
+                chrome_options.add_argument("--new-window")
+                chrome_options.add_argument("--start-maximized")
                 chrome_options.add_argument("--window-size=1280,720")
                 if self.enable_remote_viewing:
                     print("[GUI] Enabled (VNC/Remote Viewing)")
@@ -1175,6 +1195,21 @@ class SeleniumTestExecutor:
                 self.driver.set_window_size(1920, 1080)
                 self.driver.set_window_position(0, 0)
                 print("[WINDOW] Set size to 1920x1080 and position to (0,0) for VNC streaming")
+            elif not self.headless:
+                # Force visible local execution window to the primary screen.
+                window_placed = False
+                for attempt in range(1, 4):
+                    try:
+                        self.driver.set_window_position(0, 0)
+                        self.driver.maximize_window()
+                        print(f"[WINDOW] Forced local browser window to foreground position (0,0) and maximized (attempt {attempt})")
+                        window_placed = True
+                        break
+                    except Exception as window_error:
+                        print(f"[WINDOW] Could not maximize/position local browser window (attempt {attempt}): {window_error}")
+                        time.sleep(0.4)
+                if not window_placed:
+                    print("[WINDOW] Continuing execution without explicit window placement")
 
             self.driver.get("data:text/html,<h1>Browser OK</h1>")
             print("[SUCCESS] Chrome launched successfully")
@@ -1410,7 +1445,7 @@ class SeleniumTestExecutor:
             
             def execute_step_action():
                 """Execute the step action - this will run in a separate thread"""
-                action_type = step.get('action_type', '').upper()
+                action_type = self.normalize_action_type(step.get('action_type', ''))
                 xpath = step.get('xpath', '')
                 element_name = step.get('element_name', '')
                 test_data = step.get('values', '')
@@ -1533,7 +1568,7 @@ class SeleniumTestExecutor:
             def execute_isolated_action():
                 """Execute the step action with proper error isolation"""
                 try:
-                    action_type = step.get('action_type', '').upper()
+                    action_type = self.normalize_action_type(step.get('action_type', ''))
                     xpath = step.get('xpath', '')
                     element_name = step.get('element_name', '')
                     test_data = step.get('values', '')
@@ -1562,7 +1597,7 @@ class SeleniumTestExecutor:
                 try:
                     # Determine timeout based on element type
                     element_name = step.get('element_name', '').upper()
-                    action_type = step.get('action_type', '').upper()
+                    action_type = self.normalize_action_type(step.get('action_type', ''))
                     
                     # Wait for the step to complete without timeout
                     future.result()
@@ -1932,7 +1967,7 @@ class SeleniumTestExecutor:
         """Execute specific action with enhanced isolation mode error handling"""
         try:
             print(f"[ISOLATION_ACTION] Executing action: {action_type} with data: '{test_data}' for element: {element_name}")
-            action_type = action_type.upper()
+            action_type = self.normalize_action_type(action_type)
 
             if action_type == "OPEN_BROWSER":
                 # Only navigate to URL if browser is already launched
@@ -2108,6 +2143,26 @@ class SeleniumTestExecutor:
             print(f"[ISOLATION] Full traceback: {traceback.format_exc()}")
             # Re-raise the exception so the step fails properly but test continues
             raise e
+
+    def normalize_action_type(self, action_type):
+        """
+        Normalize legacy action names to current supported action set.
+        Keeps backward compatibility with previously saved test steps.
+        """
+        normalized = (action_type or "").upper().strip()
+
+        legacy_select_actions = {
+            "CLICK_AND_SELECT_DATE",
+            "CLICK_QUICK_DATE",
+            "CLICK_BUS_QUICK_DATE",
+            "CLICK_AND_SELECT_AGE",
+            "SELECT_COUNT",
+        }
+
+        if normalized in legacy_select_actions:
+            return "CLICK_AND_SELECT"
+
+        return normalized
     
     
     def handle_unified_click_and_select(self, test_data, xpath, element_name):
@@ -3296,7 +3351,7 @@ class SeleniumTestExecutor:
         Returns: {'success': bool, 'message': str}
         """
         try:
-            action_type = action_type.upper()
+            action_type = self.normalize_action_type(action_type)
             print(f"[VALIDATION] Validating action: {action_type} for element: {element_name}")
             
             if action_type == "OPEN_BROWSER":
@@ -3336,14 +3391,10 @@ class SeleniumTestExecutor:
                     except Exception:
                         return {'success': False, 'message': f'Element {element_name} not found or not accessible'}
             
-            elif action_type in ["CLICK_AND_SELECT_DATE", "CLICK_QUICK_DATE", "CLICK_BUS_QUICK_DATE"]:
-                # Validate date selection
-                return self.validate_date_selection(test_data, xpath, element_name)
-            
             elif action_type == "CLICK":
                 # First check if this should be a different action type
                 if self.is_date_field(element_name, test_data):
-                    return {'success': False, 'message': f'Wrong action type for date field "{element_name}". Use CLICK_AND_SELECT_DATE instead of CLICK'}
+                    return {'success': False, 'message': f'Wrong action type for date field "{element_name}". Use CLICK_AND_SELECT instead of CLICK'}
                 
                 if element_name.upper() == "TRAVELCLASS":
                     # Validate travel class selection
@@ -3354,14 +3405,6 @@ class SeleniumTestExecutor:
                 else:
                     # Validate general click action
                     return self.validate_click_action(xpath, element_name)
-            
-            elif action_type == "SELECT_COUNT":
-                # Validate count selection
-                return self.validate_count_selection(test_data, xpath, element_name)
-            
-            elif action_type == "CLICK_AND_SELECT_AGE":
-                # Validate age selection
-                return self.validate_age_selection(test_data, element_name)
             
             elif action_type == "HANDLE_CHECKBOX":
                 # Validate checkbox state
@@ -3437,7 +3480,7 @@ class SeleniumTestExecutor:
         Pre-validate action before execution - check all prerequisites
         """
         try:
-            action_type = action_type.upper()
+            action_type = self.normalize_action_type(action_type)
             print(f"[PRE_VALIDATION] Pre-validating action: {action_type} for element: {element_name}")
             
             # 1. Universal validations for all action types
@@ -3452,8 +3495,7 @@ class SeleniumTestExecutor:
             
             # 2. XPath validation (for actions that need XPath)
             xpath_required_actions = [
-                "CLICK_AND_SELECT", "CLICK_AND_SELECT_DATE", "CLICK", "SELECT_COUNT", 
-                "CLICK_AND_SELECT_AGE", "HANDLE_CHECKBOX"
+                "CLICK_AND_SELECT", "CLICK", "HANDLE_CHECKBOX"
             ]
             
             if action_type in xpath_required_actions:
@@ -3514,40 +3556,6 @@ class SeleniumTestExecutor:
                 # Validate test data is provided
                 if not test_data or test_data.strip() == "":
                     return {'success': False, 'message': f'No value provided for CLICK_AND_SELECT action on element "{element_name}"'}
-                
-                # Check if this should be a date action
-                if self.is_date_field(element_name, test_data):
-                    return {'success': False, 'message': f'Wrong action type: "{element_name}" appears to be a date field. Use CLICK_AND_SELECT_DATE instead of CLICK_AND_SELECT'}
-            
-            elif action_type in ["CLICK_AND_SELECT_DATE", "CLICK_QUICK_DATE", "CLICK_BUS_QUICK_DATE"]:
-                # Validate date format or quick date option
-                if not test_data or test_data.strip() == "":
-                    return {'success': False, 'message': f'No date value provided for date action on element "{element_name}"'}
-                
-                # Validate date format or quick date options
-                valid_quick_dates = ['today', 'tomorrow', 'day-after-tomorrow', 'yesterday']
-                if test_data.lower() not in valid_quick_dates:
-                    # Check if it's a valid date format
-                    if not self.validate_date_format(test_data):
-                        return {'success': False, 'message': f'Invalid date format: "{test_data}". Use valid date format or quick date options: {valid_quick_dates}'}
-            
-            elif action_type == "SELECT_COUNT":
-                # Validate count is a valid number
-                try:
-                    count = int(test_data)
-                    if count < 0 or count > 50:  # Reasonable limits
-                        return {'success': False, 'message': f'Invalid count value: "{test_data}". Count must be between 0 and 50'}
-                except ValueError:
-                    return {'success': False, 'message': f'Invalid count value: "{test_data}". Count must be a valid number'}
-            
-            elif action_type == "CLICK_AND_SELECT_AGE":
-                # Validate age is a valid number
-                try:
-                    age = int(test_data)
-                    if age < 0 or age > 120:  # Reasonable age limits
-                        return {'success': False, 'message': f'Invalid age value: "{test_data}". Age must be between 0 and 120'}
-                except ValueError:
-                    return {'success': False, 'message': f'Invalid age value: "{test_data}". Age must be a valid number'}
             
             elif action_type == "HANDLE_CHECKBOX":
                 # Validate checkbox value
@@ -3558,7 +3566,7 @@ class SeleniumTestExecutor:
             elif action_type == "CLICK":
                 # For general clicks, validate that test_data makes sense if provided
                 if test_data and self.is_date_field(element_name, test_data):
-                    return {'success': False, 'message': f'Wrong action type: "{element_name}" with data "{test_data}" appears to be a date field. Use appropriate date action type'}
+                    return {'success': False, 'message': f'Wrong action type: "{element_name}" with data "{test_data}" appears to be a date field. Use CLICK_AND_SELECT'}
             
             # 4. Browser state validation
             if not self.driver:

@@ -1284,19 +1284,18 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
 
       setShowSaveDialog(false);
 
-      // Count total values from Excel sheet
-      const totalValues = testSteps.reduce((count, step) => {
-        if (step.values && step.values.trim() !== '') {
-          // Split by comma and count non-empty values
-          const values = step.values.split(',').map(v => v.trim()).filter(v => v !== '');
-          return count + values.length;
-        }
-        return count;
+      // Count placeholder tokens configured in test steps (display only).
+      // Excel dataset values are mapped at execution time from Excel columns.
+      const placeholderPattern = /\{\{[^}]+\}\}/g;
+      const placeholderCount = testSteps.reduce((count, step) => {
+        const raw = String((step as any).values || '');
+        const matches = raw.match(placeholderPattern);
+        return count + (matches ? matches.length : 0);
       }, 0);
 
       toast({
         title: selectedTestCase?.id ? "âœ… Test Case Updated" : "âœ… Test Case Saved",
-        description: `Test case "${testCaseName}" with ${testSteps.length} steps ${totalValues > 0 ? `(${totalValues} Excel values mapped) ` : ''}${selectedTestCase?.id ? 'updated' : 'saved'} successfully`,
+        description: `Test case "${testCaseName}" with ${testSteps.length} steps ${placeholderCount > 0 ? `(${placeholderCount} value placeholders configured) ` : ''}${selectedTestCase?.id ? 'updated' : 'saved'} successfully`,
       });
 
       // Optionally redirect or refresh data

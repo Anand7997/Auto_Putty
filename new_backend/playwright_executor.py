@@ -468,7 +468,7 @@ class PlaywrightTestExecutor:
             )
             
             try:
-                action_type = step.get('action_type', '').upper()
+                action_type = self.normalize_action_type(step.get('action_type', ''))
                 xpath = step.get('xpath', '')
                 element_name = step.get('element_name', '')
                 test_data = step.get('values', '')
@@ -505,6 +505,7 @@ class PlaywrightTestExecutor:
 
     def execute_action(self, action_type, test_data, xpath, element_name):
         """Execute a specific action using Playwright."""
+        action_type = self.normalize_action_type(action_type)
         print(f"[ACTION] Executing: {action_type} on '{element_name}' with data: '{test_data}'")
 
         self.switch_to_latest_page()
@@ -605,6 +606,20 @@ class PlaywrightTestExecutor:
             raise Exception(f"Unknown action type: {action_type}")
 
         time.sleep(0.5)
+
+    def normalize_action_type(self, action_type):
+        """Normalize legacy action names to current supported action set."""
+        normalized = (action_type or "").upper().strip()
+        legacy_select_actions = {
+            "CLICK_AND_SELECT_DATE",
+            "CLICK_QUICK_DATE",
+            "CLICK_BUS_QUICK_DATE",
+            "CLICK_AND_SELECT_AGE",
+            "SELECT_COUNT",
+        }
+        if normalized in legacy_select_actions:
+            return "CLICK_AND_SELECT"
+        return normalized
 
     # --- Action Helper Methods (Playwright implementation) ---
 
@@ -1644,6 +1659,15 @@ class PlaywrightTestExecutor:
                     print(f"[UNIFIED_SELECT] Age selection error: {str(e)}")
                     raise e
 
+            elif selection_type == "COUNT_SELECTION":
+                # Handle count selection for rooms/adults/children
+                try:
+                    print(f"[UNIFIED_SELECT] Handling count selection for {element_name}")
+                    self.handle_count_selection(test_data, xpath, element_name)
+                except Exception as e:
+                    print(f"[UNIFIED_SELECT] Count selection error: {str(e)}")
+                    raise e
+
             elif selection_type == "GENERIC_CLICK":
                 # Handle generic element click
                 try:
@@ -1687,6 +1711,11 @@ class PlaywrightTestExecutor:
                 return "AGE_SELECTION"
             if element_name.upper().startswith("CHILD ") and test_data.isdigit():
                 return "AGE_SELECTION"
+
+            # Check for count selection (legacy SELECT_COUNT behavior)
+            count_element_names = {"ROOMSCOUNT", "ADULTSCOUNT", "CHILDRENCOUNT"}
+            if element_name.upper() in count_element_names and test_data and str(test_data).strip().isdigit():
+                return "COUNT_SELECTION"
 
             # Check for quick date selection
             quick_date_keywords = ["today", "tomorrow", "day after", "day-after-tomorrow"]

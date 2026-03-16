@@ -149,19 +149,19 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onSwitchToSignup }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-4">
-      <Card className="w-full max-w-md shadow-xl">
+    <div className="min-h-screen app-shell flex items-center justify-center p-4">
+      <Card className="w-full max-w-md shadow-lg border-border">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold text-gray-900">
+          <CardTitle className="text-2xl font-bold text-foreground">
             Welcome to QFast
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-muted-foreground">
             Quinnox's AI-Driven Smart Testing Framework
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-2 bg-muted/70">
               <TabsTrigger value="signin">Sign In</TabsTrigger>
               <TabsTrigger value="signup">Sign Up</TabsTrigger>
             </TabsList>
@@ -200,7 +200,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onSwitchToSignup }) => {
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
+                      className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -276,7 +276,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onSwitchToSignup }) => {
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
+                      className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -299,7 +299,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onSwitchToSignup }) => {
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
+                      className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>

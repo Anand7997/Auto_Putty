@@ -86,13 +86,13 @@ const Signup: React.FC<SignupProps> = ({ onSignupSuccess, onSwitchToLogin }) => 
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-blue-50 p-4">
-      <Card className="w-full max-w-md shadow-xl">
+    <div className="min-h-screen app-shell flex items-center justify-center p-4">
+      <Card className="w-full max-w-md shadow-lg border-border">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold text-gray-900">
+          <CardTitle className="text-2xl font-bold text-foreground">
             Create Account
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-muted-foreground">
             Join QFast - Quinnox's AI-Driven Smart Testing Framework
           </CardDescription>
         </CardHeader>
@@ -148,7 +148,7 @@ const Signup: React.FC<SignupProps> = ({ onSignupSuccess, onSwitchToLogin }) => 
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
+                  className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -172,7 +172,7 @@ const Signup: React.FC<SignupProps> = ({ onSignupSuccess, onSwitchToLogin }) => 
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
+                  className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
                 >
                   {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -201,7 +201,7 @@ const Signup: React.FC<SignupProps> = ({ onSignupSuccess, onSwitchToLogin }) => 
                 type="button"
                 variant="ghost"
                 onClick={onSwitchToLogin}
-                className="text-sm text-gray-600 hover:text-gray-900"
+                className="text-sm text-muted-foreground hover:text-foreground"
               >
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Already have an account? Sign In

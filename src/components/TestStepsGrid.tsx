@@ -47,18 +47,22 @@ export interface TestStepsGridRef {
   triggerXPathRefresh: () => void;
 }
 
-const ACTION_TYPES = [
-  'OPEN_BROWSER',
-  'CLICK_AND_SELECT',
-  'CLICK_AND_SELECT_DATE',
-  'CLICK_QUICK_DATE',
-  'CLICK_BUS_QUICK_DATE',
-  'CLICK',
-  'CLICK_AND_TYPE',
-  'SELECT_COUNT',
-  'CLICK_AND_SELECT_AGE',
-  'HANDLE_CHECKBOX'
-];
+const ACTION_TYPES = ['OPEN_BROWSER', 'CLICK', 'CLICK_AND_SELECT', 'CLICK_AND_TYPE', 'HANDLE_CHECKBOX'];
+
+const LEGACY_TO_CURRENT_ACTION: Record<string, string> = {
+  CLICK_AND_SELECT_DATE: 'CLICK_AND_SELECT',
+  CLICK_QUICK_DATE: 'CLICK_AND_SELECT',
+  CLICK_BUS_QUICK_DATE: 'CLICK_AND_SELECT',
+  CLICK_AND_SELECT_AGE: 'CLICK_AND_SELECT',
+  SELECT_COUNT: 'CLICK_AND_SELECT',
+};
+
+const normalizeActionType = (actionType?: string): string => {
+  const raw = (actionType || 'CLICK').toUpperCase().trim();
+  if (raw in LEGACY_TO_CURRENT_ACTION) return LEGACY_TO_CURRENT_ACTION[raw];
+  if (ACTION_TYPES.includes(raw)) return raw;
+  return 'CLICK';
+};
 
 const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({ 
   selectedProject,
@@ -80,6 +84,9 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
   });
   const [isExcelSidebarOpen, setIsExcelSidebarOpen] = useState(false);
   const [mappedExcelSheet, setMappedExcelSheet] = useState<string>('');
+  const [mappedExcelFileId, setMappedExcelFileId] = useState<number | null>(null);
+  const [availableMappedSheets, setAvailableMappedSheets] = useState<string[]>([]);
+  const [isUpdatingMappedSheet, setIsUpdatingMappedSheet] = useState(false);
   const { toast } = useToast();
 
   // COMPREHENSIVE DEBUGGING SOLUTION - Step 2: Track Dummy XPath Source
@@ -107,7 +114,8 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
     console.log('updateStep called:', { stepId, field, value });
     const updatedSteps = testSteps.map(step => {
       if (step.id === stepId) {
-        const updated = { ...step, [field]: value };
+        const updatedValue = field === 'action_type' ? normalizeActionType(String(value)) : value;
+        const updated = { ...step, [field]: updatedValue };
         
         // If page is changed, clear element_name and xpath to avoid confusion
         if (field === 'page') {
@@ -290,7 +298,8 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
   const updateNewStepData = (field: string, value: string) => {
     console.log('updateNewStepData called:', { field, value });
     setNewStepData(prev => {
-      const updated = { ...prev, [field]: value };
+      const normalizedValue = field === 'action_type' ? normalizeActionType(value) : value;
+      const updated = { ...prev, [field]: normalizedValue };
       
       // If page is changed, clear element_name and xpath to avoid confusion
       if (field === 'page') {
@@ -366,14 +375,93 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
       if (res.ok) {
         const data = await res.json();
         console.log('[FETCH_EXCEL] Response:', data);
-        setMappedExcelSheet(data.excelSheetName || '');
+        const mappedSheet = data.excelSheetName || '';
+        const sheetsFromApi = Array.isArray(data.availableSheets) ? data.availableSheets : [];
+        const mergedSheets = mappedSheet && !sheetsFromApi.includes(mappedSheet)
+          ? [mappedSheet, ...sheetsFromApi]
+          : sheetsFromApi;
+
+        setMappedExcelSheet(mappedSheet);
+        setMappedExcelFileId(
+          typeof data.excelFileId === 'number' ? data.excelFileId : Number(data.excelFileId) || null
+        );
+        setAvailableMappedSheets(mergedSheets);
       } else {
         console.warn('[FETCH_EXCEL] API returned non-ok status:', res.status);
         setMappedExcelSheet('');
+        setMappedExcelFileId(null);
+        setAvailableMappedSheets([]);
       }
     } catch (error) {
       console.error('[FETCH_EXCEL] Error fetching mapped Excel sheet:', error);
       setMappedExcelSheet('');
+      setMappedExcelFileId(null);
+      setAvailableMappedSheets([]);
+    }
+  };
+
+  const handleMappedSheetChange = async (sheetName: string) => {
+    if (!sheetName || !mappedExcelFileId) {
+      return;
+    }
+
+    const caseNameToUse = testCaseName || 'Unknown Test Case';
+    const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+    setMappedExcelSheet(sheetName);
+    setIsUpdatingMappedSheet(true);
+
+    try {
+      const parseResponse = await fetch(
+        buildApiUrl(`/api/excel-files/${mappedExcelFileId}/parse?sheet_name=${encodeURIComponent(sheetName)}`),
+        {
+          headers: {
+            'X-User-Email': userEmail
+          }
+        }
+      );
+
+      if (!parseResponse.ok) {
+        const parseError = await parseResponse.json().catch(() => ({}));
+        throw new Error(parseError.error || 'Failed to parse selected sheet');
+      }
+
+      const parseData = await parseResponse.json();
+      const dataSets = parseData.data_sets ?? 0;
+
+      const updateResponse = await fetch(buildApiUrl(`/api/testcases/${encodeURIComponent(caseNameToUse)}/mapped-excel`), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Email': userEmail
+        },
+        body: JSON.stringify({
+          excelFileId: mappedExcelFileId,
+          sheetName,
+          dataSets
+        })
+      });
+
+      if (!updateResponse.ok) {
+        const errorData = await updateResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to update sheet mapping');
+      }
+
+      toast({
+        title: "Sheet Updated",
+        description: `Mapped to "${sheetName}" successfully`,
+      });
+
+      await refetchMappedExcelSheet();
+    } catch (error) {
+      console.error('[UPDATE_SHEET] Failed to update mapped sheet:', error);
+      toast({
+        title: "Update Failed",
+        description: error instanceof Error ? error.message : "Could not update mapped sheet",
+        variant: "destructive"
+      });
+      await refetchMappedExcelSheet();
+    } finally {
+      setIsUpdatingMappedSheet(false);
     }
   };
 
@@ -538,13 +626,21 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
                   <Database className="w-4 h-4 mr-2" />
                   Select Value
                 </Button>
-                <input
-                  type="text"
-                  value={mappedExcelSheet}
-                  readOnly
-                  placeholder="No Excel sheet mapped"
-                  className="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-gray-50 text-gray-600 w-48"
-                />
+                <select
+                  value={mappedExcelSheet || ''}
+                  onChange={(e) => handleMappedSheetChange(e.target.value)}
+                  disabled={!mappedExcelFileId || isUpdatingMappedSheet || availableMappedSheets.length === 0}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-gray-50 text-gray-700 w-48 disabled:text-gray-400 disabled:bg-gray-100"
+                >
+                  {!mappedExcelSheet && (
+                    <option value="">No Excel sheet mapped</option>
+                  )}
+                  {availableMappedSheets.map((sheet) => (
+                    <option key={sheet} value={sheet}>
+                      {sheet}
+                    </option>
+                  ))}
+                </select>
                 {mappedExcelSheet && (
                   <Button
                     size="sm"
@@ -700,7 +796,7 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
                     {/* Action Type */}
                     <td className="border border-gray-200 px-4 py-3">
                       <select
-                        value={newStepData.action_type}
+                        value={normalizeActionType(newStepData.action_type)}
                         onChange={(e) => updateNewStepData('action_type', e.target.value)}
                         className="w-full px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                       >
@@ -854,7 +950,7 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
                     {/* Action Type */}
                     <td className="border border-gray-200 px-4 py-3">
                       <select
-                        value={step.action_type || 'CLICK'}
+                        value={normalizeActionType(step.action_type)}
                         onChange={(e) => !readOnlyMode && updateStep(step.id, 'action_type', e.target.value)}
                         className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm ${readOnlyMode ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                         disabled={readOnlyMode}

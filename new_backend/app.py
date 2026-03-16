@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory, Response
+﻿from flask import Flask, request, jsonify, send_from_directory, Response
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit, join_room, leave_room
 import pyodbc
@@ -26,6 +26,11 @@ from server_execution_manager import ServerExecutionManager
 from system_monitor import setup_system_monitor_routes
 from vnc_session_manager import vnc_manager
 from vnc_lifecycle_manager import vnc_lifecycle_manager
+try:
+    from execution_log_analysis import analyzer as execution_log_analyzer
+except Exception as execution_analyzer_import_error:
+    execution_log_analyzer = None
+    print(f"[WARNING] Failed to import execution log analyzer: {execution_analyzer_import_error}")
 
 app = Flask(__name__)
 
@@ -6462,19 +6467,38 @@ def execute_single_testcase(testcase_name, request_data=None):
                 if value_set_index is None:
                     raise ValueError("value_set_index is not a valid integer")
 
-                # Get the mapped Excel file name from database
+                # Get mapped Excel details from ExcelMapping first (source of truth),
+                # then fallback to legacy columns on TestCases.
                 conn_excel = get_db_connection()
                 cursor_excel = conn_excel.cursor()
                 cursor_excel.execute("""
-                    SELECT mapped_excel_file_name, mapped_excel_sheet_name
-                    FROM TestCases
-                    WHERE name = ?
+                    SELECT TOP 1 v.original_name, em.sheet_name
+                    FROM [dbo].[ExcelMapping] em
+                    INNER JOIN [dbo].[TestCases] tc ON tc.id = em.testcase_id
+                    LEFT JOIN [dbo].[Values] v ON v.id = em.excel_file_id
+                    WHERE tc.name = ?
                 """, (testcase_name,))
                 result = cursor_excel.fetchone()
-                if not result:
+                if not result or not result[0]:
+                    cursor_excel.execute("""
+                        SELECT TOP 1 v.original_name, em.sheet_name
+                        FROM [dbo].[ExcelMapping] em
+                        INNER JOIN [dbo].[TestCases] tc ON tc.id = em.testcase_id
+                        LEFT JOIN [dbo].[Values] v ON v.id = em.excel_file_id
+                        WHERE LOWER(tc.name) = LOWER(?)
+                    """, (testcase_name,))
+                    result = cursor_excel.fetchone()
+                if not result or not result[0]:
                     cursor_excel.execute("""
                         SELECT mapped_excel_file_name, mapped_excel_sheet_name
-                        FROM TestCases
+                        FROM [dbo].[TestCases]
+                        WHERE name = ?
+                    """, (testcase_name,))
+                    result = cursor_excel.fetchone()
+                if not result or not result[0]:
+                    cursor_excel.execute("""
+                        SELECT mapped_excel_file_name, mapped_excel_sheet_name
+                        FROM [dbo].[TestCases]
                         WHERE LOWER(name) = LOWER(?)
                     """, (testcase_name,))
                     result = cursor_excel.fetchone()
@@ -6537,85 +6561,192 @@ def execute_single_testcase(testcase_name, request_data=None):
                         
                         if os.path.exists(file_path):
                             try:
-                                import pandas as pd
-                                
-                                # Read Excel file
-                                excel_data = pd.read_excel(file_path, sheet_name=None, header=0)
-                                if excel_data:
-                                    if fallback_sheet_name and fallback_sheet_name in excel_data:
-                                        sheet_name = fallback_sheet_name
-                                    elif mapped_sheet_name and mapped_sheet_name in excel_data:
-                                        sheet_name = mapped_sheet_name
-                                    else:
-                                        sheet_name = list(excel_data.keys())[0]
-                                    df = excel_data[sheet_name]
-                                    
-                                    # Determine Excel layout and map accordingly.
-                                    # Two supported layouts:
-                                    # 1) Field-columns with rows as datasets (legacy behavior)
-                                    #    - headers = column names (placeholders like {{field}} expected)
-                                    #    - each row is a dataset; value_set_index selects the row
-                                    # 2) Datasets-as-columns with rows mapping to test steps (requested behavior)
-                                    #    - columns are datasets; each column contains values for steps (row i -> step i)
-                                    headers = df.columns.tolist()
-                                    num_rows = len(df)
-                                    num_cols = df.shape[1] if hasattr(df, 'shape') else len(headers)
-                                    selected_header = str(headers[value_set_index]) if value_set_index < len(headers) else ''
-                                    # Pandas appends .1/.2 to duplicate headers; normalize URL headers back.
-                                    selected_header_clean = re.sub(r'\.\d+$', '', selected_header.strip())
-                                    header_is_url = bool(re.match(r'^https?://', selected_header_clean, re.IGNORECASE))
+                                headers = []
+                                num_rows = 0
+                                num_cols = 0
+                                read_cell_value = None
+                                pandas_error = None
 
-                                    print(f"[EXCEL_FETCH] Excel structure: {num_cols} columns, {num_rows} rows")
-                                    print(f"[EXCEL_FETCH] Field names (column headers): {headers}")
+                                # Primary read path: pandas
+                                try:
+                                    import pandas as pd
+                                    excel_data = pd.read_excel(file_path, sheet_name=None, header=0)
+                                    if excel_data:
+                                        if fallback_sheet_name and fallback_sheet_name in excel_data:
+                                            sheet_name = fallback_sheet_name
+                                        elif mapped_sheet_name and mapped_sheet_name in excel_data:
+                                            sheet_name = mapped_sheet_name
+                                        else:
+                                            sheet_name = list(excel_data.keys())[0]
+                                        df = excel_data[sheet_name]
 
-                                    # Detect if step.values contain placeholders like {{field}} anywhere
-                                    placeholder_pattern = re.compile(r"\{\{(\w+)\}\}")
-                                    has_placeholders = any(
-                                        bool(placeholder_pattern.search(str(step.get('values', ''))))
-                                        for step in test_steps
-                                    )
+                                        # Keep active columns only (non-empty header or at least one non-empty cell)
+                                        active_col_indices = []
+                                        for col_idx in range(df.shape[1]):
+                                            header_value = df.columns[col_idx]
+                                            header_text = '' if pd.isna(header_value) else str(header_value).strip()
+                                            col_series = df.iloc[:, col_idx]
+                                            has_non_empty_data = any(
+                                                (not pd.isna(v)) and str(v).strip() != ''
+                                                for v in col_series.tolist()
+                                            )
+                                            if header_text != '' or has_non_empty_data:
+                                                active_col_indices.append(col_idx)
 
-                                    # Always use column-as-dataset mapping: columns are datasets, rows map to test steps
-                                    mapped_test_steps = []
-                                    print("[EXCEL_FETCH] Using column-as-dataset mapping (columns = datasets, rows -> steps)")
+                                        headers = []
+                                        for col_idx in active_col_indices:
+                                            header_value = df.columns[col_idx]
+                                            if pd.isna(header_value) or str(header_value).strip() == '':
+                                                headers.append(f'Unnamed: {col_idx}')
+                                            else:
+                                                headers.append(str(header_value))
 
-                                    if value_set_index < num_cols:
-                                        for step_index, step in enumerate(test_steps):
-                                            mapped_step = step.copy()
+                                        active_row_indices = []
+                                        for row_idx in range(len(df)):
+                                            has_non_empty_data = False
+                                            for actual_col_idx in active_col_indices:
+                                                value = df.iat[row_idx, actual_col_idx]
+                                                if not pd.isna(value) and str(value).strip() != '':
+                                                    has_non_empty_data = True
+                                                    break
+                                            if has_non_empty_data:
+                                                active_row_indices.append(row_idx)
+
+                                        num_rows = len(active_row_indices)
+                                        num_cols = len(active_col_indices)
+
+                                        def _read_cell_pandas(row_idx, col_idx):
+                                            actual_col_idx = active_col_indices[col_idx]
+                                            if row_idx >= num_rows:
+                                                return ''
+                                            actual_row_idx = active_row_indices[row_idx]
+                                            value = df.iat[actual_row_idx, actual_col_idx]
+                                            if pd.isna(value):
+                                                return ''
+                                            if hasattr(value, 'item'):
+                                                value = value.item()
+                                            return str(value)
+
+                                        read_cell_value = _read_cell_pandas
+                                except Exception as pd_err:
+                                    pandas_error = str(pd_err)
+
+                                # Fallback read path: openpyxl
+                                if read_cell_value is None:
+                                    from openpyxl import load_workbook
+                                    workbook = load_workbook(file_path, data_only=True, read_only=True)
+                                    try:
+                                        if not workbook.sheetnames:
+                                            raise ValueError("No sheets found in Excel file")
+
+                                        if fallback_sheet_name and fallback_sheet_name in workbook.sheetnames:
+                                            sheet_name = fallback_sheet_name
+                                        elif mapped_sheet_name and mapped_sheet_name in workbook.sheetnames:
+                                            sheet_name = mapped_sheet_name
+                                        else:
+                                            sheet_name = workbook.sheetnames[0]
+
+                                        sheet = workbook[sheet_name]
+                                        all_rows = list(sheet.iter_rows(values_only=True))
+                                        if not all_rows:
+                                            raise ValueError("Excel sheet is empty")
+
+                                        raw_headers = list(all_rows[0])
+                                        data_rows = all_rows[1:]
+
+                                        active_col_indices = []
+                                        for col_idx, header_value in enumerate(raw_headers):
+                                            header_text = '' if header_value is None else str(header_value).strip()
+                                            has_non_empty_data = any(
+                                                (col_idx < len(row_vals))
+                                                and (row_vals[col_idx] is not None)
+                                                and str(row_vals[col_idx]).strip() != ''
+                                                for row_vals in data_rows
+                                            )
+                                            if header_text != '' or has_non_empty_data:
+                                                active_col_indices.append(col_idx)
+
+                                        headers = []
+                                        for col_idx in active_col_indices:
+                                            header_value = raw_headers[col_idx] if col_idx < len(raw_headers) else None
+                                            if header_value is None or str(header_value).strip() == '':
+                                                headers.append(f'Unnamed: {col_idx}')
+                                            else:
+                                                headers.append(str(header_value))
+
+                                        active_row_indices = []
+                                        for row_idx, row_vals in enumerate(data_rows):
+                                            has_non_empty_data = any(
+                                                (actual_col_idx < len(row_vals))
+                                                and (row_vals[actual_col_idx] is not None)
+                                                and str(row_vals[actual_col_idx]).strip() != ''
+                                                for actual_col_idx in active_col_indices
+                                            )
+                                            if has_non_empty_data:
+                                                active_row_indices.append(row_idx)
+
+                                        num_rows = len(active_row_indices)
+                                        num_cols = len(active_col_indices)
+
+                                        def _read_cell_openpyxl(row_idx, col_idx):
+                                            if row_idx >= num_rows:
+                                                return ''
+                                            actual_col_idx = active_col_indices[col_idx]
+                                            actual_row_idx = active_row_indices[row_idx]
+                                            row_vals = data_rows[actual_row_idx] if actual_row_idx < len(data_rows) else ()
+                                            value = row_vals[actual_col_idx] if actual_col_idx < len(row_vals) else None
+                                            if value is None:
+                                                return ''
+                                            if hasattr(value, 'isoformat'):
+                                                return value.isoformat()
+                                            return str(value)
+
+                                        read_cell_value = _read_cell_openpyxl
+                                    finally:
+                                        workbook.close()
+
+                                selected_header = str(headers[value_set_index]) if value_set_index < len(headers) else ''
+                                selected_header_clean = re.sub(r'\.\d+$', '', selected_header.strip())
+                                header_is_url = bool(re.match(r'^https?://', selected_header_clean, re.IGNORECASE))
+
+                                print(f"[EXCEL_FETCH] Excel structure: {num_cols} columns, {num_rows} rows")
+                                print(f"[EXCEL_FETCH] Field names (column headers): {headers}")
+                                if pandas_error:
+                                    print(f"[EXCEL_FETCH] Pandas unavailable, used openpyxl fallback: {pandas_error}")
+
+                                # Always use column-as-dataset mapping: columns are datasets, rows map to test steps
+                                mapped_test_steps = []
+                                print("[EXCEL_FETCH] Using column-as-dataset mapping (columns = datasets, rows -> steps)")
+
+                                if value_set_index < num_cols:
+                                    for step_index, step in enumerate(test_steps):
+                                        mapped_step = step.copy()
+                                        cell_value = ''
+                                        try:
+                                            if step_index == 0 and header_is_url:
+                                                # Excel has URL in header cell (first visual row) for this column.
+                                                cell_value = selected_header_clean
+                                            else:
+                                                row_index = step_index - 1 if header_is_url else step_index
+                                                cell_value = read_cell_value(row_index, value_set_index) if row_index >= 0 else ''
+                                        except Exception as cell_err:
+                                            print(f"[EXCEL_FETCH] Warning reading cell (row={step_index}, col={value_set_index}): {cell_err}")
                                             cell_value = ''
-                                            try:
-                                                if step_index == 0 and header_is_url:
-                                                    # Excel has URL in header cell (first visual row) for this column.
-                                                    cell_value = selected_header_clean
-                                                else:
-                                                    row_index = step_index - 1 if header_is_url else step_index
-                                                    if row_index < num_rows:
-                                                        cell_value = df.iat[row_index, value_set_index]
-                                                    if pd.isna(cell_value):
-                                                        cell_value = ''
-                                                    elif hasattr(cell_value, 'item'):
-                                                        cell_value = cell_value.item()
-                                                    cell_value = str(cell_value)
-                                            except Exception as cell_err:
-                                                print(f"[EXCEL_FETCH] Warning reading cell (row={step_index}, col={value_set_index}): {cell_err}")
-                                                cell_value = ''
 
-                                            # Set the step's values to the cell content
-                                            mapped_step['values'] = cell_value
-                                            print(f"[EXCEL_MAPPING] Step {step.get('step_no')}: values set to '{cell_value}' from cell (row={step_index}, col={value_set_index})")
+                                        mapped_step['values'] = cell_value
+                                        print(f"[EXCEL_MAPPING] Step {step.get('step_no')}: values set to '{cell_value}' from cell (row={step_index}, col={value_set_index})")
 
-                                            # Map element_name placeholders from cell if present
-                                            if step.get('element_name') and '{{' in str(step.get('element_name', '')):
-                                                mapped_element = re.sub(r"\{\{\s*\w+\s*\}\}", cell_value, str(step['element_name']))
-                                                mapped_step['element_name'] = mapped_element
+                                        if step.get('element_name') and '{{' in str(step.get('element_name', '')):
+                                            mapped_element = re.sub(r"\{\{\s*\w+\s*\}\}", cell_value, str(step['element_name']))
+                                            mapped_step['element_name'] = mapped_element
 
-                                            mapped_test_steps.append(mapped_step)
-                                    else:
-                                        print(f"[EXCEL_FETCH] ERROR: value_set_index {value_set_index} exceeds data column count {num_cols}")
+                                        mapped_test_steps.append(mapped_step)
+                                else:
+                                    print(f"[EXCEL_FETCH] ERROR: value_set_index {value_set_index} exceeds data column count {num_cols}")
 
-                                    if mapped_test_steps:
-                                        test_steps = mapped_test_steps
-                                        print(f"[EXCEL_MAPPING] Applied Excel mapping for data set index {value_set_index} to {len(mapped_test_steps)} test steps")
+                                if mapped_test_steps:
+                                    test_steps = mapped_test_steps
+                                    print(f"[EXCEL_MAPPING] Applied Excel mapping for data set index {value_set_index} to {len(mapped_test_steps)} test steps")
                             except Exception as excel_error:
                                 print(f"[EXCEL_FETCH] ERROR reading Excel file: {str(excel_error)}")
                                 import traceback
@@ -6742,8 +6873,10 @@ def execute_single_testcase(testcase_name, request_data=None):
         
         conn.close()
         
-        # Determine which executor to use (default to playwright)
-        executor_type = request_data.get('executor_type', 'playwright').lower()
+        # Determine which executor to use.
+        # Keep the default aligned with Excel execution so normal TestStep runs
+        # also execute in visible Chrome unless UI explicitly selects another executor.
+        executor_type = request_data.get('executor_type', 'selenium').lower()
 
         # Determine if this is server execution (affects headless mode for Playwright)
         is_server_execution = request_data.get('server_execution', False) if request_data else False
@@ -6820,7 +6953,13 @@ def execute_single_testcase(testcase_name, request_data=None):
             # Execute test steps using your Selenium code
             from selenium_executor import SeleniumTestExecutor
             print("[SELENIUM] Creating SeleniumTestExecutor instance...")
-            executor = SeleniumTestExecutor()
+            selenium_headless = bool(request_data.get('headless', False)) if request_data else False
+            selenium_isolation = bool(request_data.get('enable_isolation', True)) if request_data else True
+            executor = SeleniumTestExecutor(
+                enable_isolation=selenium_isolation,
+                headless=selenium_headless,
+                server_execution=is_server_execution
+            )
 
             print("[SELENIUM] Starting test case execution...")
             result = executor.execute_test_case(testcase_name, test_steps, test_metadata)
@@ -7164,6 +7303,34 @@ def get_execution_details(execution_id: str):
     except Exception as e:
         print(f"[ERROR] Error fetching execution details for {execution_id}: {str(e)}")
         return jsonify({
+            'error': str(e)
+        }), 500
+
+@app.route('/api/execution-analysis/<execution_id>', methods=['GET'])
+def get_execution_analysis(execution_id: str):
+    """Analyze execution using DB data with Allure fallback."""
+    try:
+        if not execution_log_analyzer:
+            return jsonify({
+                'success': False,
+                'error': 'Execution analysis module is unavailable'
+            }), 503
+
+        analysis = execution_log_analyzer.analyze_execution_with_raw_logs(execution_id)
+        if analysis.get('error'):
+            return jsonify({
+                'success': False,
+                **analysis
+            }), 404
+
+        return jsonify({
+            'success': True,
+            **analysis
+        })
+    except Exception as e:
+        print(f"[ERROR] Error analyzing execution {execution_id}: {str(e)}")
+        return jsonify({
+            'success': False,
             'error': str(e)
         }), 500
 
@@ -9869,6 +10036,85 @@ def get_excel_files():
         print(f"[ERROR] Get Excel files failed: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+def _get_excel_sheets_metadata(file_path):
+    """Return sheet metadata for an Excel file."""
+    if not file_path or not os.path.exists(file_path):
+        return []
+
+    sheets = []
+
+    try:
+        import pandas as pd
+        xls = pd.ExcelFile(file_path)
+        for sheet_name in xls.sheet_names:
+            row_count = 0
+            try:
+                df = xls.parse(sheet_name, header=0)
+                row_count = 0 if df is None else len(df)
+            except Exception:
+                row_count = 0
+            sheets.append({'name': sheet_name, 'row_count': row_count})
+        return sheets
+    except Exception as pandas_err:
+        print(f"[EXCEL_SHEETS] Pandas metadata read failed, trying openpyxl: {pandas_err}")
+
+    try:
+        from openpyxl import load_workbook
+        workbook = load_workbook(file_path, data_only=True, read_only=True)
+        try:
+            for sheet_name in workbook.sheetnames:
+                sheet = workbook[sheet_name]
+                rows = list(sheet.iter_rows(values_only=True))
+                row_count = max(len(rows) - 1, 0) if rows else 0
+                sheets.append({'name': sheet_name, 'row_count': row_count})
+        finally:
+            workbook.close()
+    except Exception as openpyxl_err:
+        print(f"[EXCEL_SHEETS] openpyxl metadata read failed: {openpyxl_err}")
+
+    return sheets
+
+@app.route('/api/excel-files/<int:file_id>/sheets', methods=['GET'])
+def get_excel_file_sheets(file_id):
+    """Get list of sheet names for an uploaded Excel file."""
+    try:
+        user_email = request.headers.get('X-User-Email')
+        if not user_email:
+            return jsonify({'error': 'Authentication required'}), 401
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        ensure_excel_mapping_infrastructure(conn)
+
+        cursor.execute("""
+            SELECT file_path, original_name, uploaded_by
+            FROM [Values]
+            WHERE id = ? AND status = 'Active'
+        """, (file_id,))
+        file_row = cursor.fetchone()
+        conn.close()
+
+        if not file_row:
+            return jsonify({'error': 'File not found'}), 404
+
+        file_path, original_name, uploaded_by = file_row
+        if uploaded_by != user_email:
+            return jsonify({'error': 'Access denied'}), 403
+
+        sheets = _get_excel_sheets_metadata(file_path)
+        if not sheets:
+            return jsonify({'error': 'No sheets found in Excel file'}), 400
+
+        return jsonify({
+            'success': True,
+            'file_id': file_id,
+            'file_name': original_name,
+            'sheets': sheets
+        }), 200
+    except Exception as e:
+        print(f"[ERROR] Get Excel sheets failed: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/excel-files/<int:file_id>/parse', methods=['GET'])
 def parse_excel_file(file_id):
     """Parse Excel file and extract values for test execution"""
@@ -9907,52 +10153,290 @@ def parse_excel_file(file_id):
 
         # Parse Excel file
         try:
-            import pandas as pd
+            selected_sheet_name_param = (request.args.get('sheet_name') or '').strip()
+            headers = []
+            values = []
+            sheet_name = None
+            available_sheets = []
+            row_count = 0
+            parser_used = None
+            pandas_error = None
 
-            # Read Excel file with first row as column headers
-            excel_data = pd.read_excel(file_path, sheet_name=None, header=0)  # Read all sheets with first row as header
+            def _normalize_excel_value(cell_value):
+                if cell_value is None:
+                    return ''
+                if hasattr(cell_value, 'item'):
+                    try:
+                        cell_value = cell_value.item()
+                    except Exception:
+                        pass
+                if hasattr(cell_value, 'isoformat'):
+                    try:
+                        return cell_value.isoformat()
+                    except Exception:
+                        pass
+                return str(cell_value).strip()
 
-            if not excel_data:
-                return jsonify({'error': 'No sheets found in Excel file'}), 400
+            def _build_dataset_values(header_texts, active_indices, active_row_indices, read_cell_value):
+                dataset_values = []
+                logical_row_count = len(active_row_indices)
+                derived_row_count = logical_row_count
 
-            # Use the first sheet
-            sheet_name = list(excel_data.keys())[0]
-            df = excel_data[sheet_name]
+                for col_position, actual_col_idx in enumerate(active_indices):
+                    selected_header = header_texts[col_position] if col_position < len(header_texts) else ''
+                    selected_header_clean = re.sub(r'\.\d+$', '', str(selected_header).strip())
+                    header_is_url = bool(re.match(r'^https?://', selected_header_clean, re.IGNORECASE))
 
-            if df.empty:
-                return jsonify({'error': 'Excel sheet is empty'}), 400
+                    col_dict = {}
+                    visual_step_count = logical_row_count + (1 if header_is_url else 0)
+                    derived_row_count = max(derived_row_count, visual_step_count)
 
-            # Get column headers (field names for test data)
-            headers = df.columns.tolist()
-            
+                    for step_idx in range(visual_step_count):
+                        step_key = f"step_{step_idx + 1}"
+                        if header_is_url and step_idx == 0:
+                            cell_value = selected_header_clean
+                        else:
+                            row_idx = step_idx - 1 if header_is_url else step_idx
+                            raw_value = read_cell_value(row_idx, actual_col_idx) if row_idx >= 0 else ''
+                            cell_value = _normalize_excel_value(raw_value)
+                        col_dict[step_key] = cell_value
+
+                    dataset_values.append(col_dict)
+
+                return dataset_values, derived_row_count
+
+            # Primary path: pandas (fast and preserves existing behavior)
+            try:
+                import pandas as pd
+
+                excel_data = pd.read_excel(file_path, sheet_name=None, header=0)
+                if excel_data:
+                    available_sheets = list(excel_data.keys())
+                    # Auto-pick first non-empty sheet with active dataset columns unless a sheet is explicitly selected.
+                    selected_sheet_name = None
+                    selected_df = None
+                    selected_active_col_indices = []
+
+                    if selected_sheet_name_param:
+                        if selected_sheet_name_param not in excel_data:
+                            return jsonify({
+                                'error': f"Sheet '{selected_sheet_name_param}' not found",
+                                'available_sheets': available_sheets
+                            }), 400
+                        selected_sheet_name = selected_sheet_name_param
+                        selected_df = excel_data[selected_sheet_name]
+                        for col_idx in range(selected_df.shape[1]):
+                            header_value = selected_df.columns[col_idx]
+                            header_text = '' if pd.isna(header_value) else str(header_value).strip()
+                            col_series = selected_df.iloc[:, col_idx]
+                            has_non_empty_data = any(
+                                (not pd.isna(v)) and str(v).strip() != ''
+                                for v in col_series.tolist()
+                            )
+                            if header_text != '' or has_non_empty_data:
+                                selected_active_col_indices.append(col_idx)
+                        if not selected_active_col_indices and selected_df is not None:
+                            selected_active_col_indices = list(range(selected_df.shape[1]))
+                    else:
+                        for candidate_sheet_name, candidate_df in excel_data.items():
+                            if candidate_df is None or candidate_df.empty:
+                                continue
+
+                            candidate_active_cols = []
+                            for col_idx in range(candidate_df.shape[1]):
+                                header_value = candidate_df.columns[col_idx]
+                                header_text = '' if pd.isna(header_value) else str(header_value).strip()
+                                col_series = candidate_df.iloc[:, col_idx]
+                                has_non_empty_data = any(
+                                    (not pd.isna(v)) and str(v).strip() != ''
+                                    for v in col_series.tolist()
+                                )
+                                if header_text != '' or has_non_empty_data:
+                                    candidate_active_cols.append(col_idx)
+
+                            if candidate_active_cols:
+                                selected_sheet_name = candidate_sheet_name
+                                selected_df = candidate_df
+                                selected_active_col_indices = candidate_active_cols
+                                break
+
+                        if selected_sheet_name is None:
+                            # Fallback: keep old behavior if no sheet has active columns.
+                            selected_sheet_name = list(excel_data.keys())[0]
+                            selected_df = excel_data[selected_sheet_name]
+                            selected_active_col_indices = list(range(selected_df.shape[1])) if selected_df is not None else []
+
+                    sheet_name = selected_sheet_name
+                    df = selected_df
+
+                    if not df.empty:
+                        parser_used = 'pandas'
+
+                        # Keep only active columns (actual dataset columns).
+                        active_col_indices = selected_active_col_indices
+                        active_row_indices = []
+                        for row_idx in range(len(df)):
+                            has_non_empty_data = False
+                            for actual_col_idx in active_col_indices:
+                                cell_value = df.iloc[row_idx, actual_col_idx]
+                                if not pd.isna(cell_value) and str(cell_value).strip() != '':
+                                    has_non_empty_data = True
+                                    break
+                            if has_non_empty_data:
+                                active_row_indices.append(row_idx)
+
+                        headers = []
+                        for col_idx in active_col_indices:
+                            header_value = df.columns[col_idx]
+                            if pd.isna(header_value) or str(header_value).strip() == '':
+                                headers.append(f'Unnamed: {col_idx}')
+                            else:
+                                headers.append(str(header_value).strip())
+
+                        def _read_cell_pandas(row_idx, actual_col_idx):
+                            if row_idx < 0 or row_idx >= len(active_row_indices):
+                                return ''
+                            actual_row_idx = active_row_indices[row_idx]
+                            cell_value = df.iloc[actual_row_idx, actual_col_idx]
+                            if pd.isna(cell_value):
+                                return ''
+                            return cell_value
+
+                        values, row_count = _build_dataset_values(
+                            headers,
+                            active_col_indices,
+                            active_row_indices,
+                            _read_cell_pandas
+                        )
+            except Exception as e:
+                pandas_error = str(e)
+
+            # Fallback path: openpyxl (handles environments where pandas import is broken)
+            if not values:
+                from openpyxl import load_workbook
+
+                workbook = load_workbook(file_path, data_only=True, read_only=True)
+                try:
+                    if not workbook.sheetnames:
+                        return jsonify({'error': 'No sheets found in Excel file'}), 400
+                    available_sheets = list(workbook.sheetnames)
+
+                    # Auto-pick first non-empty sheet with active dataset columns unless a sheet is explicitly selected.
+                    raw_headers = []
+                    data_rows = []
+                    active_col_indices = []
+                    selected = False
+                    if selected_sheet_name_param:
+                        if selected_sheet_name_param not in workbook.sheetnames:
+                            return jsonify({
+                                'error': f"Sheet '{selected_sheet_name_param}' not found",
+                                'available_sheets': available_sheets
+                            }), 400
+                        sheet_name = selected_sheet_name_param
+                        sheet = workbook[sheet_name]
+                        rows = list(sheet.iter_rows(values_only=True))
+                        if not rows:
+                            return jsonify({'error': 'Excel sheet is empty'}), 400
+                        candidate_raw_headers = list(rows[0])
+                        candidate_data_rows = rows[1:]
+                        candidate_active_cols = []
+                        for col_idx, header_value in enumerate(candidate_raw_headers):
+                            header_text = '' if header_value is None else str(header_value).strip()
+                            has_non_empty_data = any(
+                                (col_idx < len(row_values)) and
+                                (row_values[col_idx] is not None) and
+                                str(row_values[col_idx]).strip() != ''
+                                for row_values in candidate_data_rows
+                            )
+                            if header_text != '' or has_non_empty_data:
+                                candidate_active_cols.append(col_idx)
+                        raw_headers = candidate_raw_headers
+                        data_rows = candidate_data_rows
+                        active_col_indices = candidate_active_cols if candidate_active_cols else list(range(len(raw_headers)))
+                        selected = True
+                    else:
+                        for candidate_sheet_name in workbook.sheetnames:
+                            sheet = workbook[candidate_sheet_name]
+                            rows = list(sheet.iter_rows(values_only=True))
+                            if not rows:
+                                continue
+
+                            candidate_raw_headers = list(rows[0])
+                            candidate_data_rows = rows[1:]
+                            candidate_active_cols = []
+                            for col_idx, header_value in enumerate(candidate_raw_headers):
+                                header_text = '' if header_value is None else str(header_value).strip()
+                                has_non_empty_data = any(
+                                    (col_idx < len(row_values)) and
+                                    (row_values[col_idx] is not None) and
+                                    str(row_values[col_idx]).strip() != ''
+                                    for row_values in candidate_data_rows
+                                )
+                                if header_text != '' or has_non_empty_data:
+                                    candidate_active_cols.append(col_idx)
+
+                            if candidate_active_cols:
+                                sheet_name = candidate_sheet_name
+                                raw_headers = candidate_raw_headers
+                                data_rows = candidate_data_rows
+                                active_col_indices = candidate_active_cols
+                                selected = True
+                                break
+
+                        if not selected:
+                            # Fallback: keep old behavior if no sheet has active columns.
+                            sheet_name = workbook.sheetnames[0]
+                            sheet = workbook[sheet_name]
+                            rows = list(sheet.iter_rows(values_only=True))
+                            if not rows:
+                                return jsonify({'error': 'Excel sheet is empty'}), 400
+                            raw_headers = list(rows[0])
+                            data_rows = rows[1:]
+                            active_col_indices = list(range(len(raw_headers)))
+
+                    if not raw_headers:
+                        return jsonify({'error': 'No columns found in Excel file'}), 400
+
+                    parser_used = 'openpyxl'
+                    active_row_indices = []
+                    for row_idx, row_values in enumerate(data_rows):
+                        has_non_empty_data = any(
+                            (actual_col_idx < len(row_values))
+                            and (row_values[actual_col_idx] is not None)
+                            and str(row_values[actual_col_idx]).strip() != ''
+                            for actual_col_idx in active_col_indices
+                        )
+                        if has_non_empty_data:
+                            active_row_indices.append(row_idx)
+
+                    headers = []
+                    for col_idx in active_col_indices:
+                        header_value = raw_headers[col_idx] if col_idx < len(raw_headers) else None
+                        if header_value is None or str(header_value).strip() == '':
+                            headers.append(f'Unnamed: {col_idx}')
+                        else:
+                            headers.append(str(header_value).strip())
+
+                    def _read_cell_openpyxl(row_idx, actual_col_idx):
+                        if row_idx < 0 or row_idx >= len(active_row_indices):
+                            return ''
+                        actual_row_idx = active_row_indices[row_idx]
+                        row_values = data_rows[actual_row_idx]
+                        if actual_col_idx >= len(row_values):
+                            return ''
+                        return row_values[actual_col_idx]
+
+                    values, row_count = _build_dataset_values(
+                        headers,
+                        active_col_indices,
+                        active_row_indices,
+                        _read_cell_openpyxl
+                    )
+                finally:
+                    workbook.close()
+
             if len(headers) < 1:
                 return jsonify({'error': 'No columns found in Excel file'}), 400
-
-            # Convert each ROW to a data set (each row = one test iteration)
-            # Headers are field names (e.g., "Username", "Password", "URL")
-            # Each row is ONE complete data set
-            values = []
-            
-            # Iterate through each COLUMN - each column is ONE complete data set (iteration)
-            # Each ROW within the column represents a step value
-            # Row 1 = Step 1, Row 2 = Step 2, etc.
-            for col_idx in range(len(headers)):
-                col_dict = {}
-                col_name = headers[col_idx]
-                
-                # Each row becomes a step value for this column
-                for row_idx in range(len(df)):
-                    step_key = f"step_{row_idx + 1}"  # Row 1 = Step 1, Row 2 = Step 2
-                    cell_value = df.iloc[row_idx, col_idx]
-                    
-                    if pd.isna(cell_value):
-                        cell_value = ''
-                    elif hasattr(cell_value, 'item'):
-                        cell_value = cell_value.item()
-                    
-                    col_dict[step_key] = cell_value
-                
-                values.append(col_dict)
 
             if len(values) < 1:
                 return jsonify({'error': 'No data columns found in Excel file'}), 400
@@ -9960,7 +10444,9 @@ def parse_excel_file(file_id):
             print(f"[EXCEL_PARSE] Successfully parsed {len(values)} columns (data sets) from {original_name}")
             print(f"[EXCEL_PARSE] Headers (Column Names): {headers}")
             print(f"[EXCEL_PARSE] Data Sets (Columns) Count: {len(values)}")
-            print(f"[EXCEL_PARSE] Steps per Data Set: {len(df)} (rows in Excel)")
+            print(f"[EXCEL_PARSE] Steps per Data Set: {row_count} (rows in Excel)")
+            if parser_used == 'openpyxl' and pandas_error:
+                print(f"[EXCEL_PARSE] Pandas unavailable, used openpyxl fallback: {pandas_error}")
 
             return jsonify({
                 'success': True,
@@ -9969,15 +10455,15 @@ def parse_excel_file(file_id):
                 'sheet_name': sheet_name,
                 'headers': headers,
                 'values': values,
-                'total_rows': len(df),
+                'total_rows': row_count,
                 'parsing_mode': 'columns',
                 'data_sets': len(values),
                 'field_count': len(headers),
-                'steps_per_set': len(df)
+                'steps_per_set': row_count,
+                'parser_used': parser_used,
+                'available_sheets': available_sheets
             }), 200
 
-        except ImportError:
-            return jsonify({'error': 'Excel parsing libraries not available'}), 500
         except Exception as parse_error:
             print(f"[EXCEL_PARSE_ERROR] Failed to parse {original_name}: {str(parse_error)}")
             return jsonify({'error': f'Failed to parse Excel file: {str(parse_error)}'}), 400
@@ -10378,7 +10864,13 @@ def execute_single_testcase_with_excel_data(testcase_name, request_data=None):
         else: # Default to selenium
             from selenium_executor import SeleniumTestExecutor
             print("[EXCEL_SELENIUM] Creating SeleniumTestExecutor instance...")
-            executor = SeleniumTestExecutor()
+            selenium_headless = bool(request_data.get('headless', False)) if request_data else False
+            selenium_isolation = bool(request_data.get('enable_isolation', True)) if request_data else True
+            executor = SeleniumTestExecutor(
+                enable_isolation=selenium_isolation,
+                headless=selenium_headless,
+                server_execution=False
+            )
             print("[EXCEL_SELENIUM] Starting test case execution...")
             result = executor.execute_test_case(testcase_name, mapped_test_steps, test_metadata)
             print(f"[EXCEL_ALLURE_DEBUG] SeleniumTestExecutor result status: {result.get('status')}")
@@ -10497,7 +10989,7 @@ def get_mapped_excel_sheet(testcase_name):
         if result:
             testcase_id = result[0]
             cursor.execute("""
-                SELECT em.excel_file_id, em.sheet_name, em.data_sets, v.original_name
+                SELECT em.excel_file_id, em.sheet_name, em.data_sets, v.original_name, v.file_path
                 FROM [dbo].[ExcelMapping] em
                 LEFT JOIN [dbo].[Values] v ON v.id = em.excel_file_id
                 WHERE em.testcase_id = ?
@@ -10508,6 +11000,8 @@ def get_mapped_excel_sheet(testcase_name):
                 mapped_sheet_name = mapping_row[1] or ''
                 data_sets = mapping_row[2] if mapping_row[2] is not None else 0
                 mapped_file = mapping_row[3] or ''
+                mapped_file_path = mapping_row[4] if len(mapping_row) > 4 else None
+                available_sheets = [sheet['name'] for sheet in _get_excel_sheets_metadata(mapped_file_path)]
                 print(f"[GET_EXCEL] [OK] Found mapping: file_id='{excel_file_id}', sheet='{mapped_sheet_name}'")
             else:
                 print(f"[GET_EXCEL] [FAIL] No Excel mapping found for testcase_id: {testcase_id}")
@@ -10554,7 +11048,9 @@ def get_mapped_excel_sheet(testcase_name):
                 'excelSheetName': excel_sheet_to_return,
                 'found': True,
                 'dataSets': data_sets,
-                'configuredValues': configured_values_list
+                'configuredValues': configured_values_list,
+                'excelFileId': excel_file_id,
+                'availableSheets': available_sheets
             }), 200
         else:
             print(f"[GET_EXCEL] [FAIL] No test case found with name: '{testcase_name}'")
@@ -10628,6 +11124,18 @@ def update_mapped_excel_sheet(testcase_name):
             conn.close()
             return jsonify({'error': 'excelFileId and sheetName are required'}), 400
 
+        # Resolve file name for legacy compatibility columns on TestCases
+        cursor.execute("""
+            SELECT original_name
+            FROM [dbo].[Values]
+            WHERE id = ? AND status = 'Active'
+        """, (excel_file_id,))
+        file_row = cursor.fetchone()
+        mapped_excel_file_name = file_row[0] if file_row and file_row[0] else None
+        if not mapped_excel_file_name:
+            conn.close()
+            return jsonify({'error': f'Active Excel file not found for id {excel_file_id}'}), 400
+
         # Upsert mapping (one per testcase)
         cursor.execute("""
             IF EXISTS (SELECT 1 FROM [dbo].[ExcelMapping] WHERE testcase_id = ?)
@@ -10642,6 +11150,12 @@ def update_mapped_excel_sheet(testcase_name):
                 VALUES (?, ?, ?, ?)
             END
         """, (actual_testcase_id, excel_file_id, sheet_name, data_sets, actual_testcase_id, actual_testcase_id, excel_file_id, sheet_name, data_sets))
+        # Keep legacy columns in sync because local execution flow still reads from TestCases.
+        cursor.execute("""
+            UPDATE [dbo].[TestCases]
+            SET mapped_excel_file_name = ?, mapped_excel_sheet_name = ?
+            WHERE id = ?
+        """, (mapped_excel_file_name, sheet_name, actual_testcase_id))
         conn.commit()
         
         # Verify the update - use case-insensitive query

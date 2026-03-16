@@ -15,8 +15,19 @@ import logging
 
 class ExecutionLogAnalyzer:
     def __init__(self, allure_results_dir: str = "allure-results-new", log_storage_dir: str = "execution_logs"):
-        self.allure_results_dir = allure_results_dir
-        self.log_storage_dir = log_storage_dir
+        backend_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(backend_dir)
+
+        if os.path.isabs(allure_results_dir):
+            self.allure_results_dir = allure_results_dir
+        else:
+            self.allure_results_dir = os.path.join(project_root, allure_results_dir)
+
+        if os.path.isabs(log_storage_dir):
+            self.log_storage_dir = log_storage_dir
+        else:
+            self.log_storage_dir = os.path.join(project_root, log_storage_dir)
+
         self.setup_logging()
         
         # Create log storage directory if it doesn't exist
@@ -77,19 +88,29 @@ class ExecutionLogAnalyzer:
         """Find Allure result file by result ID"""
         if not result_id:
             return None
-            
+
+        # Fast path: many executions are stored as <result_id>-result.json
+        direct_match = os.path.join(self.allure_results_dir, f"{result_id}-result.json")
+        if os.path.exists(direct_match):
+            return direct_match
+
         # Look for result files matching the result_id
         try:
             for filename in os.listdir(self.allure_results_dir):
                 if filename.endswith('-result.json'):
-                    # Extract UUID from filename
-                    uuid_part = filename.replace('-result.json', '')
-                    
                     # Read the file and check if it matches the result_id
                     filepath = os.path.join(self.allure_results_dir, filename)
                     try:
-                        with open(filepath, 'r') as f:
+                        with open(filepath, 'r', encoding='utf-8') as f:
                             data = json.load(f)
+                            if data.get('uuid') == result_id or data.get('historyId') == result_id:
+                                return filepath
+
+                            # Match against labels used by newer report formats
+                            for label in data.get('labels', []):
+                                if label.get('name') == 'resultId' and label.get('value') == result_id:
+                                    return filepath
+
                             if data.get('parameters'):
                                 for param in data['parameters']:
                                     if param.get('name') == 'Result ID' and param.get('value') == result_id:
@@ -104,13 +125,69 @@ class ExecutionLogAnalyzer:
     def read_allure_result(self, filepath: str) -> Optional[Dict]:
         """Read and parse Allure result file"""
         try:
-            with open(filepath, 'r') as f:
+            with open(filepath, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
             self.logger.error(f"Error reading allure file {filepath}: {e}")
             return None
-    
-    def get_raw_execution_logs(self, execution_id: str) -> str:
+
+    def _find_allure_file_for_execution(self, execution_id: str) -> Optional[str]:
+        """Find Allure result file using execution identifier (result_id or uuid)."""
+        if not execution_id:
+            return None
+
+        # Try direct result-id match first, then deep scan.
+        found = self.find_allure_result_file(execution_id)
+        if found:
+            return found
+
+        # Try direct UUID filename pattern.
+        uuid_match = os.path.join(self.allure_results_dir, f"{execution_id}-result.json")
+        if os.path.exists(uuid_match):
+            return uuid_match
+
+        return None
+
+    def _build_execution_summary_from_allure(self, execution_id: str, allure_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Build execution summary from Allure JSON when DB data is unavailable."""
+        parameters = {
+            param.get('name'): param.get('value')
+            for param in allure_data.get('parameters', [])
+            if isinstance(param, dict)
+        }
+
+        steps = allure_data.get('steps', [])
+        passed_steps = sum(1 for step in steps if step.get('status') == 'passed')
+        failed_steps = sum(1 for step in steps if step.get('status') == 'failed')
+
+        raw_status = (allure_data.get('status') or 'unknown').upper()
+        status_map = {'PASSED': 'PASS', 'FAILED': 'FAIL', 'BROKEN': 'FAIL', 'SKIPPED': 'SKIP'}
+        normalized_status = status_map.get(raw_status, raw_status)
+
+        testcase_name = parameters.get('Test Case ID') or allure_data.get('name') or execution_id
+
+        start_ms = allure_data.get('start')
+        created_date = None
+        if isinstance(start_ms, (int, float)):
+            created_date = datetime.fromtimestamp(start_ms / 1000, tz=pytz.timezone('Asia/Kolkata'))
+
+        return {
+            'testcase_name': testcase_name,
+            'status': normalized_status,
+            'total_steps': len(steps),
+            'passed_steps': passed_steps,
+            'failed_steps': failed_steps,
+            'created_date': created_date,
+            'username': parameters.get('Executed By') or 'Unknown User',
+            'projectname': parameters.get('Project') or 'Unknown Project',
+            'modulename': parameters.get('Module') or 'Unknown Module',
+            'testsuitename': parameters.get('Suite Type') or 'Unknown Suite',
+            'testrun_id': parameters.get('Test Run ID') or execution_id,
+            'result_id': parameters.get('Result ID') or execution_id,
+            'executor_type': parameters.get('Executor') or 'selenium'
+        }
+
+    def get_raw_execution_logs(self, execution_id: str, execution_summary: Optional[Dict] = None) -> str:
         """Get raw execution logs for a specific execution"""
         log_file = os.path.join(self.log_storage_dir, f"{execution_id}_raw.log")
         
@@ -123,12 +200,13 @@ class ExecutionLogAnalyzer:
                 return ""
         
         # If no raw log file exists, generate one from available data
-        return self._generate_raw_log_from_data(execution_id)
+        return self._generate_raw_log_from_data(execution_id, execution_summary)
     
-    def _generate_raw_log_from_data(self, execution_id: str) -> str:
+    def _generate_raw_log_from_data(self, execution_id: str, execution_summary: Optional[Dict] = None) -> str:
         """Generate raw execution log from available data"""
-        # Get execution summary from database (or use defaults if not available)
-        execution_summary = self._get_execution_summary(execution_id)
+        # Get execution summary from database (or use provided summary/defaults)
+        if not execution_summary:
+            execution_summary = self._get_execution_summary(execution_id)
         
         # Use default values if database lookup fails
         if not execution_summary:
@@ -622,18 +700,29 @@ class ExecutionLogAnalyzer:
         try:
             # Get execution summary from database
             execution_summary = self._get_execution_summary(execution_id)
-            if not execution_summary:
-                return {"error": f"Execution not found: {execution_id}"}
-            
-            # Find and read Allure result file
-            allure_filepath = self.find_allure_result_file(execution_summary.get('result_id'))
+            allure_filepath = None
             allure_data = None
-            
+
+            # Find and read Allure result file using DB result_id when available.
+            if execution_summary:
+                allure_filepath = self.find_allure_result_file(execution_summary.get('result_id'))
+
+            # Fallback: allow direct analysis by execution_id/result_id/uuid from Allure files.
+            if not allure_filepath:
+                allure_filepath = self._find_allure_file_for_execution(execution_id)
+
             if allure_filepath:
                 allure_data = self.read_allure_result(allure_filepath)
-            
+
+            # If DB is unavailable, build summary from real Allure data.
+            if not execution_summary and allure_data:
+                execution_summary = self._build_execution_summary_from_allure(execution_id, allure_data)
+
+            if not execution_summary:
+                return {"error": f"Execution not found in DB or Allure results: {execution_id}"}
+
             # Get raw execution logs
-            raw_logs = self.get_raw_execution_logs(execution_id)
+            raw_logs = self.get_raw_execution_logs(execution_id, execution_summary)
             
             # Save raw logs if we generated them
             if raw_logs:

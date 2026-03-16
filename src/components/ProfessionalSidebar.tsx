@@ -2,13 +2,7 @@ import React, { useState } from 'react';
 import {
   Sidebar,
   SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
   SidebarRail,
   useSidebar,
 } from '@/components/ui/sidebar';
@@ -44,12 +38,10 @@ import {
   List,
   History,
   BarChart,
-  ExternalLink,
   Minimize2,
   Maximize2,
   Home,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
 // Define the main automation workflow sections with professional structure
@@ -206,69 +198,63 @@ export function ProfessionalSidebar({ onSectionAction, onQuickAction, navigation
   const getColorClasses = (color: string, isActive: boolean = false, isExpanded: boolean = false) => {
     const colors = {
       emerald: {
-        icon: isActive ? 'text-white' : 'text-emerald-600',
+        icon: isActive ? 'text-white' : 'text-emerald-700',
         bg: isActive 
-          ? 'bg-emerald-600 text-white shadow-md border-emerald-600' 
+          ? 'bg-emerald-700 text-white shadow-md border-emerald-700' 
           : isExpanded 
-            ? 'bg-emerald-50 border-emerald-200' 
-            : 'hover:bg-emerald-50 border-gray-200 hover:border-emerald-200',
-        badge: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-        actionBg: 'hover:bg-gray-50',
+            ? 'bg-emerald-50 border-emerald-200 shadow-sm' 
+            : 'hover:bg-emerald-50 border-border hover:border-emerald-200',
+        actionBg: 'hover:bg-muted/60',
         actionIcon: 'text-gray-600'
       },
       blue: {
-        icon: isActive ? 'text-white' : 'text-blue-600',
+        icon: isActive ? 'text-white' : 'text-blue-700',
         bg: isActive 
-          ? 'bg-blue-600 text-white shadow-md border-blue-600' 
+          ? 'bg-blue-700 text-white shadow-md border-blue-700' 
           : isExpanded 
-            ? 'bg-blue-50 border-blue-200' 
-            : 'hover:bg-blue-50 border-gray-200 hover:border-blue-200',
-        badge: 'bg-blue-100 text-blue-700 border-blue-200',
-        actionBg: 'hover:bg-gray-50',
+            ? 'bg-blue-50 border-blue-200 shadow-sm' 
+            : 'hover:bg-blue-50 border-border hover:border-blue-200',
+        actionBg: 'hover:bg-muted/60',
         actionIcon: 'text-gray-600'
       },
       purple: {
-        icon: isActive ? 'text-white' : 'text-purple-600',
+        icon: isActive ? 'text-white' : 'text-violet-700',
         bg: isActive 
-          ? 'bg-purple-600 text-white shadow-md border-purple-600' 
+          ? 'bg-violet-700 text-white shadow-md border-violet-700' 
           : isExpanded 
-            ? 'bg-purple-50 border-purple-200' 
-            : 'hover:bg-purple-50 border-gray-200 hover:border-purple-200',
-        badge: 'bg-purple-100 text-purple-700 border-purple-200',
-        actionBg: 'hover:bg-gray-50',
+            ? 'bg-violet-50 border-violet-200 shadow-sm' 
+            : 'hover:bg-violet-50 border-border hover:border-violet-200',
+        actionBg: 'hover:bg-muted/60',
         actionIcon: 'text-gray-600'
       },
       orange: {
-        icon: isActive ? 'text-white' : 'text-orange-600',
+        icon: isActive ? 'text-white' : 'text-amber-700',
         bg: isActive 
-          ? 'bg-orange-600 text-white shadow-md border-orange-600' 
+          ? 'bg-amber-700 text-white shadow-md border-amber-700' 
           : isExpanded 
-            ? 'bg-orange-50 border-orange-200' 
-            : 'hover:bg-orange-50 border-gray-200 hover:border-orange-200',
-        badge: 'bg-orange-100 text-orange-700 border-orange-200',
-        actionBg: 'hover:bg-gray-50',
+            ? 'bg-amber-50 border-amber-200 shadow-sm' 
+            : 'hover:bg-amber-50 border-border hover:border-amber-200',
+        actionBg: 'hover:bg-muted/60',
         actionIcon: 'text-gray-600'
       },
       cyan: {
-        icon: isActive ? 'text-white' : 'text-cyan-600',
+        icon: isActive ? 'text-white' : 'text-cyan-700',
         bg: isActive 
-          ? 'bg-cyan-600 text-white shadow-md border-cyan-600' 
+          ? 'bg-cyan-700 text-white shadow-md border-cyan-700' 
           : isExpanded 
-            ? 'bg-cyan-50 border-cyan-200' 
-            : 'hover:bg-cyan-50 border-gray-200 hover:border-cyan-200',
-        badge: 'bg-cyan-100 text-cyan-700 border-cyan-200',
-        actionBg: 'hover:bg-gray-50',
+            ? 'bg-cyan-50 border-cyan-200 shadow-sm' 
+            : 'hover:bg-cyan-50 border-border hover:border-cyan-200',
+        actionBg: 'hover:bg-muted/60',
         actionIcon: 'text-gray-600'
       },
       rose: {
-        icon: isActive ? 'text-white' : 'text-rose-600',
+        icon: isActive ? 'text-white' : 'text-rose-700',
         bg: isActive 
-          ? 'bg-rose-600 text-white shadow-md border-rose-600' 
+          ? 'bg-rose-700 text-white shadow-md border-rose-700' 
           : isExpanded 
-            ? 'bg-rose-50 border-rose-200' 
-            : 'hover:bg-rose-50 border-gray-200 hover:border-rose-200',
-        badge: 'bg-rose-100 text-rose-700 border-rose-200',
-        actionBg: 'hover:bg-gray-50',
+            ? 'bg-rose-50 border-rose-200 shadow-sm' 
+            : 'hover:bg-rose-50 border-border hover:border-rose-200',
+        actionBg: 'hover:bg-muted/60',
         actionIcon: 'text-gray-600'
       }
     };
@@ -276,57 +262,57 @@ export function ProfessionalSidebar({ onSectionAction, onQuickAction, navigation
   };
 
   return (
-    <Sidebar variant="inset" className="cursor-glow border-r border-gray-200">
-      <SidebarHeader className="p-4 border-b bg-gradient-to-r from-slate-50 to-gray-50">
+    <Sidebar variant="inset" className="border-r border-border">
+      <SidebarHeader className="p-4 border-b border-border bg-sidebar">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
+            <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center shadow-sm">
               <Sparkles className="w-5 h-5 text-white" />
             </div>
             {!isCollapsed && (
               <div>
-                <h2 className="text-lg font-bold bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent">
+                <h2 className="text-base font-semibold text-foreground">
                   Automation Framework
                 </h2>
-                <p className="text-xs text-gray-500 font-medium">Professional Testing Suite</p>
+                <p className="text-xs text-muted-foreground">Professional Testing Suite</p>
               </div>
             )}
           </div>
           <button
             onClick={toggleSidebar}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-accent rounded-md transition-colors"
             title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             {isCollapsed ? (
-              <Maximize2 className="w-4 h-4 text-gray-600" />
+              <Maximize2 className="w-4 h-4 text-muted-foreground" />
             ) : (
-              <Minimize2 className="w-4 h-4 text-gray-600" />
+              <Minimize2 className="w-4 h-4 text-muted-foreground" />
             )}
           </button>
         </div>
       </SidebarHeader>
 
-      <SidebarContent className="px-3 py-4 space-y-2 sidebar-scroll">
+      <SidebarContent className="px-3 py-4 space-y-2">
         {/* Home Button */}
         <div className="mb-4">
           <button
             className={cn(
               "group transition-all duration-200 cursor-pointer border rounded-lg p-4 w-full text-left",
-              "hover:bg-blue-50 border-gray-200 hover:border-blue-200",
+              "hover:bg-accent border-border hover:border-primary/30",
               "flex items-center space-x-3"
             )}
             onClick={() => onHomeClick?.()}
           >
             <div className={cn(
               "w-8 h-8 rounded-lg flex items-center justify-center",
-              "bg-blue-100 border border-blue-200"
+              "bg-primary/10 border border-primary/20"
             )}>
-              <Home className="w-4 h-4 text-blue-600" />
+              <Home className="w-4 h-4 text-primary" />
             </div>
             
             {!isCollapsed && (
               <div className="flex-1 text-left min-w-0">
-                <div className="font-medium text-sm text-gray-900">
+                <div className="font-medium text-sm text-foreground">
                   Home Dashboard
                 </div>
               </div>
@@ -334,7 +320,7 @@ export function ProfessionalSidebar({ onSectionAction, onQuickAction, navigation
           </button>
         </div>
 
-        {automationSections.map((section, sectionIndex) => {
+        {automationSections.map((section) => {
           const isExpanded = expandedSections.includes(section.id);
           const isActive = activeSections.includes(section.id);
           const colorClasses = getColorClasses(section.color, isActive, isExpanded);
@@ -362,7 +348,7 @@ export function ProfessionalSidebar({ onSectionAction, onQuickAction, navigation
                   <div className="flex items-center space-x-3 w-full">
                     <div className={cn(
                       "w-8 h-8 rounded-lg flex items-center justify-center",
-                      isActive ? "bg-white/20" : "bg-white border border-gray-200"
+                      isActive ? "bg-white/20" : "bg-card border border-border"
                     )}>
                       <section.icon className={cn("w-4 h-4", colorClasses.icon)} />
                     </div>
@@ -372,7 +358,7 @@ export function ProfessionalSidebar({ onSectionAction, onQuickAction, navigation
                         <div className="flex-1 text-left min-w-0">
                           <div className={cn(
                             "font-medium text-sm",
-                            isActive ? "text-white" : "text-gray-900"
+                            isActive ? "text-white" : "text-foreground"
                           )}>
                             {section.shortTitle}
                           </div>
@@ -384,12 +370,12 @@ export function ProfessionalSidebar({ onSectionAction, onQuickAction, navigation
                               {isExpanded ? (
                                 <ChevronDown className={cn(
                                   "w-4 h-4",
-                                  isActive ? "text-white" : "text-gray-400"
+                                  isActive ? "text-white" : "text-muted-foreground"
                                 )} />
                               ) : (
                                 <ChevronRight className={cn(
                                   "w-4 h-4",
-                                  isActive ? "text-white" : "text-gray-400"
+                                  isActive ? "text-white" : "text-muted-foreground"
                                 )} />
                               )}
                             </>
@@ -420,7 +406,7 @@ export function ProfessionalSidebar({ onSectionAction, onQuickAction, navigation
                         <button
                           className={cn(
                             "group transition-all duration-200 cursor-pointer rounded-lg p-3 text-sm w-full text-left",
-                            "bg-white border border-gray-200 hover:bg-gray-50",
+                            "bg-card border border-border hover:bg-muted/60",
                             "flex items-center space-x-3",
                             isCurrentStep && "bg-blue-50 border-blue-200",
                             isCompleted && "bg-green-50 border-green-200"
@@ -431,14 +417,14 @@ export function ProfessionalSidebar({ onSectionAction, onQuickAction, navigation
                             "w-6 h-6 rounded flex items-center justify-center",
                             isCurrentStep ? "bg-blue-100" : 
                             isCompleted ? "bg-green-100" : 
-                            "bg-gray-100"
+                            "bg-muted"
                           )}>
                             {isCompleted ? (
                               <CheckCircle className="w-3 h-3 text-green-600" />
                             ) : (
                               <action.icon className={cn(
                                 "w-3 h-3", 
-                                isCurrentStep ? "text-blue-600" : "text-gray-600"
+                                isCurrentStep ? "text-blue-700" : "text-muted-foreground"
                               )} />
                             )}
                           </div>
@@ -447,7 +433,7 @@ export function ProfessionalSidebar({ onSectionAction, onQuickAction, navigation
                               "font-medium text-sm",
                               isCurrentStep ? "text-blue-900" : 
                               isCompleted ? "text-green-900" : 
-                              "text-gray-700"
+                              "text-foreground"
                             )}>
                               {action.title}
                             </div>
@@ -467,7 +453,7 @@ export function ProfessionalSidebar({ onSectionAction, onQuickAction, navigation
         {/* System Status */}
         {!isCollapsed && (
           <div className="mt-4">
-            <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-3 rounded-lg border border-green-200 hover:shadow-md transition-all duration-300">
+            <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-200 hover:shadow-sm transition-all duration-300">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <div className="w-2.5 h-2.5 bg-green-400 rounded-full animate-pulse shadow-lg shadow-green-400/50" />

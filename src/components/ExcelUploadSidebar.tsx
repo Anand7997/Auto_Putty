@@ -205,7 +205,7 @@ const ExcelUploadSidebar: React.FC<ExcelUploadSidebarProps> = ({
 
       toast({
         title: "Mapping Successful",
-        description: `Found ${data.values.length} data rows mapped to test case`,
+        description: `Found ${dataSets || 0} datasets (columns) mapped to test case`,
       });
 
       // Call the success callback if provided

@@ -50,6 +50,17 @@ interface CreatedTestSuite {
 interface TestExecutionDashboardProps {
   onBack?: () => void;
 }
+
+interface LocalExecutionStatus {
+  status: 'running' | 'completed' | 'failed';
+  mode: 'sequential' | 'parallel';
+  totalTests: number;
+  completedTests: number;
+  activeTests: string[];
+  currentTest?: string;
+  lastFinishedTest?: string;
+  lastUpdated: string;
+}
  
 const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack }) => {
   const [selectedTestCases, setSelectedTestCases] = useState<string[]>([]);
@@ -57,6 +68,7 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
   const [isLoading, setIsLoading] = useState(true);
   const [lastExecutionResults, setLastExecutionResults] = useState<any[]>([]);
   const [executionInProgress, setExecutionInProgress] = useState(false);
+  const [localExecutionStatus, setLocalExecutionStatus] = useState<LocalExecutionStatus | null>(null);
   const [selectedExecutor, setSelectedExecutor] = useState<'selenium' | 'playwright' | 'cypress'>('selenium');
   const [enableIsolation, setEnableIsolation] = useState(true);
   const [enableParallelExecution, setEnableParallelExecution] = useState(false);
@@ -607,6 +619,72 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
     console.log('[BackgroundMapping] Completed background mapping fetch');
   };
 
+  const syncLocalExecutionStatus = (
+    nextStatus: LocalExecutionStatus | null | ((previous: LocalExecutionStatus | null) => LocalExecutionStatus | null)
+  ) => {
+    setLocalExecutionStatus(previous => {
+      const resolvedStatus = typeof nextStatus === 'function' ? nextStatus(previous) : nextStatus;
+
+      try {
+        if (resolvedStatus && resolvedStatus.status === 'running') {
+          localStorage.setItem('activeLocalExecution', JSON.stringify(resolvedStatus));
+        } else {
+          localStorage.removeItem('activeLocalExecution');
+        }
+      } catch (storageError) {
+        console.error('Failed to sync local execution status:', storageError);
+      }
+
+      window.dispatchEvent(new CustomEvent('localExecutionProgress', {
+        detail: resolvedStatus
+      }));
+
+      return resolvedStatus;
+    });
+  };
+
+  const runLocalTestCaseWithProgress = async (
+    testCase: any,
+    testIndex: number,
+    totalTests: number,
+    selectedSuites: any[],
+    headless: boolean = true
+  ) => {
+    const testName = testCase.name || `Test ${testIndex + 1}`;
+
+    syncLocalExecutionStatus(previous => ({
+      status: 'running',
+      mode: enableParallelExecution ? 'parallel' : 'sequential',
+      totalTests,
+      completedTests: previous?.completedTests || 0,
+      activeTests: Array.from(new Set([...(previous?.activeTests || []), testName])),
+      currentTest: enableParallelExecution ? undefined : testName,
+      lastFinishedTest: previous?.lastFinishedTest,
+      lastUpdated: new Date().toISOString()
+    }));
+
+    const singleResult = await executeSingleTestCase(testCase, testIndex, totalTests, selectedSuites, headless);
+
+    syncLocalExecutionStatus(previous => {
+      const completedTests = Math.min((previous?.completedTests || 0) + 1, totalTests);
+      const activeTests = (previous?.activeTests || []).filter(name => name !== testName);
+      const allDone = completedTests >= totalTests;
+
+      return {
+        status: allDone ? 'completed' : 'running',
+        mode: enableParallelExecution ? 'parallel' : 'sequential',
+        totalTests,
+        completedTests,
+        activeTests,
+        currentTest: enableParallelExecution ? undefined : activeTests[0],
+        lastFinishedTest: testName,
+        lastUpdated: new Date().toISOString()
+      };
+    });
+
+    return singleResult;
+  };
+
   // Helper function to execute a single test case
   const executeSingleTestCase = async (testCase: any, testIndex: number, totalTests: number, selectedSuites: any[], headless: boolean = true) => {
     try {
@@ -865,7 +943,7 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
 
       // Execute all tests in the current batch concurrently
       const batchPromises = batch.map((testCase, index) =>
-        executeSingleTestCase(testCase, i + index, testCases.length, selectedSuites, false)
+        runLocalTestCaseWithProgress(testCase, i + index, testCases.length, selectedSuites, false)
       );
 
       try {
@@ -1210,6 +1288,28 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
       const expandedTestCases = expandTestCasesWithValues(testCasesToExecute);
       const totalIterations = expandedTestCases.length;
 
+      syncLocalExecutionStatus({
+        status: 'running',
+        mode: enableParallelExecution ? 'parallel' : 'sequential',
+        totalTests: totalIterations,
+        completedTests: 0,
+        activeTests: [],
+        currentTest: enableParallelExecution ? undefined : expandedTestCases[0]?.name,
+        lastUpdated: new Date().toISOString()
+      });
+
+      window.dispatchEvent(new CustomEvent('localExecutionStarted', {
+        detail: {
+          executionMode: 'local',
+          testCases: testCasesToExecute,
+          expandedTestCases,
+          selectedSuites,
+          executor: selectedExecutor,
+          parallelExecution: enableParallelExecution,
+          timestamp: new Date().toISOString()
+        }
+      }));
+
       console.log('📊 Test case expansion:', {
         originalCount: testCasesToExecute.length,
         expandedCount: expandedTestCases.length,
@@ -1514,7 +1614,7 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
             description: `Executing test ${i + 1}/${expandedTestCases.length}: ${testCase.name}`,
           });
 
-          const singleResult = await executeSingleTestCase(testCase, i, expandedTestCases.length, selectedSuites, false);
+          const singleResult = await runLocalTestCaseWithProgress(testCase, i, expandedTestCases.length, selectedSuites, false);
           executionResult.results.push(...singleResult.results);
           executionResult.successCount += singleResult.successCount;
           executionResult.failureCount += singleResult.failureCount;
@@ -1828,15 +1928,16 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
         }
       }));
 
-      // Also trigger local execution started event for Monitor component
-      window.dispatchEvent(new CustomEvent('localExecutionStarted', {
-        detail: {
-          executionMode: 'local',
-          testCases: testCasesToExecute,
-          selectedSuites: selectedSuites,
-          timestamp: new Date().toISOString()
-        }
-      }));
+      syncLocalExecutionStatus({
+        status: failureCount > 0 ? 'failed' : 'completed',
+        mode: enableParallelExecution ? 'parallel' : 'sequential',
+        totalTests: totalIterations,
+        completedTests: totalIterations,
+        activeTests: [],
+        currentTest: undefined,
+        lastFinishedTest: executionResults[executionResults.length - 1]?.testCase,
+        lastUpdated: new Date().toISOString()
+      });
      
     } catch (error) {
       console.error('❌ Local execution error:', error);
@@ -2377,6 +2478,31 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
                 </div>
 
                 <div className="space-y-2">
+                  {localExecutionStatus && (
+                    <div className="rounded-md border border-orange-200 bg-orange-50 p-3">
+                      <p className="text-sm font-medium text-orange-800">Local Execution Status</p>
+                      <p className="mt-1 text-xs text-orange-700">
+                        {localExecutionStatus.completedTests}/{localExecutionStatus.totalTests} completed
+                        {localExecutionStatus.mode === 'parallel' ? ' in parallel mode' : ' in sequential mode'}
+                      </p>
+                      {localExecutionStatus.currentTest && (
+                        <p className="mt-1 text-xs text-orange-700">
+                          Current test: {localExecutionStatus.currentTest}
+                        </p>
+                      )}
+                      {localExecutionStatus.activeTests.length > 0 && (
+                        <p className="mt-1 text-xs text-orange-700">
+                          Running: {localExecutionStatus.activeTests.join(', ')}
+                        </p>
+                      )}
+                      {localExecutionStatus.lastFinishedTest && (
+                        <p className="mt-1 text-xs text-orange-700">
+                          Last finished: {localExecutionStatus.lastFinishedTest}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   <Button
                     onClick={handleLocalExecution}
                     disabled={selectedTestCases.length === 0 || selectedCreatedSuites.length === 0 || isExecuting}

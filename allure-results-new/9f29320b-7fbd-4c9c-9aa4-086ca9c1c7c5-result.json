@@ -1,0 +1,425 @@
+{
+  "uuid": "9f29320b-7fbd-4c9c-9aa4-086ca9c1c7c5",
+  "historyId": "9f29320b-7fbd-4c9c-9aa4-086ca9c1c7c5",
+  "name": "[IxigoAutomation_Hotels_SearchingHL_TC001] SearchingHL",
+  "fullName": "Ixigo .Hotels.Regression.SearchingHL",
+  "status": "broken",
+  "stage": "finished",
+  "start": 1773382065010,
+  "stop": 1773382106129,
+  "description": "Execution Time: 0:00:41 | Test Run ID: Sample_SearchingHL_TR113 | Result ID: TC001_TR113",
+  "labels": [
+    {
+      "name": "epic",
+      "value": "Ixigo "
+    },
+    {
+      "name": "feature",
+      "value": "Hotels Module"
+    },
+    {
+      "name": "story",
+      "value": "Sample Suite"
+    },
+    {
+      "name": "suite",
+      "value": "Sample Tests"
+    },
+    {
+      "name": "testClass",
+      "value": "Hotels_Sample"
+    },
+    {
+      "name": "testMethod",
+      "value": "SearchingHL"
+    },
+    {
+      "name": "parentSuite",
+      "value": "[ROCKET] Ixigo "
+    },
+    {
+      "name": "subSuite",
+      "value": "[PACKAGE] Hotels -> Sample"
+    },
+    {
+      "name": "severity",
+      "value": "normal"
+    },
+    {
+      "name": "owner",
+      "value": "QA Team"
+    },
+    {
+      "name": "tag",
+      "value": "module:hotels"
+    },
+    {
+      "name": "tag",
+      "value": "suite:Sample"
+    },
+    {
+      "name": "testCaseId",
+      "value": "IxigoAutomation_Hotels_SearchingHL_TC001"
+    },
+    {
+      "name": "testRunId",
+      "value": "Sample_SearchingHL_TR113"
+    },
+    {
+      "name": "resultId",
+      "value": "TC001_TR113"
+    },
+    {
+      "name": "executionTime",
+      "value": "0:00:41"
+    },
+    {
+      "name": "user",
+      "value": "N/A"
+    },
+    {
+      "name": "role",
+      "value": "Admin"
+    }
+  ],
+  "parameters": [
+    {
+      "name": "Test Case ID",
+      "value": "IxigoAutomation_Hotels_SearchingHL_TC001"
+    },
+    {
+      "name": "Suite Type",
+      "value": "Regression"
+    },
+    {
+      "name": "Module",
+      "value": "Hotels"
+    },
+    {
+      "name": "Project",
+      "value": "Ixigo "
+    }
+  ],
+  "steps": [
+    {
+      "name": "[OK] Step 1: Open Browser and Navigate to Ixigo",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773382065010,
+      "stop": 1773382066010,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "OPEN_BROWSER"
+        },
+        {
+          "name": "Element",
+          "value": "Browser"
+        },
+        {
+          "name": "XPath",
+          "value": "N/A"
+        },
+        {
+          "name": "Data",
+          "value": "https://www.ixigo.com/hotels"
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 2: Enter Destination",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773382066010,
+      "stop": 1773382067010,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "Element",
+          "value": "Destination"
+        },
+        {
+          "name": "XPath",
+          "value": "//p[contains(text(), 'Destination')]/following::input[1]"
+        },
+        {
+          "name": "Data",
+          "value": "Hyderabad"
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 3: Click and Select on Checkin date",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773382067010,
+      "stop": 1773382068010,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "Element",
+          "value": "Check in"
+        },
+        {
+          "name": "XPath",
+          "value": "//p[contains(text(),'Check-in')]"
+        },
+        {
+          "name": "Data",
+          "value": "Wed, 18 Mar"
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 4: Click and Select on Checkout date field",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773382068010,
+      "stop": 1773382069010,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "Element",
+          "value": "Check out"
+        },
+        {
+          "name": "XPath",
+          "value": "//p[contains(text(),'Check-out')]"
+        },
+        {
+          "name": "Data",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 5: Click on Rooms and Guests section",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773382069010,
+      "stop": 1773382070010,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "CLICK"
+        },
+        {
+          "name": "Element",
+          "value": "Rooms&Guests"
+        },
+        {
+          "name": "XPath",
+          "value": "//p[@class='body-xs text-secondary'][contains(text(),'Rooms & Guests')] | //input[@placeholder='Rooms & Guests']"
+        },
+        {
+          "name": "Data",
+          "value": "Sun, 22 Mar"
+        }
+      ]
+    },
+    {
+      "name": "[X] Step 6: Select number of Rooms",
+      "status": "fail",
+      "stage": "finished",
+      "start": 1773382070010,
+      "stop": 1773382071010,
+      "attachments": [
+        {
+          "name": "FAILED - After Step 6",
+          "source": "9f29320b-7fbd-4c9c-9aa4-086ca9c1c7c5-20260313_113819_722_After_Step_6_FAILED.png",
+          "type": "image/png"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "SELECT_COUNT"
+        },
+        {
+          "name": "Element",
+          "value": "RoomsCount"
+        },
+        {
+          "name": "XPath",
+          "value": "//p[contains(text(),'Rooms')]"
+        },
+        {
+          "name": "Data",
+          "value": ""
+        }
+      ],
+      "statusDetails": {
+        "message": "FAILED: invalid literal for int() with base 10: ''",
+        "trace": "invalid literal for int() with base 10: ''"
+      }
+    },
+    {
+      "name": "[X] Step 7: Select number of adults",
+      "status": "fail",
+      "stage": "finished",
+      "start": 1773382071010,
+      "stop": 1773382072010,
+      "attachments": [
+        {
+          "name": "FAILED - After Step 7",
+          "source": "9f29320b-7fbd-4c9c-9aa4-086ca9c1c7c5-20260313_113820_527_After_Step_7_FAILED.png",
+          "type": "image/png"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "SELECT_COUNT"
+        },
+        {
+          "name": "Element",
+          "value": "AdultsCount"
+        },
+        {
+          "name": "XPath",
+          "value": "//p[contains(text(),'Adults')]"
+        },
+        {
+          "name": "Data",
+          "value": "N/A"
+        }
+      ],
+      "statusDetails": {
+        "message": "FAILED: invalid literal for int() with base 10: 'N/A'",
+        "trace": "invalid literal for int() with base 10: 'N/A'"
+      }
+    },
+    {
+      "name": "[OK] Step 8: Select number of Children",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773382072010,
+      "stop": 1773382073010,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "SELECT_COUNT"
+        },
+        {
+          "name": "Element",
+          "value": "ChildrenCount"
+        },
+        {
+          "name": "XPath",
+          "value": "//p[contains(text(),'Children')]"
+        },
+        {
+          "name": "Data",
+          "value": "3"
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 9: Select age of Child 1",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773382073010,
+      "stop": 1773382074010,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "Element",
+          "value": "Child 1"
+        },
+        {
+          "name": "XPath",
+          "value": "//select[@id='child-age'] (//select[@data-testid='child-age-selector'])[1]"
+        },
+        {
+          "name": "Data",
+          "value": "4"
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 10: Select age of Child 2",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773382074010,
+      "stop": 1773382075010,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "Element",
+          "value": "Child 2"
+        },
+        {
+          "name": "XPath",
+          "value": "(//select[@data-testid='child-age-selector'])[2]"
+        },
+        {
+          "name": "Data",
+          "value": "2"
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 11: Click Search button to search Rooms",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773382075010,
+      "stop": 1773382076010,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "CLICK"
+        },
+        {
+          "name": "Element",
+          "value": "SearchButton"
+        },
+        {
+          "name": "XPath",
+          "value": "/html/body/main/div[4]/div[2]/div/button"
+        },
+        {
+          "name": "Data",
+          "value": "6"
+        }
+      ]
+    }
+  ],
+  "attachments": [
+    {
+      "name": "After_Step_6_FAILED",
+      "source": "9f29320b-7fbd-4c9c-9aa4-086ca9c1c7c5-20260313_113819_722_After_Step_6_FAILED.png",
+      "type": "image/png",
+      "size": 701791
+    },
+    {
+      "name": "After_Step_7_FAILED",
+      "source": "9f29320b-7fbd-4c9c-9aa4-086ca9c1c7c5-20260313_113820_527_After_Step_7_FAILED.png",
+      "type": "image/png",
+      "size": 701791
+    }
+  ]
+}

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   ClipboardList,
@@ -12,12 +11,10 @@ import {
   BarChart3,
   Settings,
   ArrowRight,
-  CheckCircle2,
-  Clock,
   Target,
   Users,
-  FunctionSquare,
-  AlertTriangle
+  AlertTriangle,
+  Lock
 } from 'lucide-react';
 
 // Import existing components that will be used in each tab
@@ -127,10 +124,9 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
 
   const renderHomeContent = () => (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="text-center space-y-4">
-        <h1 className="text-4xl font-bold text-gray-900">Automation Pro Suite</h1>
-        <p className="text-lg text-gray-600">Comprehensive Test Automation Lifecycle Management</p>
+      <div className="space-y-2">
+        <h1 className="text-3xl md:text-4xl font-bold text-foreground tracking-tight">Automation Pro Suite</h1>
+        <p className="text-base md:text-lg text-muted-foreground">Comprehensive Test Automation Lifecycle Management</p>
       </div>
 
       {/* User Dashboard Button */}
@@ -138,7 +134,7 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
         <div className="flex justify-end mt-4">
           <Button
             onClick={() => window.location.href = `${window.location.origin}/dashboard`}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg flex items-center space-x-2"
+            className="px-6 py-2 rounded-md flex items-center space-x-2"
           >
             <Users className="w-4 h-4" />
             <span>My Dashboard</span>
@@ -150,9 +146,9 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Requirements Card */}
         <Card
-          className={`transition-all duration-300 bg-gradient-to-br from-blue-50 to-indigo-100 border-blue-200 hover:border-blue-300 ${
+          className={`transition-all duration-200 border-l-4 border-l-blue-600 hover:border-blue-300 ${
             requirementsAuth.loading ? 'cursor-wait opacity-50' :
-            !requirementsAuth.authorized ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:shadow-lg'
+            !requirementsAuth.authorized ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:shadow-md'
           }`}
           onClick={() => {
             if (!requirementsAuth.loading && requirementsAuth.authorized) {
@@ -166,16 +162,16 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
                 <ClipboardList className="w-6 h-6 text-white" />
               </div>
               <div>
-                <CardTitle className="text-lg text-gray-900">Requirements & Feasibility Analysis</CardTitle>
+                <CardTitle className="text-lg text-foreground">Requirements & Feasibility Analysis</CardTitle>
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            <p className="text-gray-600 text-sm mb-4">
+            <p className="text-muted-foreground text-sm mb-4">
               Define requirements, assess feasibility, and validate automation scope
             </p>
             <div className="flex items-center justify-between">
-              <Badge variant="secondary" className="bg-blue-100 text-blue-700">Phase 1</Badge>
+              <Badge variant="secondary" className="bg-blue-100 text-blue-800 border-blue-200">Phase 1</Badge>
               <ArrowRight className="w-4 h-4 text-blue-500" />
             </div>
           </CardContent>
@@ -183,9 +179,9 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
 
         {/* Planning Card */}
         <Card
-          className={`transition-all duration-300 bg-gradient-to-br from-green-50 to-emerald-100 border-green-200 hover:border-green-300 ${
+          className={`transition-all duration-200 border-l-4 border-l-emerald-600 hover:border-emerald-300 ${
             planningAuth.loading ? 'cursor-wait opacity-50' :
-            !planningAuth.authorized ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:shadow-lg'
+            !planningAuth.authorized ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:shadow-md'
           }`}
           onClick={() => {
             if (!planningAuth.loading && planningAuth.authorized) {
@@ -199,16 +195,16 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
                 <Lightbulb className="w-6 h-6 text-white" />
               </div>
               <div>
-                <CardTitle className="text-lg text-gray-900">Automation Planning</CardTitle>
+                <CardTitle className="text-lg text-foreground">Automation Planning</CardTitle>
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            <p className="text-gray-600 text-sm mb-4">
+            <p className="text-muted-foreground text-sm mb-4">
               Create projects, define modules, and organize test cases structure
             </p>
             <div className="flex items-center justify-between">
-              <Badge variant="secondary" className="bg-green-100 text-green-700">Phase 2</Badge>
+              <Badge variant="secondary" className="bg-emerald-100 text-emerald-800 border-emerald-200">Phase 2</Badge>
               <ArrowRight className="w-4 h-4 text-green-500" />
             </div>
           </CardContent>
@@ -216,9 +212,9 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
 
         {/* Development Card */}
         <Card
-          className={`transition-all duration-300 bg-gradient-to-br from-purple-50 to-violet-100 border-purple-200 hover:border-purple-300 ${
+          className={`transition-all duration-200 border-l-4 border-l-violet-600 hover:border-violet-300 ${
             developmentAuth.loading ? 'cursor-wait opacity-50' :
-            !developmentAuth.authorized ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:shadow-lg'
+            !developmentAuth.authorized ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:shadow-md'
           }`}
           onClick={() => {
             if (!developmentAuth.loading && developmentAuth.authorized) {
@@ -232,16 +228,16 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
                 <Code2 className="w-6 h-6 text-white" />
               </div>
               <div>
-                <CardTitle className="text-lg text-gray-900">Automation Development</CardTitle>
+                <CardTitle className="text-lg text-foreground">Automation Development</CardTitle>
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            <p className="text-gray-600 text-sm mb-4">
+            <p className="text-muted-foreground text-sm mb-4">
               Build test steps, create automation scripts, and develop test cases
             </p>
             <div className="flex items-center justify-between">
-              <Badge variant="secondary" className="bg-purple-100 text-purple-700">Phase 3</Badge>
+              <Badge variant="secondary" className="bg-violet-100 text-violet-800 border-violet-200">Phase 3</Badge>
               <ArrowRight className="w-4 h-4 text-purple-500" />
             </div>
           </CardContent>
@@ -249,9 +245,9 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
 
         {/* Execution Card */}
         <Card
-          className={`transition-all duration-300 bg-gradient-to-br from-orange-50 to-amber-100 border-orange-200 hover:border-orange-300 ${
+          className={`transition-all duration-200 border-l-4 border-l-amber-600 hover:border-amber-300 ${
             testLabAuth.loading ? 'cursor-wait opacity-50' :
-            !testLabAuth.authorized ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:shadow-lg'
+            !testLabAuth.authorized ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:shadow-md'
           }`}
           onClick={() => {
             if (!testLabAuth.loading && testLabAuth.authorized) {
@@ -265,16 +261,16 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
                 <Play className="w-6 h-6 text-white" />
               </div>
               <div>
-                <CardTitle className="text-lg text-gray-900">Test Lab</CardTitle>
+                <CardTitle className="text-lg text-foreground">Test Lab</CardTitle>
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            <p className="text-gray-600 text-sm mb-4">
+            <p className="text-muted-foreground text-sm mb-4">
               Execute test suites, run automation scripts, and monitor test runs
             </p>
             <div className="flex items-center justify-between">
-              <Badge variant="secondary" className="bg-orange-100 text-orange-700">Phase 4</Badge>
+              <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-amber-200">Phase 4</Badge>
               <ArrowRight className="w-4 h-4 text-orange-500" />
             </div>
           </CardContent>
@@ -282,9 +278,9 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
 
         {/* Reporting Card */}
         <Card
-          className={`transition-all duration-300 bg-gradient-to-br from-pink-50 to-rose-100 border-pink-200 hover:border-pink-300 ${
+          className={`transition-all duration-200 border-l-4 border-l-cyan-600 hover:border-cyan-300 ${
             reportingAuth.loading ? 'cursor-wait opacity-50' :
-            !reportingAuth.authorized ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:shadow-lg'
+            !reportingAuth.authorized ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:shadow-md'
           }`}
           onClick={() => {
             if (!reportingAuth.loading && reportingAuth.authorized) {
@@ -294,30 +290,30 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
         >
           <CardHeader className="pb-3">
             <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 bg-pink-500 rounded-lg flex items-center justify-center">
+              <div className="w-12 h-12 bg-cyan-600 rounded-lg flex items-center justify-center">
                 <BarChart3 className="w-6 h-6 text-white" />
               </div>
               <div>
-                <CardTitle className="text-lg text-gray-900">Reporting</CardTitle>
+                <CardTitle className="text-lg text-foreground">Reporting</CardTitle>
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            <p className="text-gray-600 text-sm mb-4">
+            <p className="text-muted-foreground text-sm mb-4">
               View execution results, generate reports, and analyze test outcomes
             </p>
             <div className="flex items-center justify-between">
-              <Badge variant="secondary" className="bg-pink-100 text-pink-700">Phase 5</Badge>
-              <ArrowRight className="w-4 h-4 text-pink-500" />
+              <Badge variant="secondary" className="bg-cyan-100 text-cyan-800 border-cyan-200">Phase 5</Badge>
+              <ArrowRight className="w-4 h-4 text-cyan-600" />
             </div>
           </CardContent>
         </Card>
 
         {/* Maintenance Card */}
         <Card
-          className={`transition-all duration-300 bg-gradient-to-br from-gray-50 to-slate-100 border-gray-200 hover:border-gray-300 ${
+          className={`transition-all duration-200 border-l-4 border-l-slate-600 hover:border-slate-300 ${
             maintenanceAuth.loading ? 'cursor-wait opacity-50' :
-            !maintenanceAuth.authorized ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:shadow-lg'
+            !maintenanceAuth.authorized ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:shadow-md'
           }`}
           onClick={() => {
             if (!maintenanceAuth.loading && maintenanceAuth.authorized) {
@@ -331,17 +327,17 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
                 <Settings className="w-6 h-6 text-white" />
               </div>
               <div>
-                <CardTitle className="text-lg text-gray-900">Maintenance</CardTitle>
+                <CardTitle className="text-lg text-foreground">Maintenance</CardTitle>
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            <p className="text-gray-600 text-sm mb-4">
+            <p className="text-muted-foreground text-sm mb-4">
               Update tests, maintain scripts, and manage automation framework
             </p>
             <div className="flex items-center justify-between">
-              <Badge variant="secondary" className="bg-gray-100 text-gray-700">Phase 6</Badge>
-              <ArrowRight className="w-4 h-4 text-gray-500" />
+              <Badge variant="secondary" className="bg-slate-100 text-slate-800 border-slate-200">Phase 6</Badge>
+              <ArrowRight className="w-4 h-4 text-slate-600" />
             </div>
           </CardContent>
         </Card>
@@ -366,13 +362,13 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
 
   const renderUnauthorizedContent = (functionName: string) => (
     <div className="space-y-6">
-      <Card className="bg-white backdrop-blur-sm border-red-200">
+      <Card className="bg-card border-red-200">
         <CardHeader>
           <CardTitle className="text-2xl text-red-900 flex items-center">
             <AlertTriangle className="w-6 h-6 mr-2" />
             Access Denied
           </CardTitle>
-          <p className="text-red-600">You do not have permission to access this function</p>
+          <p className="text-red-700">You do not have permission to access this function</p>
         </CardHeader>
         <CardContent className="space-y-6">
           <Alert variant="destructive">
@@ -383,12 +379,12 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
             </AlertDescription>
           </Alert>
           <div className="text-center py-8">
-            <p className="text-gray-600 mb-4">
+            <p className="text-muted-foreground mb-4">
               Only users assigned to this function by an administrator can access it.
             </p>
             <Button
               onClick={() => setActiveTab('Home')}
-              className="bg-gray-500 hover:bg-gray-600"
+              variant="secondary"
             >
               Back to Home
               <ArrowRight className="w-4 h-4 ml-2" />
@@ -400,11 +396,11 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100">
+    <div className="min-h-screen app-shell">
       <div className="container mx-auto px-6 py-8">
         {/* Top Navigation Tabs */}
         <div className="mb-8">
-          <div className="flex flex-wrap gap-2 bg-white p-2 rounded-lg shadow-sm border border-gray-200">
+          <div className="flex flex-wrap gap-2 bg-card p-2 rounded-lg shadow-sm border border-border">
             {[
               { key: 'Home', label: 'Home', icon: Target },
               { key: 'requirements', label: 'Requirements & Feasibility', icon: ClipboardList },
@@ -450,17 +446,17 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
                   disabled={isLoading || !isAuthorized}
                   className={`flex items-center space-x-2 text-sm ${
                     activeTab === key
-                      ? 'bg-blue-500 text-white hover:bg-blue-600'
+                      ? 'bg-primary text-primary-foreground hover:bg-primary/90'
                       : isLoading
-                        ? 'text-gray-400 cursor-wait'
+                        ? 'text-muted-foreground cursor-wait'
                         : !isAuthorized
                           ? 'text-red-400 cursor-not-allowed'
-                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                          : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                   }`}
                 >
                   <Icon className="w-4 h-4" />
                   <span className="hidden sm:inline">{label}</span>
-                  {!isAuthorized && !isLoading && <span className="text-xs">🔒</span>}
+                  {!isAuthorized && !isLoading && <Lock className="w-3.5 h-3.5" />}
                 </Button>
               );
             })}

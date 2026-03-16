@@ -29,18 +29,22 @@ interface EnhancedTestConfigDashboardProps {
   onSave?: () => void;
 }
 
-const ACTION_TYPES = [
-  'OPEN_BROWSER',
-  'CLICK_AND_SELECT',
-  'CLICK_AND_SELECT_DATE',
-  'CLICK_QUICK_DATE',
-  'CLICK_BUS_QUICK_DATE',
-  'CLICK',
-  'CLICK_AND_TYPE',
-  'SELECT_COUNT',
-  'CLICK_AND_SELECT_AGE',
-  'HANDLE_CHECKBOX'
-];
+const ACTION_TYPES = ['OPEN_BROWSER', 'CLICK', 'CLICK_AND_SELECT', 'CLICK_AND_TYPE', 'HANDLE_CHECKBOX'];
+
+const LEGACY_TO_CURRENT_ACTION: Record<string, string> = {
+  CLICK_AND_SELECT_DATE: 'CLICK_AND_SELECT',
+  CLICK_QUICK_DATE: 'CLICK_AND_SELECT',
+  CLICK_BUS_QUICK_DATE: 'CLICK_AND_SELECT',
+  CLICK_AND_SELECT_AGE: 'CLICK_AND_SELECT',
+  SELECT_COUNT: 'CLICK_AND_SELECT',
+};
+
+const normalizeActionType = (actionType?: string): string => {
+  const raw = (actionType || 'CLICK').toUpperCase().trim();
+  if (raw in LEGACY_TO_CURRENT_ACTION) return LEGACY_TO_CURRENT_ACTION[raw];
+  if (ACTION_TYPES.includes(raw)) return raw;
+  return 'CLICK';
+};
 
 const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = ({ 
   selectedProject,
@@ -138,8 +142,10 @@ const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = 
   };
 
   const updateStep = (stepId: number, field: keyof TestStep, value: string | number) => {
-    const updatedSteps = steps.map(step => 
-      step.id === stepId ? { ...step, [field]: value } : step
+    const updatedSteps = steps.map(step =>
+      step.id === stepId
+        ? { ...step, [field]: field === 'action_type' ? normalizeActionType(String(value)) : value }
+        : step
     );
     setSteps(updatedSteps);
     onTestStepsChange?.(updatedSteps);
@@ -302,7 +308,7 @@ const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = 
                                 Action Type
                               </label>
                               <select
-                                value={step.action_type}
+                                value={normalizeActionType(step.action_type)}
                                 onChange={(e) => updateStep(step.id, 'action_type', e.target.value)}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                               >
@@ -345,7 +351,7 @@ const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = 
                               </div>
                               <div>
                                 <span className="font-medium">Action:</span> 
-                                <Badge variant="secondary" className="ml-2">{step.action_type}</Badge>
+                                <Badge variant="secondary" className="ml-2">{normalizeActionType(step.action_type)}</Badge>
                               </div>
                               <div>
                                 <span className="font-medium">Values:</span> {step.values || 'N/A'}
