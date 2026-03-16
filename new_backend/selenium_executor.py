@@ -2023,20 +2023,16 @@ class SeleniumTestExecutor:
 
             elif action_type == "SELECT_COUNT":
                 try:
-                    resolved_count_type = self.resolve_count_element_type(element_name)
-                    if resolved_count_type == "room":
+                    if element_name.upper() == "ROOMSCOUNT":
                         self.set_count_by_increment("room", int(test_data))
-                    elif resolved_count_type == "adult":
+                    elif element_name.upper() == "ADULTSCOUNT":
                         self.set_count_by_increment("adult", int(test_data))
-                    elif resolved_count_type == "children":
+                    elif element_name.upper() == "CHILDRENCOUNT":
                         children_count = int(test_data)
                         self.set_count_by_increment("children", children_count)
                         # Wait for age dropdowns to appear after setting children count
                         if children_count > 0:
                             self.wait_for_child_age_dropdowns(children_count)
-                    elif resolved_count_type == "infant":
-                        # Infant controls vary across pages; use generic count flow.
-                        self.handle_count_selection_fast(test_data, xpath, element_name)
                     else:
                         # For flight passenger counts or others
                         self.handle_count_selection_fast(test_data, xpath, element_name)
@@ -2164,7 +2160,6 @@ class SeleniumTestExecutor:
             "CLICK_QUICK_DATE",
             "CLICK_BUS_QUICK_DATE",
             "CLICK_AND_SELECT_AGE",
-            "SELECT_COUNT",
         }
 
         if normalized in legacy_select_actions:
@@ -2249,30 +2244,6 @@ class SeleniumTestExecutor:
                     print(f"[UNIFIED_SELECT] Age selection error: {str(e)}")
                     raise e
 
-            elif selection_type == "COUNT_SELECTION":
-                # Handle count selection for rooms/adults/children (legacy SELECT_COUNT behavior)
-                try:
-                    print(f"[UNIFIED_SELECT] Handling count selection for {element_name}")
-                    resolved_count_type = self.resolve_count_element_type(element_name)
-                    if resolved_count_type == "room":
-                        self.set_count_by_increment("room", int(test_data))
-                    elif resolved_count_type == "adult":
-                        self.set_count_by_increment("adult", int(test_data))
-                    elif resolved_count_type == "children":
-                        children_count = int(test_data)
-                        self.set_count_by_increment("children", children_count)
-                        if children_count > 0:
-                            self.wait_for_child_age_dropdowns(children_count)
-                    elif resolved_count_type == "infant":
-                        # Infant controls vary across pages; use generic count flow.
-                        self.handle_count_selection_fast(test_data, xpath, element_name)
-                    else:
-                        # Fallback for other count-like flows
-                        self.handle_count_selection_fast(test_data, xpath, element_name)
-                except Exception as e:
-                    print(f"[UNIFIED_SELECT] Count selection error: {str(e)}")
-                    raise e
-                    
             elif selection_type == "GENERIC_CLICK":
                 # Handle generic element click
                 try:
@@ -2317,10 +2288,6 @@ class SeleniumTestExecutor:
             if element_name.upper().startswith("CHILD ") and test_data.isdigit():
                 return "AGE_SELECTION"
 
-            # Check for count selection (legacy SELECT_COUNT behavior)
-            if self.resolve_count_element_type(element_name) and test_data and str(test_data).strip().isdigit():
-                return "COUNT_SELECTION"
-            
             # Check for quick date selection
             quick_date_keywords = ["today", "tomorrow", "day after", "day-after-tomorrow"]
             if any(keyword in test_data_lower for keyword in quick_date_keywords):

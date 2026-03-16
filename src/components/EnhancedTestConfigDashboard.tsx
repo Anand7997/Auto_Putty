@@ -29,14 +29,13 @@ interface EnhancedTestConfigDashboardProps {
   onSave?: () => void;
 }
 
-const ACTION_TYPES = ['OPEN_BROWSER', 'CLICK', 'CLICK_AND_SELECT', 'CLICK_AND_TYPE', 'HANDLE_CHECKBOX'];
+const ACTION_TYPES = ['OPEN_BROWSER', 'CLICK', 'CLICK_AND_SELECT', 'SELECT_COUNT', 'CLICK_AND_TYPE', 'HANDLE_CHECKBOX'];
 
 const LEGACY_TO_CURRENT_ACTION: Record<string, string> = {
   CLICK_AND_SELECT_DATE: 'CLICK_AND_SELECT',
   CLICK_QUICK_DATE: 'CLICK_AND_SELECT',
   CLICK_BUS_QUICK_DATE: 'CLICK_AND_SELECT',
   CLICK_AND_SELECT_AGE: 'CLICK_AND_SELECT',
-  SELECT_COUNT: 'CLICK_AND_SELECT',
 };
 
 const normalizeActionType = (actionType?: string): string => {

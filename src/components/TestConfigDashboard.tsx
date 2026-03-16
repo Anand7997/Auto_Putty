@@ -32,14 +32,13 @@ interface TestConfigDashboardProps {
   onSave?: () => void;
 }
 
-const ACTION_TYPES = ['OPEN_BROWSER', 'CLICK', 'CLICK_AND_SELECT', 'CLICK_AND_TYPE', 'HANDLE_CHECKBOX'];
+const ACTION_TYPES = ['OPEN_BROWSER', 'CLICK', 'CLICK_AND_SELECT', 'SELECT_COUNT', 'CLICK_AND_TYPE', 'HANDLE_CHECKBOX'];
 
 const LEGACY_TO_CURRENT_ACTION: Record<string, string> = {
   CLICK_AND_SELECT_DATE: 'CLICK_AND_SELECT',
   CLICK_QUICK_DATE: 'CLICK_AND_SELECT',
   CLICK_BUS_QUICK_DATE: 'CLICK_AND_SELECT',
   CLICK_AND_SELECT_AGE: 'CLICK_AND_SELECT',
-  SELECT_COUNT: 'CLICK_AND_SELECT',
 };
 
 const normalizeActionType = (actionType?: string): string => {
@@ -506,7 +505,8 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
               </select>
               <p className="text-xs text-gray-500 mt-1">
                 {normalizeActionType(formData.action_type) === 'OPEN_BROWSER' && 'Use Values for URL (e.g. https://example.com).'}
-                {normalizeActionType(formData.action_type) === 'CLICK_AND_SELECT' && 'Use for selection flows (city/date/age/count) with Values as the input.'}
+                {normalizeActionType(formData.action_type) === 'CLICK_AND_SELECT' && 'Use for selection flows (city/date/age) with Values as the input.'}
+                {normalizeActionType(formData.action_type) === 'SELECT_COUNT' && 'Use for count updates (rooms/adults/children/infants) with numeric Values.'}
                 {normalizeActionType(formData.action_type) === 'CLICK' && 'Use for pure click actions where no selection/input is needed.'}
                 {normalizeActionType(formData.action_type) === 'CLICK_AND_TYPE' && 'Clicks the element and types the text from Values.'}
                 {normalizeActionType(formData.action_type) === 'HANDLE_CHECKBOX' && 'Use Values: true/false, yes/no, or 1/0.'}

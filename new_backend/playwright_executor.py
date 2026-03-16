@@ -617,7 +617,6 @@ class PlaywrightTestExecutor:
             "CLICK_QUICK_DATE",
             "CLICK_BUS_QUICK_DATE",
             "CLICK_AND_SELECT_AGE",
-            "SELECT_COUNT",
         }
         if normalized in legacy_select_actions:
             return "CLICK_AND_SELECT"
