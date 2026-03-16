@@ -1673,15 +1673,6 @@ class PlaywrightTestExecutor:
                     print(f"[UNIFIED_SELECT] Age selection error: {str(e)}")
                     raise e
 
-            elif selection_type == "COUNT_SELECTION":
-                # Handle count selection for rooms/adults/children
-                try:
-                    print(f"[UNIFIED_SELECT] Handling count selection for {element_name}")
-                    self.handle_count_selection(test_data, xpath, element_name)
-                except Exception as e:
-                    print(f"[UNIFIED_SELECT] Count selection error: {str(e)}")
-                    raise e
-
             elif selection_type == "GENERIC_CLICK":
                 # Handle generic element click
                 try:
@@ -1725,10 +1716,6 @@ class PlaywrightTestExecutor:
                 return "AGE_SELECTION"
             if element_name.upper().startswith("CHILD ") and test_data.isdigit():
                 return "AGE_SELECTION"
-
-            # Check for count selection (legacy SELECT_COUNT behavior)
-            if self.resolve_count_element_type(element_name) and test_data and str(test_data).strip().isdigit():
-                return "COUNT_SELECTION"
 
             # Check for quick date selection
             quick_date_keywords = ["today", "tomorrow", "day after", "day-after-tomorrow"]
@@ -2276,27 +2263,17 @@ class PlaywrightTestExecutor:
 
     def handle_count_selection(self, count_str, xpath, element_name):
         target_count = int(count_str.strip())
-        resolved_count_type = self.resolve_count_element_type(element_name)
 
         # Special handling for specific element names - use increment logic like Selenium
-        if resolved_count_type == "room":
+        if element_name.upper() == "ROOMSCOUNT":
             self.set_count_by_increment("room", target_count)
-        elif resolved_count_type == "adult":
+        elif element_name.upper() == "ADULTSCOUNT":
             self.set_count_by_increment("adult", target_count)
-        elif resolved_count_type == "children":
+        elif element_name.upper() == "CHILDRENCOUNT":
             self.set_count_by_increment("children", target_count)
             # Wait for age dropdowns to appear after setting children count
             if target_count > 0:
                 self.wait_for_child_age_dropdowns(target_count)
-        elif resolved_count_type == "infant":
-            # Infant controls vary by page; keep robust fallback path.
-            self.page.locator(xpath).first.click()
-            self.page.wait_for_timeout(500)
-
-            section_text = "Infants"
-            self.page.locator(
-                f"//p[contains(text(),'{section_text}')]/parent::*/following-sibling::*//button[@data-testid='{target_count}']"
-            ).first.click()
         else:
             # Fallback to original logic for other element names
             self.page.locator(xpath).first.click()
