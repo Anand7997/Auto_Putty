@@ -2023,16 +2023,20 @@ class SeleniumTestExecutor:
 
             elif action_type == "SELECT_COUNT":
                 try:
-                    if element_name.upper() == "ROOMSCOUNT":
+                    resolved_count_type = self.resolve_count_element_type(element_name)
+                    if resolved_count_type == "room":
                         self.set_count_by_increment("room", int(test_data))
-                    elif element_name.upper() == "ADULTSCOUNT":
+                    elif resolved_count_type == "adult":
                         self.set_count_by_increment("adult", int(test_data))
-                    elif element_name.upper() == "CHILDRENCOUNT":
+                    elif resolved_count_type == "children":
                         children_count = int(test_data)
                         self.set_count_by_increment("children", children_count)
                         # Wait for age dropdowns to appear after setting children count
                         if children_count > 0:
                             self.wait_for_child_age_dropdowns(children_count)
+                    elif resolved_count_type == "infant":
+                        # Infant controls vary across pages; use generic count flow.
+                        self.handle_count_selection_fast(test_data, xpath, element_name)
                     else:
                         # For flight passenger counts or others
                         self.handle_count_selection_fast(test_data, xpath, element_name)
@@ -2167,6 +2171,19 @@ class SeleniumTestExecutor:
             return "CLICK_AND_SELECT"
 
         return normalized
+
+    def resolve_count_element_type(self, element_name):
+        """Map varied element labels to a canonical count type."""
+        name = (element_name or "").strip().lower().replace(" ", "")
+        if any(k in name for k in ["room", "roomscount", "roomcount"]):
+            return "room"
+        if any(k in name for k in ["adult", "adultscount", "adultcount"]):
+            return "adult"
+        if any(k in name for k in ["child", "children", "childrencount", "childcount"]):
+            return "children"
+        if any(k in name for k in ["infant", "infantscount", "infantcount"]):
+            return "infant"
+        return None
     
     
     def handle_unified_click_and_select(self, test_data, xpath, element_name):
@@ -2236,15 +2253,19 @@ class SeleniumTestExecutor:
                 # Handle count selection for rooms/adults/children (legacy SELECT_COUNT behavior)
                 try:
                     print(f"[UNIFIED_SELECT] Handling count selection for {element_name}")
-                    if element_name.upper() == "ROOMSCOUNT":
+                    resolved_count_type = self.resolve_count_element_type(element_name)
+                    if resolved_count_type == "room":
                         self.set_count_by_increment("room", int(test_data))
-                    elif element_name.upper() == "ADULTSCOUNT":
+                    elif resolved_count_type == "adult":
                         self.set_count_by_increment("adult", int(test_data))
-                    elif element_name.upper() == "CHILDRENCOUNT":
+                    elif resolved_count_type == "children":
                         children_count = int(test_data)
                         self.set_count_by_increment("children", children_count)
                         if children_count > 0:
                             self.wait_for_child_age_dropdowns(children_count)
+                    elif resolved_count_type == "infant":
+                        # Infant controls vary across pages; use generic count flow.
+                        self.handle_count_selection_fast(test_data, xpath, element_name)
                     else:
                         # Fallback for other count-like flows
                         self.handle_count_selection_fast(test_data, xpath, element_name)
@@ -2297,8 +2318,7 @@ class SeleniumTestExecutor:
                 return "AGE_SELECTION"
 
             # Check for count selection (legacy SELECT_COUNT behavior)
-            count_element_names = {"ROOMSCOUNT", "ADULTSCOUNT", "CHILDRENCOUNT"}
-            if element_name.upper() in count_element_names and test_data and str(test_data).strip().isdigit():
+            if self.resolve_count_element_type(element_name) and test_data and str(test_data).strip().isdigit():
                 return "COUNT_SELECTION"
             
             # Check for quick date selection

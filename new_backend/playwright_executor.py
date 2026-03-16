@@ -438,13 +438,15 @@ class PlaywrightTestExecutor:
 
     def execute_step(self, step, step_number):
         """Execute a single test step using Playwright."""
+        normalized_action_type = self.normalize_action_type(step.get('action_type', ''))
         step_result = {
             'tc_id': step.get('tc_id', ''),
             'step_no': step_number,
             'description': step.get('test_step_description', ''),
             'test_step_description': step.get('test_step_description', ''),
             'element_name': step.get('element_name', ''),
-            'action_type': step.get('action_type', ''),
+            # Persist normalized action type so execution history matches runtime behavior.
+            'action_type': normalized_action_type,
             'xpath': step.get('xpath', ''),
             'values': step.get('values', ''),
             'status': 'UNKNOWN',
@@ -620,6 +622,19 @@ class PlaywrightTestExecutor:
         if normalized in legacy_select_actions:
             return "CLICK_AND_SELECT"
         return normalized
+
+    def resolve_count_element_type(self, element_name):
+        """Map varied element labels to a canonical count type."""
+        name = (element_name or "").strip().lower().replace(" ", "")
+        if any(k in name for k in ["room", "roomscount", "roomcount"]):
+            return "room"
+        if any(k in name for k in ["adult", "adultscount", "adultcount"]):
+            return "adult"
+        if any(k in name for k in ["child", "children", "childrencount", "childcount"]):
+            return "children"
+        if any(k in name for k in ["infant", "infantscount", "infantcount"]):
+            return "infant"
+        return None
 
     # --- Action Helper Methods (Playwright implementation) ---
 
@@ -1713,8 +1728,7 @@ class PlaywrightTestExecutor:
                 return "AGE_SELECTION"
 
             # Check for count selection (legacy SELECT_COUNT behavior)
-            count_element_names = {"ROOMSCOUNT", "ADULTSCOUNT", "CHILDRENCOUNT"}
-            if element_name.upper() in count_element_names and test_data and str(test_data).strip().isdigit():
+            if self.resolve_count_element_type(element_name) and test_data and str(test_data).strip().isdigit():
                 return "COUNT_SELECTION"
 
             # Check for quick date selection
@@ -2263,17 +2277,27 @@ class PlaywrightTestExecutor:
 
     def handle_count_selection(self, count_str, xpath, element_name):
         target_count = int(count_str.strip())
+        resolved_count_type = self.resolve_count_element_type(element_name)
 
         # Special handling for specific element names - use increment logic like Selenium
-        if element_name.upper() == "ROOMSCOUNT":
+        if resolved_count_type == "room":
             self.set_count_by_increment("room", target_count)
-        elif element_name.upper() == "ADULTSCOUNT":
+        elif resolved_count_type == "adult":
             self.set_count_by_increment("adult", target_count)
-        elif element_name.upper() == "CHILDRENCOUNT":
+        elif resolved_count_type == "children":
             self.set_count_by_increment("children", target_count)
             # Wait for age dropdowns to appear after setting children count
             if target_count > 0:
                 self.wait_for_child_age_dropdowns(target_count)
+        elif resolved_count_type == "infant":
+            # Infant controls vary by page; keep robust fallback path.
+            self.page.locator(xpath).first.click()
+            self.page.wait_for_timeout(500)
+
+            section_text = "Infants"
+            self.page.locator(
+                f"//p[contains(text(),'{section_text}')]/parent::*/following-sibling::*//button[@data-testid='{target_count}']"
+            ).first.click()
         else:
             # Fallback to original logic for other element names
             self.page.locator(xpath).first.click()
