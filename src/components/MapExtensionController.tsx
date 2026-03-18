@@ -32,6 +32,17 @@ const MapExtensionController: React.FC<MapExtensionControllerProps> = ({
     return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   });
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const getCurrentUserEmail = (): string => {
+    try {
+      const savedUser = localStorage.getItem('qfast_user');
+      if (!savedUser) return 'extension_user';
+      const parsedUser = JSON.parse(savedUser);
+      return (parsedUser?.email || 'extension_user').toString();
+    } catch (error) {
+      console.warn('Could not parse qfast_user from localStorage:', error);
+      return 'extension_user';
+    }
+  };
 
   // Database integration state
   const [storedXPaths, setStoredXPaths] = useState<Array<{id: number, element_name: string, xpath: string, page_name: string, created_at: string, session_id: string}>>([]);
@@ -57,7 +68,7 @@ const MapExtensionController: React.FC<MapExtensionControllerProps> = ({
         xpath: xpath,
         element_name: elementName,
         page_name: pageName,
-        created_by: 'extension_user',
+        created_by: getCurrentUserEmail(),
         session_id: currentSessionId
       };
       console.log('💾 [DEBUG] Request payload:', requestPayload);
@@ -67,7 +78,7 @@ const MapExtensionController: React.FC<MapExtensionControllerProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Email': 'extension_user'
+          'X-User-Email': getCurrentUserEmail()
         },
         body: JSON.stringify(requestPayload)
       });
@@ -148,7 +159,10 @@ const MapExtensionController: React.FC<MapExtensionControllerProps> = ({
       const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
       
       const response = await fetch(apiUrl, {
-        signal: controller.signal
+        signal: controller.signal,
+        headers: {
+          'X-User-Email': getCurrentUserEmail()
+        }
       });
       
       clearTimeout(timeoutId);
@@ -245,6 +259,7 @@ const MapExtensionController: React.FC<MapExtensionControllerProps> = ({
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
+          'X-User-Email': getCurrentUserEmail()
         }
       });
 

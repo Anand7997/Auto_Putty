@@ -21,6 +21,8 @@ class CypressTestExecutor:
         self.vnc_session = vnc_session
         self.display_id = display_id  # VNC-assigned display ID
         self.headless = headless  # Headless mode setting (default: False = window opens)
+        self.default_wait_timeout = int(os.getenv("CYPRESS_WAIT_TIMEOUT_SECONDS", "15"))
+        self.default_step_timeout = int(os.getenv("CYPRESS_STEP_TIMEOUT_SECONDS", "45"))
 
         # If VNC/display is set, force headed mode for VNC streaming (like Selenium)
         if self.display_id or self.vnc_session:
@@ -39,6 +41,8 @@ class CypressTestExecutor:
         print(f"[INIT] Server execution mode: {'ENABLED' if server_execution else 'DISABLED'}")
         print(f"[INIT] VNC session: {'AVAILABLE' if vnc_session else 'NONE'}")
         print(f"[INIT] Headless mode: {'DISABLED - Window will open' if not self.headless else 'ENABLED'}")
+        print(f"[INIT] Default wait timeout: {self.default_wait_timeout}s")
+        print(f"[INIT] Default step timeout: {self.default_step_timeout}s")
 
     def setup_allure_results_directory(self):
         """Setup Allure results directory and environment"""
@@ -151,10 +155,10 @@ export default defineConfig({{
   e2e: {{
     viewportWidth: 1280,
     viewportHeight: 720,
-    defaultCommandTimeout: 10000,
-    requestTimeout: 10000,
-    responseTimeout: 10000,
-    pageLoadTimeout: 20000,
+    defaultCommandTimeout: {self.default_wait_timeout * 1000},
+    requestTimeout: {self.default_wait_timeout * 1000},
+    responseTimeout: {self.default_wait_timeout * 1000},
+    pageLoadTimeout: {self.default_step_timeout * 1000},
     video: false,
     screenshotOnRunFailure: true,
     supportFile: 'cypress/support/e2e.js',
@@ -164,6 +168,24 @@ export default defineConfig({{
     retries: {{
       runMode: 0,
       openMode: 0
+    }},
+    setupNodeEvents(on, config) {{
+      on('before:browser:launch', (browser = {{}}, launchOptions) => {{
+        if (browser.name === 'chrome' || browser.family === 'chromium') {{
+          launchOptions.args.push('--disable-blink-features=AutomationControlled')
+          launchOptions.args.push('--disable-infobars')
+          launchOptions.args.push('--no-default-browser-check')
+          launchOptions.args.push('--no-first-run')
+          launchOptions.args.push('--disable-dev-shm-usage')
+          launchOptions.args.push('--disable-background-networking')
+          launchOptions.args.push('--disable-background-timer-throttling')
+          launchOptions.args.push('--disable-renderer-backgrounding')
+          launchOptions.args.push('--disable-popup-blocking')
+          launchOptions.args.push('--window-size=1366,768')
+        }}
+        return launchOptions
+      }})
+      return config
     }},
     env: {{
       execution_id: '{execution_id}',
@@ -198,7 +220,60 @@ try {
   console.warn('cypress-xpath not available, xpath commands may not work:', e.message)
 }
 
+Cypress.Commands.add('switchToFrame', (frameRef = '') => {
+  const ref = `${frameRef || ''}`.trim()
+  const normalized = ref.toLowerCase()
+  if (!ref || ['default', 'main', 'top', 'parent', 'root'].includes(normalized)) {
+    Cypress.env('qfastFrameRef', null)
+    return cy.log('Switched to default content')
+  }
+  Cypress.env('qfastFrameRef', ref)
+  return cy.log(`Active iframe context set to: ${ref}`)
+})
+
+Cypress.Commands.add('getActiveFrameBody', () => {
+  const frameRef = Cypress.env('qfastFrameRef')
+  if (!frameRef) {
+    return cy.get('body')
+  }
+
+  const ref = `${frameRef}`.trim()
+  const lowerRef = ref.toLowerCase()
+
+  if (lowerRef.startsWith('index:')) {
+    const index = Number(lowerRef.split(':')[1] || 0)
+    return cy.get('iframe').eq(index).its('0.contentDocument.body').should('not.be.empty').then(cy.wrap)
+  }
+
+  if (lowerRef.startsWith('xpath=') || ref.startsWith('/') || ref.startsWith('.//') || ref.startsWith('(')) {
+    const xpathSelector = lowerRef.startsWith('xpath=') ? ref.slice(6) : ref
+    if (!cy.xpath) {
+      throw new Error('cypress-xpath plugin not loaded. Install with: npm install cypress-xpath')
+    }
+    return cy.xpath(xpathSelector).first().its('0.contentDocument.body').should('not.be.empty').then(cy.wrap)
+  }
+
+  const cssSelector = lowerRef.startsWith('css=') ? ref.slice(4) : ref
+  return cy.get(cssSelector).first().its('0.contentDocument.body').should('not.be.empty').then(cy.wrap)
+})
+
 Cypress.Commands.add('xpathOrCSS', (selector, isXPath = true) => {
+  const frameRef = Cypress.env('qfastFrameRef')
+  if (frameRef) {
+    if (isXPath) {
+      return cy.getActiveFrameBody().then(($body) => {
+        const doc = $body[0]?.ownerDocument || $body[0]
+        const result = doc.evaluate(selector, doc, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null)
+        const node = result.singleNodeValue
+        if (!node) {
+          throw new Error(`XPath not found in iframe: ${selector}`)
+        }
+        return cy.wrap(node)
+      })
+    }
+    return cy.getActiveFrameBody().find(selector)
+  }
+
   if (isXPath) {
     if (cy.xpath) {
       return cy.xpath(selector)
@@ -207,6 +282,63 @@ Cypress.Commands.add('xpathOrCSS', (selector, isXPath = true) => {
     }
   } else {
     return cy.get(selector)
+  }
+})
+
+Cypress.Commands.add('visitStealth', (url, options = {}) => {
+  Cypress.env('qfastFrameRef', null)
+  const visitOptions = {
+    failOnStatusCode: false,
+    ...options,
+    onBeforeLoad(win) {
+      try {
+        Object.defineProperty(win.navigator, 'webdriver', { get: () => false })
+      } catch (e) {}
+      try {
+        Object.defineProperty(win.navigator, 'language', { get: () => 'en-US' })
+        Object.defineProperty(win.navigator, 'languages', { get: () => ['en-US', 'en'] })
+      } catch (e) {}
+      try {
+        Object.defineProperty(win.navigator, 'platform', { get: () => 'Win32' })
+      } catch (e) {}
+      try {
+        Object.defineProperty(win.navigator, 'plugins', {
+          get: () => [1, 2, 3, 4, 5]
+        })
+      } catch (e) {}
+      try {
+        if (!win.chrome) {
+          win.chrome = { runtime: {} }
+        }
+      } catch (e) {}
+      if (options.onBeforeLoad) {
+        options.onBeforeLoad(win)
+      }
+    }
+  }
+  return cy.visit(url, visitOptions)
+})
+
+Cypress.Commands.overwrite('scrollIntoView', (originalFn, subject, options) => {
+  try {
+    if (!subject) {
+      return originalFn(subject, options)
+    }
+
+    const $subject = Cypress.$(subject)
+    if ($subject.length <= 1) {
+      return originalFn(subject, options)
+    }
+
+    const $visible = $subject.filter(':visible')
+    const $chosen = $visible.length > 0 ? $visible.first() : $subject.first()
+    Cypress.log({
+      name: 'scrollIntoView',
+      message: `matched ${$subject.length} elements; using one element for Cypress compatibility`,
+    })
+    return originalFn($chosen, options)
+  } catch (e) {
+    return originalFn(subject, options)
   }
 })
 
@@ -267,7 +399,7 @@ Cypress.on('uncaught:exception', (err, runnable) => {
                 return f"""
 describe('{testcase_name}', () => {{
   it('Load test page', () => {{
-    cy.visit('/', {{ failOnStatusCode: false }})
+    cy.visitStealth('/')
   }})
 }})
 """
@@ -279,10 +411,10 @@ describe('{testcase_name}', () => {{
             # If first step is OPEN_BROWSER, use its URL instead of default
             if first_action == "OPEN_BROWSER":
                 url = first_step.get('values', '/')
-                visit_statement = f"cy.visit('{self.escape_string_for_js(url)}', {{ failOnStatusCode: false }})"
+                visit_statement = f"cy.visitStealth('{self.escape_string_for_js(url)}')"
                 start_index = 1  # Skip first step since we're handling it
             else:
-                visit_statement = "cy.visit('/', { failOnStatusCode: false })"
+                visit_statement = "cy.visitStealth('/')"
                 start_index = 0
             
             test_content = f"""
@@ -311,7 +443,8 @@ describe('{testcase_name}', () => {{
 """
 
                 # Generate Cypress command based on action type
-                cypress_command = self.generate_cypress_command(action_type, xpath, element_name, test_data, i)
+                timeout_seconds = self._resolve_step_timeout_seconds(step)
+                cypress_command = self.generate_cypress_command(action_type, xpath, element_name, test_data, i, timeout_seconds)
                 print(f"[CYPRESS_GEN] Generated command: {cypress_command[:100]}")
                 test_content += f"    {cypress_command}\n"
 
@@ -349,70 +482,185 @@ describe('{testcase_name}', () => {{
             "CLICK_QUICK_DATE",
             "CLICK_BUS_QUICK_DATE",
             "CLICK_AND_SELECT_AGE",
-            "SELECT_COUNT",
         }
         if normalized in legacy_select_actions:
             return "CLICK_AND_SELECT"
-        return normalized
+        alias_map = {
+            "SWITCH_FRAME": "SWITCH_TO_IFRAME",
+            "SWITCH_TO_FRAME": "SWITCH_TO_IFRAME",
+            "SWITCH_IFRAME": "SWITCH_TO_IFRAME",
+        }
+        return alias_map.get(normalized, normalized)
 
-    def generate_cypress_command(self, action_type, xpath, element_name, test_data, step_number):
+    def _resolve_step_timeout_seconds(self, step):
+        """Resolve per-step timeout with a safe default."""
+        try:
+            raw_timeout = step.get("timeout_seconds", step.get("timeout", self.default_step_timeout))
+            timeout_value = int(raw_timeout)
+            return max(timeout_value, 1)
+        except Exception:
+            return self.default_step_timeout
+
+    def _parse_drag_drop_target_locator(self, test_data):
+        """Extract target locator for drag/drop from values payload."""
+        raw = str(test_data or "").strip()
+        if not raw:
+            return None
+
+        try:
+            payload = json.loads(raw)
+            if isinstance(payload, dict):
+                for key in ["target_locator", "target_xpath", "target_selector", "target", "to"]:
+                    value = payload.get(key)
+                    if value and str(value).strip():
+                        return str(value).strip()
+        except Exception:
+            pass
+
+        kv_match = re.search(r"(?:target_locator|target_xpath|target_selector|target|to)\s*[:=]\s*(.+)$", raw, re.IGNORECASE)
+        if kv_match:
+            value = kv_match.group(1).strip().strip("'\"")
+            return value or None
+
+        return raw
+
+    def _selector_command(self, locator):
+        """Return JS snippet to resolve locator across xpath/css/id prefixes."""
+        raw = str(locator or "").strip()
+        if not raw:
+            return "cy.get('body')"
+
+        lowered = raw.lower()
+        if lowered.startswith("xpath="):
+            selector = self.escape_string_for_js(raw[6:])
+            return f"cy.xpathOrCSS('{selector}', true)"
+        if lowered.startswith("css="):
+            selector = self.escape_string_for_js(raw[4:])
+            return f"cy.get('{selector}')"
+        if lowered.startswith("id="):
+            selector = self.escape_string_for_js(raw[3:].lstrip('#'))
+            return f"cy.get('#{selector}')"
+        if lowered.startswith("name="):
+            selector = self.escape_string_for_js(raw[5:])
+            return f"cy.get('[name=\"{selector}\"]')"
+
+        if raw.startswith(("/", "(", ".//")):
+            selector = self.escape_string_for_js(raw)
+            return f"cy.xpathOrCSS('{selector}', true)"
+        if raw.startswith(("#", ".", "[")) or any(token in raw for token in [" ", ">", "~", ":", "*"]):
+            selector = self.escape_string_for_js(raw)
+            return f"cy.get('{selector}')"
+
+        selector = self.escape_string_for_js(raw)
+        return f"cy.xpathOrCSS('{selector}', true)"
+
+    def generate_cypress_command(self, action_type, xpath, element_name, test_data, step_number, timeout_seconds=None):
         """Generate Cypress command for a specific action"""
         try:
             action_type = self.normalize_action_type(action_type)
+            timeout_seconds = int(timeout_seconds or self.default_step_timeout)
+            timeout_ms = max(timeout_seconds, 1) * 1000
             
             # Escape strings for JavaScript
-            xpath_escaped = self.escape_string_for_js(xpath)
             test_data_escaped = self.escape_string_for_js(test_data)
+            selector_cmd = self._selector_command(xpath)
+            test_data_text = str(test_data or "")
 
             if action_type == "OPEN_BROWSER":
-                return f"cy.visit('{test_data_escaped}')"
+                return f"cy.visitStealth('{test_data_escaped}')"
 
             elif action_type == "CLICK_AND_SELECT":
                 # Handle different selection types
                 selection_type = self.determine_selection_type(element_name, test_data)
 
                 if selection_type == "CITY_SELECTION":
-                    return self.generate_city_selection_command(xpath_escaped, element_name, test_data_escaped)
+                    return self.generate_city_selection_command(xpath, element_name, test_data_escaped)
                 elif selection_type == "DATE_SELECTION":
-                    return self.generate_date_selection_command(xpath_escaped, element_name, test_data_escaped)
+                    return self.generate_date_selection_command(xpath, element_name, test_data_escaped)
                 elif selection_type == "QUICK_DATE_SELECTION":
                     return self.generate_quick_date_command(element_name, test_data_escaped)
                 elif selection_type == "AGE_SELECTION":
-                    return self.generate_age_selection_command(xpath_escaped, element_name, test_data_escaped)
+                    return self.generate_age_selection_command(xpath, element_name, test_data_escaped)
                 elif selection_type == "COUNT_SELECTION":
-                    return self.generate_count_selection_command(test_data_escaped, xpath_escaped, element_name)
+                    return self.generate_count_selection_command(test_data_escaped, xpath, element_name)
                 else:
-                    return f"cy.xpathOrCSS('{xpath_escaped}', true).scrollIntoView().click({{ force: true }})"
+                    return f"{selector_cmd}.scrollIntoView().click({{ force: true, timeout: {timeout_ms} }})"
 
             elif action_type == "CLICK_AND_TYPE":
-                return f"cy.xpathOrCSS('{xpath_escaped}', true).scrollIntoView().clear().type('{test_data_escaped}', {{ force: true }})"
+                return f"{selector_cmd}.scrollIntoView().clear({{ force: true }}).type('{test_data_escaped}', {{ force: true, timeout: {timeout_ms} }})"
+
+            elif action_type == "CLEAR_AND_TYPE":
+                return f"{selector_cmd}.scrollIntoView().clear({{ force: true }}).type('{test_data_escaped}', {{ force: true, timeout: {timeout_ms} }})"
 
             elif action_type == "CLICK":
                 if element_name.upper() == "TRAVELCLASS":
-                    return self.generate_travel_class_command(test_data_escaped, xpath_escaped, element_name)
-                elif test_data.upper() == "TODAY":
+                    return self.generate_travel_class_command(test_data_escaped, xpath, element_name)
+                elif element_name.upper() in ["DONEBUTTON", "DONE"]:
+                    return "cy.contains('Done').first().click({ force: true })"
+                elif test_data_text.upper() == "TODAY":
                     return f"cy.contains('Today').scrollIntoView().click({{ force: true }})"
-                elif test_data.upper() == "TOMORROW":
+                elif test_data_text.upper() == "TOMORROW":
                     return f"cy.contains('Tomorrow').scrollIntoView().click({{ force: true }})"
                 else:
-                    return f"cy.xpathOrCSS('{xpath_escaped}', true).scrollIntoView().click({{ force: true }})"
+                    return f"{selector_cmd}.scrollIntoView().click({{ force: true, timeout: {timeout_ms} }})"
+
+            elif action_type == "DOUBLE_CLICK":
+                return f"{selector_cmd}.scrollIntoView().dblclick({{ force: true, timeout: {timeout_ms} }})"
+
+            elif action_type == "RIGHT_CLICK":
+                return f"{selector_cmd}.scrollIntoView().rightclick({{ force: true, timeout: {timeout_ms} }})"
+
+            elif action_type == "MOUSE_OVER":
+                return f"{selector_cmd}.scrollIntoView().trigger('mouseover', {{ force: true, timeout: {timeout_ms} }})"
+
+            elif action_type == "RADIO_BUTTON":
+                should_check = str(test_data or '').strip().lower() in ["", "true", "1", "yes", "on", "select", "selected"]
+                if should_check:
+                    return f"{selector_cmd}.scrollIntoView().check({{ force: true, timeout: {timeout_ms} }})"
+                return f"{selector_cmd}.scrollIntoView().uncheck({{ force: true, timeout: {timeout_ms} }})"
+
+            elif action_type == "DRAG_AND_DROP":
+                target_locator = self._parse_drag_drop_target_locator(test_data)
+                if not target_locator:
+                    return "// DRAG_AND_DROP skipped: missing target locator"
+                target_cmd = self._selector_command(target_locator)
+                return (
+                    f"{selector_cmd}.scrollIntoView().trigger('mousedown', {{ which: 1, force: true }}); "
+                    f"{target_cmd}.scrollIntoView().trigger('mousemove', {{ force: true }}).trigger('mouseup', {{ force: true }})"
+                )
 
             elif action_type == "HANDLE_CHECKBOX":
-                should_check = test_data.upper() in ["TRUE", "1", "YES"]
+                should_check = test_data_text.upper() in ["TRUE", "1", "YES"]
                 if should_check:
                     return (
-                        f"cy.xpathOrCSS('{xpath_escaped}', true).scrollIntoView()"
+                        f"{selector_cmd}.scrollIntoView()"
                         ".then(($el) => { if ($el.prop('checked')) { cy.wrap($el).uncheck({ force: true }); } })"
-                        ".check({ force: true })"
+                        f".check({{ force: true, timeout: {timeout_ms} }})"
                     )
                 else:
                     return (
-                        f"cy.xpathOrCSS('{xpath_escaped}', true).scrollIntoView()"
+                        f"{selector_cmd}.scrollIntoView()"
                         ".then(($el) => { if ($el.prop('checked')) { cy.wrap($el).uncheck({ force: true }); } })"
                     )
 
+            elif action_type == "SELECT_COUNT":
+                return self.generate_count_selection_command(test_data_escaped, xpath, element_name)
+
+            elif action_type == "INCREMENT":
+                return self.generate_increment_decrement_command("INCREMENT", test_data_escaped, xpath, element_name)
+
+            elif action_type == "DECREMENT":
+                return self.generate_increment_decrement_command("DECREMENT", test_data_escaped, xpath, element_name)
+
+            elif action_type == "SWITCH_TO_IFRAME":
+                frame_reference = str(xpath or test_data or "").strip()
+                if str(test_data_text).strip().isdigit() and not str(xpath or "").strip():
+                    frame_reference = f"index:{test_data_text.strip()}"
+                frame_reference_escaped = self.escape_string_for_js(frame_reference)
+                return f"cy.switchToFrame('{frame_reference_escaped}')"
+
             elif action_type == "NAVIGATE_TO_URL":
-                return f"cy.visit('{test_data_escaped}')"
+                return f"cy.visitStealth('{test_data_escaped}')"
 
             elif action_type == "REFRESH_PAGE":
                 return "cy.reload()"
@@ -512,17 +760,19 @@ describe('{testcase_name}', () => {{
 
     def generate_city_selection_command(self, xpath, element_name, city_name):
         """Generate Cypress command for city selection"""
+        selector_cmd = self._selector_command(xpath)
         return f"""
-    cy.xpathOrCSS('{xpath}', true).scrollIntoView().click({{ force: true }})
-    cy.xpathOrCSS('{xpath}', true).clear().type('{city_name}')
+    {selector_cmd}.scrollIntoView().click({{ force: true }})
+    {selector_cmd}.clear().type('{city_name}')
     cy.wait(1000)
     cy.get('body').type('{{downarrow}}{{enter}}')
     cy.wait(2000)"""
 
     def generate_date_selection_command(self, xpath, element_name, date_string):
         """Generate Cypress command for date selection"""
+        selector_cmd = self._selector_command(xpath)
         return f"""
-    cy.xpathOrCSS('{xpath}', true).scrollIntoView().click({{ force: true }})
+    {selector_cmd}.scrollIntoView().click({{ force: true }})
     cy.wait(1000)
     cy.contains('{date_string}').scrollIntoView().click({{ force: true }})
     cy.wait(1000)"""
@@ -540,8 +790,9 @@ describe('{testcase_name}', () => {{
 
     def generate_age_selection_command(self, xpath, element_name, age_value):
         """Generate Cypress command for child age selection."""
+        selector_cmd = self._selector_command(xpath)
         return f"""
-    cy.xpathOrCSS('{xpath}', true).scrollIntoView().select('{age_value}', {{ force: true }})
+    {selector_cmd}.scrollIntoView().select('{age_value}', {{ force: true }})
     cy.wait(500)"""
 
     def generate_travel_class_command(self, class_name, xpath, element_name):
@@ -555,9 +806,10 @@ describe('{testcase_name}', () => {{
             "first class": "First class"
         }
         actual_class_name = mapping.get(class_name.lower().strip(), class_name)
+        selector_cmd = self._selector_command(xpath)
 
         return f"""
-    cy.xpathOrCSS('{xpath}', true).scrollIntoView().click({{ force: true }})
+    {selector_cmd}.scrollIntoView().click({{ force: true }})
     cy.wait(500)
     cy.contains('{actual_class_name}').scrollIntoView().click({{ force: true }})
     cy.wait(500)
@@ -567,34 +819,130 @@ describe('{testcase_name}', () => {{
         """Generate Cypress command for count selection"""
         try:
             target_count = int(count_str.strip())
-
-            if element_name.upper() == "ROOMSCOUNT":
+            element_type = self.resolve_count_element_type(element_name)
+            if element_type:
                 return f"""
-    cy.xpathOrCSS('{xpath}', true).scrollIntoView().click({{ force: true }})
-    cy.wait(500)
-    // Set rooms count to {target_count}
-    cy.xpathOrCSS('{xpath}', true).siblings().find('button').contains('+').click().wait(300).repeat({target_count - 1})
+    {self.generate_increment_decrement_command("SELECT_COUNT", str(target_count), xpath, element_name)}
     cy.contains('Done').scrollIntoView().click({{ force: true }})"""
-            elif element_name.upper() == "ADULTSCOUNT":
-                return f"""
-    cy.xpathOrCSS('{xpath}', true).scrollIntoView().click({{ force: true }})
-    cy.wait(500)
-    // Set adults count to {target_count}
-    cy.xpathOrCSS('{xpath}', true).siblings().find('button').contains('+').click().wait(300).repeat({target_count - 1})
-    cy.contains('Done').scrollIntoView().click({{ force: true }})"""
-            elif element_name.upper() == "CHILDRENCOUNT":
-                return f"""
-    cy.xpathOrCSS('{xpath}', true).scrollIntoView().click({{ force: true }})
-    cy.wait(500)
-    // Set children count to {target_count}
-    cy.xpathOrCSS('{xpath}', true).siblings().find('button').contains('+').click().wait(300).repeat({target_count - 1})
-    cy.contains('Done').scrollIntoView().click({{ force: true }})"""
-            else:
-                return f"cy.xpathOrCSS('{xpath}', true).scrollIntoView().click({{ force: true }})"
+            selector_cmd = self._selector_command(xpath)
+            return f"{selector_cmd}.scrollIntoView().click({{ force: true }})"
 
         except Exception as e:
             print(f"[ERROR] Failed to generate count selection command: {str(e)}")
-            return f"cy.xpathOrCSS('{xpath}', true).scrollIntoView().click({{ force: true }})"
+            selector_cmd = self._selector_command(xpath)
+            return f"{selector_cmd}.scrollIntoView().click({{ force: true }})"
+
+    def resolve_count_element_type(self, element_name):
+        """Map varied element labels to a canonical count type."""
+        name = (element_name or "").strip().lower().replace(" ", "")
+        if any(k in name for k in ["room", "roomscount", "roomcount"]):
+            return "room"
+        if any(k in name for k in ["adult", "adultscount", "adultcount"]):
+            return "adult"
+        if any(k in name for k in ["child", "children", "childrencount", "childcount"]):
+            return "children"
+        if any(k in name for k in ["infant", "infantscount", "infantcount"]):
+            return "infant"
+        return None
+
+    def _get_count_control_xpaths(self, element_type):
+        element_type = (element_type or "").lower()
+        if element_type == "room":
+            return (
+                "//p[contains(@data-testid,'room-increment')]//*[name()='svg']//*[name()='path' and contains(@fill-rule,'evenodd')]",
+                "//p[@data-testid='room-decrement']//*[name()='svg']"
+            )
+        if element_type == "adult":
+            return (
+                "//p[@data-testid='adult-increment']//*[name()='svg']",
+                "//p[contains(@data-testid,'adult-decrement')]//*[name()='svg']"
+            )
+        if element_type == "children":
+            return (
+                "//p[@data-testid='counter-increment-children']//*[name()='svg']",
+                "//p[@data-testid='counter-decrement-children']//*[name()='svg']"
+            )
+        if element_type == "infant":
+            return (
+                "//p[@data-testid='counter-increment-infant']//*[name()='svg'] | //p[contains(@data-testid,'infant-increment')]//*[name()='svg']",
+                "//p[@data-testid='counter-decrement-infant']//*[name()='svg'] | //p[contains(@data-testid,'infant-decrement')]//*[name()='svg']"
+            )
+        return (None, None)
+
+    def _get_count_input_index(self, element_type):
+        index_map = {
+            "room": 0,
+            "adult": 1,
+            "children": 2,
+            "infant": 3,
+        }
+        return index_map.get((element_type or "").lower(), None)
+
+    def generate_increment_decrement_command(self, action_type, count_str, xpath, element_name):
+        """Generate Cypress command for INCREMENT/DECREMENT/SELECT_COUNT."""
+        try:
+            parsed_count = int(str(count_str).strip() or "1")
+            if parsed_count < 0:
+                parsed_count = 0
+
+            element_type = self.resolve_count_element_type(element_name)
+            if element_type:
+                inc_xpath, dec_xpath = self._get_count_control_xpaths(element_type)
+                inc_cmd = self._selector_command(f"xpath={inc_xpath}") if inc_xpath else None
+                dec_cmd = self._selector_command(f"xpath={dec_xpath}") if dec_xpath else None
+                count_index = self._get_count_input_index(element_type)
+
+                if count_index is not None:
+                    if action_type == "INCREMENT" and inc_cmd:
+                        return f"""cy.get('body').then(() => {{
+      const _target = {parsed_count};
+      const _currentText = (Cypress.$("span[data-testid='counter-input']").eq({count_index}).text() || '').trim();
+      const _current = Number.parseInt(_currentText, 10) || 0;
+      const _steps = Math.max(_target - _current, 0);
+      for (let i = 0; i < _steps; i += 1) {{ {inc_cmd}.click({{ force: true }}); cy.wait(200); }}
+    }})"""
+                    if action_type == "DECREMENT" and dec_cmd:
+                        return f"""cy.get('body').then(() => {{
+      const _target = {parsed_count};
+      const _currentText = (Cypress.$("span[data-testid='counter-input']").eq({count_index}).text() || '').trim();
+      const _current = Number.parseInt(_currentText, 10) || 0;
+      const _steps = Math.max(_current - _target, 0);
+      for (let i = 0; i < _steps; i += 1) {{ {dec_cmd}.click({{ force: true }}); cy.wait(200); }}
+    }})"""
+                    if action_type == "SELECT_COUNT" and (inc_cmd or dec_cmd):
+                        if inc_cmd and dec_cmd:
+                            return f"""cy.get('body').then(() => {{
+      const _target = {parsed_count};
+      const _currentText = (Cypress.$("span[data-testid='counter-input']").eq({count_index}).text() || '').trim();
+      const _current = Number.parseInt(_currentText, 10) || 0;
+      if (_target > _current) {{
+        for (let i = 0; i < (_target - _current); i += 1) {{ {inc_cmd}.click({{ force: true }}); cy.wait(200); }}
+      }} else if (_target < _current) {{
+        for (let i = 0; i < (_current - _target); i += 1) {{ {dec_cmd}.click({{ force: true }}); cy.wait(200); }}
+      }}
+    }})"""
+                        if inc_cmd:
+                            return f"""cy.get('body').then(() => {{
+      const _target = {parsed_count};
+      const _currentText = (Cypress.$("span[data-testid='counter-input']").eq({count_index}).text() || '').trim();
+      const _current = Number.parseInt(_currentText, 10) || 0;
+      const _steps = Math.max(_target - _current, 0);
+      for (let i = 0; i < _steps; i += 1) {{ {inc_cmd}.click({{ force: true }}); cy.wait(200); }}
+    }})"""
+                        if dec_cmd:
+                            return f"""cy.get('body').then(() => {{
+      const _target = {parsed_count};
+      const _currentText = (Cypress.$("span[data-testid='counter-input']").eq({count_index}).text() || '').trim();
+      const _current = Number.parseInt(_currentText, 10) || 0;
+      const _steps = Math.max(_current - _target, 0);
+      for (let i = 0; i < _steps; i += 1) {{ {dec_cmd}.click({{ force: true }}); cy.wait(200); }}
+    }})"""
+
+            selector_cmd = self._selector_command(xpath)
+            return f"for (let i = 0; i < {parsed_count}; i += 1) {{ {selector_cmd}.click({{ force: true }}); cy.wait(200); }}"
+        except Exception as e:
+            print(f"[ERROR] Failed to generate {action_type} command: {str(e)}")
+            return "// Failed to generate increment/decrement command"
 
     def run_cypress_test(self, test_dir, execution_id, test_steps=None):
         """Run the Cypress test and capture results"""

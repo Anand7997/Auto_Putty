@@ -31,7 +31,11 @@ interface TestStep {
 type DevelopmentViewType = 'overview' | 'projects' | 'project-list' | 'modules' | 'testcases' | 'steps' | 'createpage';
 
 // Standalone component to avoid state reset on parent re-renders
-const CreatePageSectionBlock: React.FC<{ onBack?: () => void; resetKey?: number; onObjectUpdated?: () => void }> = ({ onBack, resetKey, onObjectUpdated }) => {
+const CreatePageSectionBlock: React.FC<{
+  onBack?: () => void;
+  resetKey?: number;
+  onObjectUpdated?: (change?: { old_object_name?: string; object_name?: string; xpath?: string; page_name?: string }) => void;
+}> = ({ onBack, resetKey, onObjectUpdated }) => {
   const { toast } = useToast();
   const [pageName, setPageName] = useState<string>("");
   const [step, setStep] = useState<1 | 2>(1);
@@ -57,6 +61,17 @@ const CreatePageSectionBlock: React.FC<{ onBack?: () => void; resetKey?: number;
   const [lastReceivedXPath, setLastReceivedXPath] = useState<string>('');
   const [extensionXPaths, setExtensionXPaths] = useState<Array<{id: number, element_name: string, xpath: string, page_name: string, created_at: string}>>([]);
   const [isLoadingExtensionXPaths, setIsLoadingExtensionXPaths] = useState(false);
+  const getCurrentUserEmail = (): string => {
+    try {
+      const savedUser = localStorage.getItem('qfast_user');
+      if (!savedUser) return 'extension_user';
+      const parsedUser = JSON.parse(savedUser);
+      return (parsedUser?.email || 'extension_user').toString();
+    } catch (error) {
+      console.warn('Could not parse qfast_user from localStorage:', error);
+      return 'extension_user';
+    }
+  };
 
   const loadPages = async () => {
     try {
@@ -193,6 +208,7 @@ const CreatePageSectionBlock: React.FC<{ onBack?: () => void; resetKey?: number;
         toast({ title: 'Object Updated', description: `${objectName.trim()}` });
         // refresh existing objects
         await loadExistingObjects(pageName);
+        onObjectUpdated?.(data);
         setEditingId(null);
         setObjectName('');
         setXpath('');
@@ -242,7 +258,11 @@ const CreatePageSectionBlock: React.FC<{ onBack?: () => void; resetKey?: number;
       setIsLoadingExtensionXPaths(true);
       console.log('ðŸ“– Loading unimplemented XPaths from database (sorted by created_at)...');
 
-      const response = await fetch(buildApiUrl('/api/extension-xpaths'));
+      const response = await fetch(buildApiUrl('/api/extension-xpaths'), {
+        headers: {
+          'X-User-Email': getCurrentUserEmail()
+        }
+      });
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -760,7 +780,7 @@ const CreatePageSectionBlock: React.FC<{ onBack?: () => void; resetKey?: number;
                                     setEditingId(null);
                                     setEditingValues(null);
                                     // Trigger refresh of test steps grid
-                                    onObjectUpdated?.();
+                                    onObjectUpdated?.(data);
                                   } catch (e: any) {
                                     toast({ title: 'Update failed', description: e?.message, variant: 'destructive' });
                                   }
@@ -1464,9 +1484,9 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
                 setCurrentView('projects');
               }}
               resetKey={createPageReset}
-              onObjectUpdated={() => {
+              onObjectUpdated={(change) => {
                 // Trigger XPath refresh in test steps grid when page object is updated
-                testStepsGridRef.current?.triggerXPathRefresh();
+                testStepsGridRef.current?.triggerXPathRefresh(change);
               }}
             />
           </div>

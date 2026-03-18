@@ -31,6 +31,93 @@ except Exception:
     EXECUTION_DISPLAY = 16
 
 class SeleniumTestExecutor:
+    # Canonical element-name aliases used across Selenium step handling.
+    ELEMENT_NAME_TRAVEL_CLASS = "TRAVELCLASS"
+    ELEMENT_NAME_DONE_ALIASES = {"DONEBUTTON", "DONE"}
+    ELEMENT_NAME_SELECT_COUNT_TYPE_MAP = {
+        "ROOMSCOUNT": "room",
+        "ADULTSCOUNT": "adult",
+        "CHILDRENCOUNT": "children",
+    }
+
+    # Canonical counter element types.
+    COUNT_TYPE_ROOM = "room"
+    COUNT_TYPE_ADULT = "adult"
+    COUNT_TYPE_CHILDREN = "children"
+    COUNT_TYPE_INFANT = "infant"
+
+    # Keyword aliases for deriving counter type from sheet element names.
+    COUNT_TYPE_KEYWORD_MAP = {
+        COUNT_TYPE_ROOM: ["room", "roomscount", "roomcount"],
+        COUNT_TYPE_ADULT: ["adult", "adultscount", "adultcount"],
+        COUNT_TYPE_CHILDREN: ["child", "children", "childrencount", "childcount"],
+        COUNT_TYPE_INFANT: ["infant", "infantscount", "infantcount"],
+    }
+
+    # UI label/text constants used by popup/city/date handling.
+    UI_LABEL_ADULTS = "Adults"
+    UI_LABEL_CHILDREN = "Children"
+    UI_LABEL_INFANTS = "Infants"
+    UI_LABEL_DONE = "Done"
+    UI_LABEL_ROOMS_AND_GUESTS = "Rooms & Guests"
+    UI_LABEL_FROM = "From"
+    UI_LABEL_TO = "To"
+    UI_LABEL_CITY = "City"
+    UI_LABEL_TODAY = "Today"
+    UI_LABEL_TOMORROW = "Tomorrow"
+    UI_LABEL_DAY_AFTER_TOMORROW = "Day After Tomorrow"
+    UI_TOKEN_BUS = "bus"
+
+    QUICK_DATE_TODAY = "today"
+    QUICK_DATE_TOMORROW = "tomorrow"
+    QUICK_DATE_DAY_AFTER = "day-after-tomorrow"
+    QUICK_DATE_DAY_AFTER_ALIASES = ["day-after-tomorrow", "day after tomorrow", "dayaftertomorrow"]
+
+    BUS_QUICK_DATE_SKIP_OPTIONS = ["false", "skip", "", "n/a", "0"]
+    BUS_QUICK_DATE_EXECUTE_OPTIONS = ["true", "1"]
+
+    COUNT_CONTROL_XPATHS = {
+        COUNT_TYPE_ROOM: ("//p[contains(@data-testid,'room-increment')]", "//p[@data-testid='room-decrement']"),
+        COUNT_TYPE_ADULT: ("//p[@data-testid='adult-increment']", "//p[contains(@data-testid,'adult-decrement')]"),
+        COUNT_TYPE_CHILDREN: ("//p[@data-testid='counter-increment-children']", "//p[@data-testid='counter-decrement-children']"),
+        COUNT_TYPE_INFANT: ("//p[contains(@data-testid,'infant-increment')]", "//p[contains(@data-testid,'infant-decrement')]"),
+    }
+
+    CITY_INPUT_SELECTORS = [
+        "//input[contains(@placeholder,'From') or contains(@placeholder,'from')]",
+        "//input[contains(@placeholder,'To') or contains(@placeholder,'to')]",
+        "//input[contains(@placeholder,'City') or contains(@placeholder,'city')]",
+        "//input[@type='text' and contains(@name,'from')]",
+        "//input[@type='text' and contains(@name,'to')]",
+        "//input[@type='text' and contains(@id,'from')]",
+        "//input[@type='text' and contains(@id,'to')]",
+    ]
+
+    CITY_PLACEHOLDER_BLOCKLIST = {"From", "To", "City"}
+    DATE_QUICK_OPTIONS = ["tomorrow", "today", "day-after-tomorrow"]
+
+    TODAY_SELECTORS = [
+        "//button[normalize-space(text())='Today']",
+        "//button[contains(text(),'Today')]",
+        "//*[contains(text(),'Today') and (name()='button' or name()='div')]",
+    ]
+    TOMORROW_SELECTORS = [
+        "//p[contains(text(),'Tomorrow')]",
+        "//p[contains(text(),'Tomorrow')]/parent::*",
+        "//button[contains(text(),'Tomorrow')]",
+    ]
+    TOMORROW_BUS_SELECTORS = [
+        "//button[normalize-space(text())='Tomorrow']",
+        "//button[contains(text(),'Tomorrow')]",
+        "//*[contains(text(),'Tomorrow') and (name()='button' or name()='div')]",
+        "//p[contains(text(),'Tomorrow')]/parent::*",
+    ]
+    DAY_AFTER_TOMORROW_SELECTORS = [
+        "//p[contains(text(),'Day After')]",
+        "//p[contains(text(),'Day After')]/parent::*",
+        "//div[@data-testid='day-after-tomorrow']",
+    ]
+
     def __init__(self, enable_isolation=True, enable_remote_viewing=False, headless=None, server_execution=False, grid_url=None, vnc_session=None, display_id=None):
         self.driver = None
         self.wait = None
@@ -80,6 +167,11 @@ class SeleniumTestExecutor:
         # Temporary user data directory for Chrome isolation
         self.temp_user_data_dir = None
         self.last_launch_error = None
+        # Runtime tuning knobs for cross-site stability
+        self.default_wait_timeout = int(os.getenv("SELENIUM_WAIT_TIMEOUT_SECONDS", "15"))
+        self.default_step_timeout = int(os.getenv("SELENIUM_STEP_TIMEOUT_SECONDS", "45"))
+        self._last_count_action_state = None
+        self._last_drag_drop_state = None
 
         # Grid execution configuration
         self.grid_capabilities = {
@@ -102,6 +194,8 @@ class SeleniumTestExecutor:
         print(f"[INIT] Window management enabled with {self.window_switch_timeout}s timeout")
         print(f"[INIT] Grid capabilities configured for remote execution")
         print(f"[INIT] VNC session: {'AVAILABLE' if vnc_session else 'NONE'}")
+        print(f"[INIT] Default wait timeout: {self.default_wait_timeout}s")
+        print(f"[INIT] Default step timeout: {self.default_step_timeout}s")
 
     def _normalize_chromedriver_path(self, driver_path):
         """Ensure the selected path points to an executable chromedriver binary."""
@@ -1217,7 +1311,7 @@ class SeleniumTestExecutor:
             from selenium.webdriver.support.ui import WebDriverWait
             from selenium.webdriver.common.action_chains import ActionChains
 
-            self.wait = WebDriverWait(self.driver, 10)
+            self.wait = WebDriverWait(self.driver, self.default_wait_timeout)
             self.actions = ActionChains(self.driver)
 
             return True
@@ -1405,9 +1499,112 @@ class SeleniumTestExecutor:
                 print(f"[EXECUTION_DATE] execution_date set to: {result.get('execution_date')}")
                 
         return result
+
+    def _resolve_step_timeout_seconds(self, step):
+        """Resolve per-step timeout with a safe default."""
+        try:
+            raw_timeout = step.get("timeout_seconds", step.get("timeout", self.default_step_timeout))
+            timeout_value = int(raw_timeout)
+            return max(timeout_value, 1)
+        except Exception:
+            return self.default_step_timeout
+
+    def _parse_locator(self, locator):
+        """Parse a generic locator string into Selenium By strategy + value."""
+        raw = (locator or "").strip()
+        if not raw:
+            return None
+
+        lowered = raw.lower()
+        prefix_map = {
+            "xpath=": By.XPATH,
+            "css=": By.CSS_SELECTOR,
+            "id=": By.ID,
+            "name=": By.NAME,
+            "link_text=": By.LINK_TEXT,
+            "partial_link_text=": By.PARTIAL_LINK_TEXT,
+            "tag=": By.TAG_NAME,
+            "class_name=": By.CLASS_NAME,
+        }
+        for prefix, by in prefix_map.items():
+            if lowered.startswith(prefix):
+                parsed_value = raw[len(prefix):]
+                if by == By.XPATH:
+                    parsed_value = self.clean_xpath(parsed_value)
+                return by, parsed_value
+
+        # Auto-detect common selector patterns when no explicit prefix is provided.
+        if raw.startswith(("/", "(", ".//")):
+            return By.XPATH, self.clean_xpath(raw)
+        if raw.startswith(("#", ".", "[")) or any(token in raw for token in [" ", ">", "~", ":", "*"]):
+            return By.CSS_SELECTOR, raw
+        return By.XPATH, self.clean_xpath(raw)
+
+    def _generic_click_and_select(self, locator, test_data):
+        """Generic fallback for select-like interactions across arbitrary websites."""
+        target = self.find_element_with_advanced_wait(locator)
+        tag_name = (target.tag_name or "").lower()
+        input_type = (target.get_attribute("type") or "").lower()
+
+        if tag_name == "select":
+            selector = Select(target)
+            text_value = str(test_data or "").strip()
+            if not text_value:
+                raise Exception("No selection value provided for select element")
+            try:
+                selector.select_by_visible_text(text_value)
+                return
+            except Exception:
+                pass
+            try:
+                selector.select_by_value(text_value)
+                return
+            except Exception:
+                pass
+            if text_value.isdigit():
+                selector.select_by_index(int(text_value))
+                return
+            raise Exception(f"Could not select '{text_value}' from dropdown")
+
+        if input_type in ["checkbox", "radio"]:
+            desired = str(test_data).strip().lower() in ["true", "1", "yes", "on", "checked"]
+            current = bool(target.is_selected())
+            if desired != current:
+                self.perform_robust_click(target)
+            return
+
+        self.perform_robust_click(target)
+        if str(test_data or "").strip():
+            self.perform_robust_text_input(target, str(test_data))
+
+    def _parse_drag_drop_target_locator(self, test_data):
+        """Extract target locator for drag/drop from raw step values."""
+        raw = str(test_data or "").strip()
+        if not raw:
+            return None
+
+        # JSON payload support: {"target_xpath":"..."} or {"target":"..."}.
+        try:
+            payload = json.loads(raw)
+            if isinstance(payload, dict):
+                for key in ["target_locator", "target_xpath", "target_selector", "target", "to"]:
+                    value = payload.get(key)
+                    if value and str(value).strip():
+                        return str(value).strip()
+        except Exception:
+            pass
+
+        # Key/value text support: target=..., to=..., target_xpath=...
+        kv_match = re.search(r"(?:target_locator|target_xpath|target_selector|target|to)\s*[:=]\s*(.+)$", raw, re.IGNORECASE)
+        if kv_match:
+            value = kv_match.group(1).strip().strip("'\"")
+            return value or None
+
+        # Fallback: treat entire value as target locator.
+        return raw
     
     def execute_step(self, step, step_number):
-        """Execute a single test step with 10-second timeout"""
+        """Execute a single test step with configurable timeout."""
         normalized_action_type = self.normalize_action_type(step.get('action_type', ''))
         step_result = {
             'tc_id': step.get('tc_id', ''),
@@ -1451,7 +1648,11 @@ class SeleniumTestExecutor:
                 xpath = step.get('xpath', '')
                 element_name = step.get('element_name', '')
                 test_data = step.get('values', '')
-                
+
+                pre_validation = self.pre_validate_action(action_type, test_data, xpath, element_name)
+                if not pre_validation.get('success', False):
+                    raise Exception(pre_validation.get('message', 'Pre-validation failed'))
+
                 # Execute the action using isolation method (which includes window management)
                 self.execute_action_with_isolation(action_type, test_data, xpath, element_name)
             
@@ -1459,16 +1660,17 @@ class SeleniumTestExecutor:
             with ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(execute_step_action)
                 try:
-                    # Wait for the step to complete without timeout
-                    future.result()
+                    timeout_seconds = self._resolve_step_timeout_seconds(step)
+                    future.result(timeout=timeout_seconds)
                     step_result['status'] = 'PASS'
                     print(f"[SUCCESS] Step {step_number} completed successfully")
                     
                 except FutureTimeoutError:
                     step_result['status'] = 'FAIL'
-                    step_result['error'] = 'Step execution interrupted'
-                    step_result['error_message'] = 'Step execution interrupted'
-                    print(f"[INTERRUPTED] Step {step_number} was interrupted, moving to next step")
+                    timeout_seconds = self._resolve_step_timeout_seconds(step)
+                    step_result['error'] = f"Step timed out after {timeout_seconds} seconds"
+                    step_result['error_message'] = f"Step timed out after {timeout_seconds} seconds"
+                    print(f"[INTERRUPTED] Step {step_number} timed out after {timeout_seconds}s, moving to next step")
                     
                     # Take screenshot after timeout
                     timeout_screenshot = self.save_screenshot(f"After_Step_{step_number}_TIMEOUT", step_number, "timeout")
@@ -1578,7 +1780,11 @@ class SeleniumTestExecutor:
                     test_data = step.get('values', '')
                     
                     print(f"[ISOLATION] Executing action: {action_type} on element: {element_name}")
-                    
+
+                    pre_validation = self.pre_validate_action(action_type, test_data, xpath, element_name)
+                    if not pre_validation.get('success', False):
+                        raise Exception(pre_validation.get('message', 'Pre-validation failed'))
+
                     # Execute the action with enhanced error handling
                     self.execute_action_with_isolation(action_type, test_data, xpath, element_name)
                     
@@ -1599,21 +1805,18 @@ class SeleniumTestExecutor:
             with ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(execute_isolated_action)
                 try:
-                    # Determine timeout based on element type
-                    element_name = step.get('element_name', '').upper()
-                    action_type = self.normalize_action_type(step.get('action_type', ''))
-                    
-                    # Wait for the step to complete without timeout
-                    future.result()
+                    timeout_seconds = self._resolve_step_timeout_seconds(step)
+                    future.result(timeout=timeout_seconds)
                     step_result['status'] = 'PASS'
                     step_result['validation_message'] = f"Step {step_number} executed and validated successfully"
                     print(f"[ISOLATION_SUCCESS] Step {step_number} completed successfully")
                     
                 except FutureTimeoutError:
                     step_result['status'] = 'FAIL'
-                    step_result['error'] = 'Step execution interrupted'
-                    step_result['error_message'] = 'Step execution interrupted'
-                    print(f"[ISOLATION_INTERRUPTED] Step {step_number} was interrupted, but test will continue")
+                    timeout_seconds = self._resolve_step_timeout_seconds(step)
+                    step_result['error'] = f"Step timed out after {timeout_seconds} seconds"
+                    step_result['error_message'] = f"Step timed out after {timeout_seconds} seconds"
+                    print(f"[ISOLATION_INTERRUPTED] Step {step_number} timed out after {timeout_seconds}s, but test will continue")
                     
                     # Take screenshot after timeout
                     timeout_screenshot = self.save_screenshot(f"After_Step_{step_number}_TIMEOUT", step_number, "timeout")
@@ -1972,6 +2175,8 @@ class SeleniumTestExecutor:
         try:
             print(f"[ISOLATION_ACTION] Executing action: {action_type} with data: '{test_data}' for element: {element_name}")
             action_type = self.normalize_action_type(action_type)
+            element_name = element_name or ""
+            test_data_text = str(test_data or "")
 
             if action_type == "OPEN_BROWSER":
                 # Only navigate to URL if browser is already launched
@@ -1986,59 +2191,174 @@ class SeleniumTestExecutor:
                     self.wait_for_spa_ready()
 
             elif action_type == "CLICK_AND_SELECT":
-                # Unified CLICK_AND_SELECT action that handles all selection types
-                self.handle_unified_click_and_select(test_data, xpath, element_name)
+                # Primary specialized flow + generic fallback for cross-site compatibility.
+                try:
+                    self.handle_unified_click_and_select(test_data, xpath, element_name)
+                except Exception as unified_error:
+                    print(f"[ISOLATION] Unified click/select failed, using generic fallback: {unified_error}")
+                    self._generic_click_and_select(xpath, test_data)
                 print(f"[ISOLATION] Unified click and select successful for {element_name}")
             
             elif action_type == "CLICK_AND_TYPE":
                 try:
-                    self.handle_click_and_type(test_data, xpath, element_name)
+                    try:
+                        self.handle_click_and_type(test_data, xpath, element_name)
+                    except Exception as typed_error:
+                        print(f"[ISOLATION] Specialized click-and-type failed, using generic fallback: {typed_error}")
+                        target = self.find_element_with_advanced_wait(xpath)
+                        self.perform_robust_click(target)
+                        self.perform_robust_text_input(target, str(test_data))
                     print(f"[ISOLATION] Click and type successful for {element_name}")
                 except Exception as e:
                     print(f"[ISOLATION] Click and type failed for {element_name}: {str(e)}")
                     raise e
 
+            elif action_type == "CLEAR_AND_TYPE":
+                try:
+                    self.handle_clear_and_type(test_data, xpath, element_name)
+                    print(f"[ISOLATION] Clear and type successful for {element_name}")
+                except Exception as e:
+                    print(f"[ISOLATION] Clear and type failed for {element_name}: {str(e)}")
+                    raise e
+
             elif action_type == "CLICK":
                 try:
-                    if element_name.upper() == "TRAVELCLASS":
+                    if element_name.upper() == self.ELEMENT_NAME_TRAVEL_CLASS:
                         self.handle_travel_class_selection_fast(test_data, xpath, element_name)
-                    elif element_name.upper() == "DONEBUTTON":
+                    elif element_name.upper() in self.ELEMENT_NAME_DONE_ALIASES:
                         self.close_travellers_popup_fast(xpath, element_name)
-                    elif test_data.upper() == "TODAY":
+                    elif test_data_text.upper() == self.QUICK_DATE_TODAY.upper():
                         self.handle_today_selection(element_name)
-                    elif test_data.upper() == "TOMORROW" and "bus" in element_name.lower():
+                    elif test_data_text.upper() == self.QUICK_DATE_TOMORROW.upper() and self.UI_TOKEN_BUS in element_name.lower():
                         self.handle_tomorrow_selection_bus(element_name)
-                    elif test_data.upper() == "TOMORROW":
+                    elif test_data_text.upper() == self.QUICK_DATE_TOMORROW.upper():
                         self.handle_tomorrow_selection(element_name)
-                    elif "day after" in test_data.lower() or test_data.upper() == "DAY-AFTER-TOMORROW":
+                    elif "day after" in test_data_text.lower() or test_data_text.upper() == self.QUICK_DATE_DAY_AFTER.upper():
                         self.handle_day_after_tomorrow_selection(element_name)
                     else:
                         click_element = self.find_element_with_advanced_wait(xpath)
                         self.perform_robust_click(click_element)
-                        time.sleep(0.3)
+                        WebDriverWait(self.driver, 2).until(lambda d: d.execute_script("return document.readyState") in ["interactive", "complete"])
                     print(f"[ISOLATION] Click action successful for {element_name}")
                 except Exception as e:
                     print(f"[ISOLATION] Click action failed for {element_name}: {str(e)}")
                     raise e
 
+            elif action_type == "DOUBLE_CLICK":
+                try:
+                    self.handle_double_click(xpath, element_name)
+                except Exception as e:
+                    print(f"[ISOLATION] Double click failed for {element_name}: {str(e)}")
+                    raise e
+
+            elif action_type == "RIGHT_CLICK":
+                try:
+                    self.handle_right_click(xpath, element_name)
+                except Exception as e:
+                    print(f"[ISOLATION] Right click failed for {element_name}: {str(e)}")
+                    raise e
+
+            elif action_type == "MOUSE_OVER":
+                try:
+                    self.handle_mouse_over(xpath, element_name)
+                except Exception as e:
+                    print(f"[ISOLATION] Mouse over failed for {element_name}: {str(e)}")
+                    raise e
+
+            elif action_type == "RADIO_BUTTON":
+                try:
+                    self.handle_radio_button_action(test_data, xpath, element_name)
+                except Exception as e:
+                    print(f"[ISOLATION] Radio button action failed for {element_name}: {str(e)}")
+                    raise e
+
+            elif action_type == "DRAG_AND_DROP":
+                try:
+                    self.handle_drag_and_drop(xpath, test_data, element_name)
+                except Exception as e:
+                    print(f"[ISOLATION] Drag and drop failed for {element_name}: {str(e)}")
+                    raise e
+
             elif action_type == "SELECT_COUNT":
                 try:
-                    if element_name.upper() == "ROOMSCOUNT":
-                        self.set_count_by_increment("room", int(test_data))
-                    elif element_name.upper() == "ADULTSCOUNT":
-                        self.set_count_by_increment("adult", int(test_data))
-                    elif element_name.upper() == "CHILDRENCOUNT":
-                        children_count = int(test_data)
-                        self.set_count_by_increment("children", children_count)
+                    desired_count = int(str(test_data))
+                    mapped_count_type = self.ELEMENT_NAME_SELECT_COUNT_TYPE_MAP.get(element_name.upper())
+                    if mapped_count_type == self.COUNT_TYPE_ROOM:
+                        count_type = self.COUNT_TYPE_ROOM
+                        before = self.get_current_count(count_type)
+                        self.set_count_by_increment(count_type, desired_count)
+                        after = self.get_current_count(count_type)
+                    elif mapped_count_type == self.COUNT_TYPE_ADULT:
+                        count_type = self.COUNT_TYPE_ADULT
+                        before = self.get_current_count(count_type)
+                        self.set_count_by_increment(count_type, desired_count)
+                        after = self.get_current_count(count_type)
+                    elif mapped_count_type == self.COUNT_TYPE_CHILDREN:
+                        count_type = self.COUNT_TYPE_CHILDREN
+                        before = self.get_current_count(count_type)
+                        children_count = desired_count
+                        self.set_count_by_increment(self.COUNT_TYPE_CHILDREN, children_count)
+                        after = self.get_current_count(count_type)
                         # Wait for age dropdowns to appear after setting children count
                         if children_count > 0:
                             self.wait_for_child_age_dropdowns(children_count)
                     else:
+                        count_type = None
+                        before = None
+                        after = None
                         # For flight passenger counts or others
                         self.handle_count_selection_fast(test_data, xpath, element_name)
+                    self._last_count_action_state = {
+                        "mode": "select_count",
+                        "element_name": element_name,
+                        "element_type": count_type,
+                        "step_count": None,
+                        "before_count": before,
+                        "expected_after": desired_count,
+                        "after_count": after,
+                        "locator": xpath,
+                    }
                     print(f"[ISOLATION] Count selection successful for {element_name}")
                 except Exception as e:
                     print(f"[ISOLATION] Count selection failed for {element_name}: {str(e)}")
+                    raise e
+
+            elif action_type == "INCREMENT":
+                try:
+                    element_type = self.resolve_count_element_type(element_name)
+                    step_count = self._parse_step_count(test_data, default_value=1)
+                    if element_type:
+                        try:
+                            target_count = int(str(test_data).strip())
+                            current_count = self.get_current_count(element_type)
+                            step_count = max(target_count - current_count, 0)
+                            print(f"[ISOLATION] INCREMENT target mode for {element_name}: current={current_count}, target={target_count}, steps={step_count}")
+                        except Exception:
+                            # Fall back to step-based behavior if target/current cannot be resolved.
+                            pass
+                    state = self._adjust_count(element_name, xpath, "increment", step_count)
+                    print(f"[ISOLATION] Increment successful for {element_name} by {step_count} step(s), state={state}")
+                except Exception as e:
+                    print(f"[ISOLATION] Increment failed for {element_name}: {str(e)}")
+                    raise e
+
+            elif action_type == "DECREMENT":
+                try:
+                    element_type = self.resolve_count_element_type(element_name)
+                    step_count = self._parse_step_count(test_data, default_value=1)
+                    if element_type:
+                        try:
+                            target_count = int(str(test_data).strip())
+                            current_count = self.get_current_count(element_type)
+                            step_count = max(current_count - target_count, 0)
+                            print(f"[ISOLATION] DECREMENT target mode for {element_name}: current={current_count}, target={target_count}, steps={step_count}")
+                        except Exception:
+                            # Fall back to step-based behavior if target/current cannot be resolved.
+                            pass
+                    state = self._adjust_count(element_name, xpath, "decrement", step_count)
+                    print(f"[ISOLATION] Decrement successful for {element_name} by {step_count} step(s), state={state}")
+                except Exception as e:
+                    print(f"[ISOLATION] Decrement failed for {element_name}: {str(e)}")
                     raise e
 
             elif action_type == "HANDLE_CHECKBOX":
@@ -2049,10 +2369,29 @@ class SeleniumTestExecutor:
                     print(f"[ISOLATION] Checkbox action failed for {element_name}: {str(e)}")
                     raise e
 
+            elif action_type == "SWITCH_TO_IFRAME":
+                try:
+                    frame_reference = xpath if str(xpath or "").strip() else test_data
+                    print(f"[ISOLATION] Switching to iframe with reference: {frame_reference}")
+                    self.switch_to_iframe(frame_reference)
+                    print(f"[ISOLATION] Successfully switched to iframe")
+                except Exception as e:
+                    print(f"[ISOLATION] Switch to iframe failed: {str(e)}")
+                    raise e
+
+            elif action_type == "SWITCH_TO_DEFAULT_CONTENT":
+                try:
+                    print(f"[ISOLATION] Switching to default content...")
+                    self.driver.switch_to.default_content()
+                    print(f"[ISOLATION] Successfully switched to default content")
+                except Exception as e:
+                    print(f"[ISOLATION] Switch to default content failed: {str(e)}")
+                    raise e
+
             elif action_type == "SWITCH_TO_NEW_WINDOW":
                 try:
                     print(f"[ISOLATION] Switching to new window...")
-                    success = self.wait_for_new_window(timeout=int(test_data) if test_data.isdigit() else 10)
+                    success = self.wait_for_new_window(timeout=int(test_data_text) if test_data_text.isdigit() else 10)
                     if not success:
                         raise Exception("No new window appeared within timeout")
                     print(f"[ISOLATION] Successfully switched to new window")
@@ -2062,7 +2401,7 @@ class SeleniumTestExecutor:
 
             elif action_type == "SWITCH_TO_WINDOW_BY_INDEX":
                 try:
-                    index = int(test_data) if test_data.isdigit() else 0
+                    index = int(test_data_text) if test_data_text.isdigit() else 0
                     print(f"[ISOLATION] Switching to window index {index}...")
                     success = self.switch_to_window_by_index(index)
                     if not success:
@@ -2132,9 +2471,42 @@ class SeleniumTestExecutor:
                     print(f"[ISOLATION] Go forward failed: {str(e)}")
                     raise e
 
+            elif action_type in ["TYPE", "INPUT", "ENTER_TEXT"]:
+                target = self.find_element_with_advanced_wait(xpath)
+                self.perform_robust_text_input(target, str(test_data))
+                print(f"[ISOLATION] Generic text input successful for {element_name}")
+
+            elif action_type in ["SELECT", "CHOOSE", "PICK"]:
+                self._generic_click_and_select(xpath, test_data)
+                print(f"[ISOLATION] Generic select successful for {element_name}")
+
+            elif action_type in ["WAIT", "WAIT_FOR_PAGE"]:
+                wait_seconds = int(test_data_text) if test_data_text.isdigit() else 2
+                WebDriverWait(self.driver, max(wait_seconds, 1)).until(
+                    lambda d: d.execute_script("return document.readyState") == "complete"
+                )
+                print(f"[ISOLATION] Wait completed for {wait_seconds}s max")
+
+            elif action_type in ["PRESS_KEY", "KEY"]:
+                key_name = (str(test_data or "").strip() or "ENTER").upper()
+                key_value = getattr(Keys, key_name, None)
+                if not key_value:
+                    raise Exception(f"Unsupported key: {key_name}")
+                active = self.driver.switch_to.active_element
+                active.send_keys(key_value)
+                print(f"[ISOLATION] Sent key {key_name}")
+
             else:
-                print(f"[ISOLATION] [WARNING] Unknown action type: {action_type}")
-                raise Exception(f"Unknown action type: {action_type}")
+                # Last-resort generic behavior: click target and optionally type value.
+                if xpath and xpath.strip() and xpath.strip().upper() != "NA":
+                    target = self.find_element_with_advanced_wait(xpath)
+                    self.perform_robust_click(target)
+                    if str(test_data or "").strip():
+                        self.perform_robust_text_input(target, str(test_data))
+                    print(f"[ISOLATION] Generic fallback action executed for unknown action type '{action_type}'")
+                else:
+                    print(f"[ISOLATION] [WARNING] Unknown action type without locator: {action_type}")
+                    raise Exception(f"Unknown action type: {action_type}")
 
             # After successful action execution, handle window/tab management
             print(f"[ISOLATION] Action '{action_type}' completed, checking for window changes...")
@@ -2153,7 +2525,7 @@ class SeleniumTestExecutor:
         Normalize legacy action names to current supported action set.
         Keeps backward compatibility with previously saved test steps.
         """
-        normalized = (action_type or "").upper().strip()
+        normalized = re.sub(r"[\s\-/]+", "_", (action_type or "").upper().strip())
 
         legacy_select_actions = {
             "CLICK_AND_SELECT_DATE",
@@ -2165,152 +2537,238 @@ class SeleniumTestExecutor:
         if normalized in legacy_select_actions:
             return "CLICK_AND_SELECT"
 
-        return normalized
+        alias_map = {
+            "DOUBLECLICK": "DOUBLE_CLICK",
+            "RIGHTCLICK": "RIGHT_CLICK",
+            "MOUSEOVER": "MOUSE_OVER",
+            "MOUSE_HOVER": "MOUSE_OVER",
+            "HOVER": "MOUSE_OVER",
+            "HOVER_MOUSE_OVER": "MOUSE_OVER",
+            "CLEAR_TYPE": "CLEAR_AND_TYPE",
+            "TYPE_AND_CLEAR": "CLEAR_AND_TYPE",
+            "RADIO": "RADIO_BUTTON",
+            "RADIOBUTTON": "RADIO_BUTTON",
+            "HANDLE_RADIO": "RADIO_BUTTON",
+            "DRAGDROP": "DRAG_AND_DROP",
+            "DRAG_&_DROP": "DRAG_AND_DROP",
+            "SWITCH_FRAME": "SWITCH_TO_IFRAME",
+            "SWITCH_TO_FRAME": "SWITCH_TO_IFRAME",
+            "SWITCH_IFRAME": "SWITCH_TO_IFRAME",
+            "SWITCH_TO_DEFAULT_FRAME": "SWITCH_TO_DEFAULT_CONTENT",
+            "SWITCH_TO_MAIN_CONTENT": "SWITCH_TO_DEFAULT_CONTENT",
+            "SWITCH_DEFAULT_CONTENT": "SWITCH_TO_DEFAULT_CONTENT",
+        }
+
+        return alias_map.get(normalized, normalized)
 
     def resolve_count_element_type(self, element_name):
         """Map varied element labels to a canonical count type."""
         name = (element_name or "").strip().lower().replace(" ", "")
-        if any(k in name for k in ["room", "roomscount", "roomcount"]):
-            return "room"
-        if any(k in name for k in ["adult", "adultscount", "adultcount"]):
-            return "adult"
-        if any(k in name for k in ["child", "children", "childrencount", "childcount"]):
-            return "children"
-        if any(k in name for k in ["infant", "infantscount", "infantcount"]):
-            return "infant"
+        for count_type, aliases in self.COUNT_TYPE_KEYWORD_MAP.items():
+            if any(alias in name for alias in aliases):
+                return count_type
         return None
+
+    def _get_count_control_xpaths(self, element_type):
+        """Return increment/decrement control locators for known count widgets."""
+        normalized = (element_type or "").lower()
+        return self.COUNT_CONTROL_XPATHS.get(normalized, (None, None))
+
+    def _parse_step_count(self, test_data, default_value=1):
+        """Parse count steps from test data with a safe default."""
+        try:
+            parsed = int(str(test_data).strip())
+            return max(parsed, 1)
+        except Exception:
+            return default_value
+
+    def _locator_matches_count_direction(self, locator, direction):
+        """Check whether a locator already points to the expected count control."""
+        locator_text = str(locator or "").strip().lower()
+        if not locator_text:
+            return False
+        if direction == "increment":
+            return "increment" in locator_text
+        if direction == "decrement":
+            return "decrement" in locator_text
+        return False
+
+    def _adjust_count(self, element_name, xpath, direction, step_count):
+        """
+        Increment or decrement a counter by a fixed number of steps.
+        Returns metadata for downstream validation.
+        """
+        direction = (direction or "").lower()
+        if direction not in ["increment", "decrement"]:
+            raise ValueError(f"Unsupported count direction: {direction}")
+
+        element_type = self.resolve_count_element_type(element_name)
+        before_count = None
+        after_count = None
+        expected_after = None
+
+        if element_type:
+            try:
+                before_count = self.get_current_count(element_type)
+            except Exception:
+                before_count = None
+
+        target_locator = xpath
+        inc_xpath, dec_xpath = self._get_count_control_xpaths(element_type)
+        derived_locator = inc_xpath if direction == "increment" else dec_xpath
+
+        if element_type and derived_locator:
+            # For separated INCREMENT/DECREMENT actions, prefer known +/- controls.
+            # Many sheets store group labels in XPath (e.g., "Adults"), not button locators.
+            if not self._locator_matches_count_direction(target_locator, direction):
+                target_locator = derived_locator
+        elif not (target_locator and str(target_locator).strip() and str(target_locator).strip().upper() != "NA"):
+            target_locator = derived_locator
+
+        if not target_locator:
+            raise Exception(f"No locator available for {direction} on element '{element_name}'")
+
+        control = self.find_element_with_advanced_wait(target_locator)
+        for _ in range(step_count):
+            self._robust_click(control)
+            time.sleep(0.2)
+
+        if element_type:
+            try:
+                after_count = self.get_current_count(element_type)
+            except Exception:
+                after_count = None
+            if before_count is not None:
+                expected_after = before_count + step_count if direction == "increment" else max(before_count - step_count, 0)
+
+        state = {
+            "mode": direction,
+            "element_name": element_name,
+            "element_type": element_type,
+            "step_count": step_count,
+            "before_count": before_count,
+            "expected_after": expected_after,
+            "after_count": after_count,
+            "locator": target_locator,
+        }
+        self._last_count_action_state = state
+        return state
     
     
+    def _is_quick_date_value(self, value):
+        text = str(value or "").strip().lower()
+        return text in [self.QUICK_DATE_TODAY, self.QUICK_DATE_TOMORROW] or text in self.QUICK_DATE_DAY_AFTER_ALIASES
+
+    def _looks_like_child_age_selection(self, test_data, xpath):
+        data_text = str(test_data or "").strip()
+        locator_text = str(xpath or "").strip().lower()
+        return data_text.isdigit() and ("child-age-selector" in locator_text or "child-age" in locator_text)
+
+    def _is_stale_element_error(self, error):
+        return "stale element reference" in str(error).lower()
+
+    def _has_usable_locator(self, locator):
+        text = str(locator or "").strip()
+        return bool(text and text.upper() != "NA")
+
+    def _select_child_age_from_xpath(self, xpath, age):
+        """Select child age by reading index from xpath when available."""
+        locator_text = str(xpath or "").strip()
+        index_match = re.search(r"\[(\d+)\]\s*$", locator_text)
+        if index_match:
+            child_index = max(int(index_match.group(1)) - 1, 0)
+            self.select_child_age(child_index, int(age))
+            return
+
+        # Fallback to the first child age selector.
+        self.select_child_age(0, int(age))
+
     def handle_unified_click_and_select(self, test_data, xpath, element_name):
-        """Unified CLICK_AND_SELECT method that intelligently handles all selection types"""
+        """Reusable CLICK_AND_SELECT flow independent of semantic element names."""
         try:
             print(f"[UNIFIED_SELECT] Processing element: {element_name} with data: '{test_data}'")
-            
-            # Determine the selection type based on element name and test data patterns
-            selection_type = self.determine_selection_type(element_name, test_data)
-            print(f"[UNIFIED_SELECT] Determined selection type: {selection_type}")
-            
-            if selection_type == "CITY_SELECTION":
-                # Handle city selection (FROM, TO, DESTINATION)
-                try:
-                    print(f"[UNIFIED_SELECT] Handling city selection for {element_name}")
-                    success = self.handle_city_selection_fast_safe(test_data, xpath, element_name)
-                    if not success:
-                        raise Exception(f"City selection failed for {element_name}")
-                except Exception as e:
-                    print(f"[UNIFIED_SELECT] City selection error: {str(e)}")
-                    raise e
-                    
-            elif selection_type == "DATE_SELECTION":
-                # Handle date selection
-                try:
-                    print(f"[UNIFIED_SELECT] Handling date selection for {element_name}")
-                    self.handle_date_selection_fast(test_data, xpath, element_name)
-                except Exception as e:
-                    print(f"[UNIFIED_SELECT] Date selection error: {str(e)}")
-                    raise e
-                    
-            elif selection_type == "QUICK_DATE_SELECTION":
-                # Handle quick date selection (Today, Tomorrow, Day After Tomorrow)
-                try:
-                    print(f"[UNIFIED_SELECT] Handling quick date selection for {element_name}")
-                    if "bus" in element_name.lower():
-                        self.handle_bus_quick_date_selection(test_data, element_name)
-                    else:
-                        self.handle_quick_date_selection(test_data, element_name)
-                except Exception as e:
-                    print(f"[UNIFIED_SELECT] Quick date selection error: {str(e)}")
-                    raise e
-                    
-            elif selection_type == "AGE_SELECTION":
-                # Handle age selection for children
-                try:
-                    print(f"[UNIFIED_SELECT] Handling age selection for {element_name}")
-                    if element_name.upper() == "CHILD 1":
-                        self.select_child_age(0, int(test_data))
-                    elif element_name.upper() == "CHILD 2":
-                        self.select_child_age(1, int(test_data))
-                    elif element_name.upper() == "CHILD 3":
-                        self.select_child_age(2, int(test_data))
-                    else:
-                        # Extract child number from element name
-                        child_number = re.sub(r'[^0-9]', '', element_name)
-                        if child_number:
-                            child_index = int(child_number) - 1
-                            self.select_child_age(child_index, int(test_data))
-                        else:
-                            raise Exception(f"Could not determine child index from element name: {element_name}")
-                except Exception as e:
-                    print(f"[UNIFIED_SELECT] Age selection error: {str(e)}")
-                    raise e
+            data_text = str(test_data or "").strip()
+            lowered_data = data_text.lower()
 
-            elif selection_type == "GENERIC_CLICK":
-                # Handle generic element click
+            # 1) Quick date selection by value token.
+            if self._is_quick_date_value(data_text):
+                print(f"[UNIFIED_SELECT] Applying quick-date strategy")
+                self.handle_quick_date_selection(lowered_data, element_name)
+                return
+
+            # 2) Child age selector strategy by locator + numeric value.
+            if self._looks_like_child_age_selection(data_text, xpath):
+                print(f"[UNIFIED_SELECT] Applying child-age strategy")
+                self._select_child_age_from_xpath(xpath, data_text)
+                return
+
+            # 3) Absolute/date-like values should use calendar strategy.
+            is_explicit_date_value = self.is_date_format_data(data_text)
+            is_date_field_with_date_value = self.is_date_field(element_name, data_text) and (
+                self.validate_date_format(data_text) or lowered_data in self.DATE_QUICK_OPTIONS
+            )
+            if is_explicit_date_value or is_date_field_with_date_value:
+                print(f"[UNIFIED_SELECT] Applying calendar date strategy")
+                self.handle_date_selection_fast(data_text, xpath, element_name)
+                return
+
+            # 3) Generic element strategy based on actual control type.
+            element = self.find_element_with_advanced_wait(xpath)
+            tag_name = (element.tag_name or "").lower()
+            input_type = (element.get_attribute("type") or "").lower()
+
+            if tag_name == "select":
+                print(f"[UNIFIED_SELECT] Applying dropdown strategy")
+                select_ctrl = Select(element)
                 try:
-                    print(f"[UNIFIED_SELECT] Handling generic click for {element_name}")
+                    select_ctrl.select_by_visible_text(data_text)
+                except Exception:
+                    try:
+                        select_ctrl.select_by_value(data_text)
+                    except Exception:
+                        if data_text.isdigit():
+                            select_ctrl.select_by_index(int(data_text))
+                        else:
+                            raise
+                return
+
+            if input_type in ["checkbox", "radio"]:
+                print(f"[UNIFIED_SELECT] Applying boolean-toggle strategy")
+                desired = lowered_data in ["true", "1", "yes", "on", "checked"]
+                if bool(element.is_selected()) != desired:
+                    self.perform_robust_click(element)
+                return
+
+            if data_text:
+                print(f"[UNIFIED_SELECT] Applying text/autocomplete strategy")
+                try:
+                    self.perform_robust_click(element)
+                    time.sleep(0.2)
+                    self.perform_robust_text_input(element, data_text)
+                except Exception as text_error:
+                    if not self._is_stale_element_error(text_error):
+                        raise
+                    print("[UNIFIED_SELECT] Element became stale during text input, retrying once with fresh element")
                     element = self.find_element_with_advanced_wait(xpath)
                     self.perform_robust_click(element)
-                    time.sleep(0.3)
-                except Exception as e:
-                    print(f"[UNIFIED_SELECT] Generic click error: {str(e)}")
-                    raise e
-                    
-            else:
-                # Unknown selection type - fallback to generic click
-                print(f"[UNIFIED_SELECT] Unknown selection type, falling back to generic click")
-                try:
-                    element = self.find_element_with_advanced_wait(xpath)
-                    self.perform_robust_click(element)
-                    time.sleep(0.3)
-                except Exception as e:
-                    print(f"[UNIFIED_SELECT] Fallback click error: {str(e)}")
-                    raise e
-            
-            print(f"[UNIFIED_SELECT] Successfully completed {selection_type} for {element_name}")
-            
+                    time.sleep(0.2)
+                    self.perform_robust_text_input(element, data_text)
+                time.sleep(0.6)
+                if not self.try_autocomplete_selection(data_text):
+                    try:
+                        element.send_keys(Keys.ARROW_DOWN, Keys.ENTER)
+                    except Exception:
+                        pass
+                return
+
+            # 4) Final fallback: pure click.
+            print(f"[UNIFIED_SELECT] Applying click-only strategy")
+            self.perform_robust_click(element)
+            time.sleep(0.2)
+
         except Exception as e:
             print(f"[UNIFIED_SELECT] Error in unified click and select: {str(e)}")
             raise e
-
-    def determine_selection_type(self, element_name, test_data):
-        """Determine the type of selection based on element name and test data"""
-        try:
-            element_name_lower = element_name.lower()
-            test_data_lower = test_data.lower() if test_data else ""
-            
-            # Check for city selection
-            if element_name.upper() in ["FROM", "TO", "DESTINATION"]:
-                return "CITY_SELECTION"
-            
-            # Check for age selection
-            if "child" in element_name_lower and "age" in element_name_lower:
-                return "AGE_SELECTION"
-            if element_name.upper().startswith("CHILD ") and test_data.isdigit():
-                return "AGE_SELECTION"
-
-            # Check for quick date selection
-            quick_date_keywords = ["today", "tomorrow", "day after", "day-after-tomorrow"]
-            if any(keyword in test_data_lower for keyword in quick_date_keywords):
-                return "QUICK_DATE_SELECTION"
-            
-            # Check for date selection based on element name
-            date_element_keywords = [
-                'date', 'checkin', 'check-in', 'checkout', 'check-out',
-                'departure', 'arrival', 'return', 'calendar', 'pick'
-            ]
-            if any(keyword in element_name_lower for keyword in date_element_keywords):
-                return "DATE_SELECTION"
-            
-            # Check for date selection based on test data patterns
-            if self.is_date_format_data(test_data):
-                return "DATE_SELECTION"
-            
-            # Default to generic click
-            return "GENERIC_CLICK"
-            
-        except Exception as e:
-            print(f"[DETERMINE_TYPE] Error determining selection type: {str(e)}")
-            return "GENERIC_CLICK"
 
     def is_date_format_data(self, test_data):
         """Check if test data appears to be in a date format"""
@@ -2319,6 +2777,7 @@ class SeleniumTestExecutor:
             
         try:
             import re
+            normalized_data = re.sub(r"\s+", " ", str(test_data).strip()).lower()
             
             # Check for common date patterns
             date_patterns = [
@@ -2330,7 +2789,7 @@ class SeleniumTestExecutor:
             ]
             
             for pattern in date_patterns:
-                if re.search(pattern, test_data):
+                if re.search(pattern, str(test_data)):
                     return True
             
             # Check for day/month names
@@ -2338,11 +2797,11 @@ class SeleniumTestExecutor:
                 'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun',
                 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
                 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
-                'january', 'february', 'march', 'april', 'june', 'july', 'august', 'september', 'october', 'november', 'december'
+                'january', 'february', 'march', 'april', 'june', 'july', 'august', 'september', 'october', 'november', 'december',
+                'today', 'tomorrow', 'yesterday', 'day after', 'day-after-tomorrow'
             ]
             
-            test_data_lower = test_data.lower()
-            return any(keyword in test_data_lower for keyword in date_keywords)
+            return any(keyword in normalized_data for keyword in date_keywords)
             
         except Exception:
             return False
@@ -2400,15 +2859,15 @@ class SeleniumTestExecutor:
                         modal_elements = self.driver.find_elements(By.XPATH, selector)
                         for modal in modal_elements:
                             if modal.is_displayed():
-                                print(f"[CITY_SELECTION] Waiting for modal to disappear: {selector}")
+                                print(f"[AUTOCOMPLETE] Waiting for modal to disappear: {selector}")
                                 # Wait up to 3 seconds for modal to disappear
                                 WebDriverWait(self.driver, 3).until(
                                     EC.invisibility_of_element(modal)
                                 )
-                                print(f"[CITY_SELECTION] Modal disappeared")
+                                print(f"[AUTOCOMPLETE] Modal disappeared")
                                 break
                 except Exception as modal_error:
-                    print(f"[CITY_SELECTION] Modal wait failed (may not be present): {str(modal_error)}")
+                    print(f"[AUTOCOMPLETE] Modal wait failed (may not be present): {str(modal_error)}")
 
                 print(f"Successfully selected city: {city_name} for {element_name}")
                 return True
@@ -2497,7 +2956,7 @@ class SeleniumTestExecutor:
             # Click on date field to open calendar
             date_field = self.find_element_with_advanced_wait(xpath)
             self.perform_robust_click(date_field)
-            time.sleep(1)  # Wait for calendar to appear
+            self.wait_for_calendar_visible(timeout=0.8)
             
             # Parse and normalize date input safely.
             # Supports ISO strings, slash dates, and "Tue, 03 Mar" style UI values.
@@ -2537,14 +2996,32 @@ class SeleniumTestExecutor:
             
             day = str(target_date.day)
             full_date_label = target_date.strftime("%B %d, %Y")
+
+            # Playwright-like fast path: try exact aria-label target first.
+            fast_selector = f"//abbr[@aria-label='{full_date_label}']"
+            fast_elements = self.driver.find_elements(By.XPATH, fast_selector)
+            if fast_elements:
+                for fast_element in fast_elements:
+                    try:
+                        if fast_element.is_displayed() and fast_element.is_enabled():
+                            class_name = fast_element.get_attribute("class") or ""
+                            if "disabled" in class_name or "inactive" in class_name:
+                                continue
+                            print(f"[TARGET_FAST] Attempting fast click for date: {day}")
+                            self.perform_robust_click(fast_element)
+                            if self.wait_for_calendar_close(timeout=0.35) or self.is_calendar_closed():
+                                print(f"[SUCCESS] Date selected quickly: {day} using selector: {fast_selector}")
+                                return
+                    except Exception:
+                        continue
             
             # Based on execution logs, these are the only selectors that work for ixigo:
             date_selectors = [
-                # For buses - works with generic elements
-                f"//*[text()='{day}' and (name()='button' or name()='td' or name()='div' or name()='span')]",
-                
                 # For flights/trains - works with aria-label
                 f"//abbr[@aria-label='{full_date_label}']",
+
+                # For buses - works with generic elements
+                f"//*[text()='{day}' and (name()='button' or name()='td' or name()='div' or name()='span')]",
                 
                 # For hotels - fallback when calendar stays open
                 f"//abbr[text()='{day}' and not(ancestor::*[contains(@class, 'disabled') or contains(@class, 'inactive')])]"
@@ -2570,10 +3047,10 @@ class SeleniumTestExecutor:
                                 
                                 print(f"[TARGET] Attempting to click date element: {day}")
                                 self.perform_robust_click(date_element)
-                                time.sleep(0.8)
+                                closed = self.wait_for_calendar_close(timeout=0.35)
                                 
                                 # Check if calendar closed (successful selection)
-                                if self.is_calendar_closed():
+                                if closed or self.is_calendar_closed():
                                     date_selected = True
                                     print(f"[SUCCESS] Date selected successfully: {day} using selector: {selector}")
                                     break
@@ -2601,11 +3078,32 @@ class SeleniumTestExecutor:
     def is_calendar_closed(self):
         """Simplified calendar check - only what's needed"""
         try:
-            time.sleep(0.5)
             calendar_elements = self.driver.find_elements(By.XPATH, "//div[contains(@class, 'calendar')]//abbr | //abbr[@aria-label]")
-            return not calendar_elements or not calendar_elements[0].is_displayed()
+            return not any(el.is_displayed() for el in calendar_elements)
         except Exception:
             return True  # Assume closed if we can't find calendar elements
+
+    def wait_for_calendar_visible(self, timeout=0.8):
+        """Wait briefly for any calendar day cell to become visible after opening date picker."""
+        try:
+            WebDriverWait(self.driver, timeout, poll_frequency=0.1).until(
+                lambda d: any(el.is_displayed() for el in d.find_elements(
+                    By.XPATH, "//div[contains(@class, 'calendar')]//abbr | //abbr[@aria-label]"
+                ))
+            )
+            return True
+        except Exception:
+            # Non-blocking: selection logic below still has fallback selectors.
+            return False
+
+    def wait_for_calendar_close(self, timeout=0.6):
+        """Wait briefly for calendar to close after selecting a date."""
+        try:
+            WebDriverWait(self.driver, timeout, poll_frequency=0.1).until(lambda d: self.is_calendar_closed())
+            return True
+        except Exception:
+            # Non-blocking: caller will still validate using is_calendar_closed().
+            return False
 
     def handle_tomorrow_selection(self, element_name):
         """Optimized method to handle Tomorrow button click for trains"""
@@ -2613,11 +3111,7 @@ class SeleniumTestExecutor:
             print(f"[CALENDAR] Selecting Tomorrow for {element_name}")
             
             # Streamlined selectors - only the most effective ones
-            tomorrow_selectors = [
-                "//p[contains(text(),'Tomorrow')]",
-                "//p[contains(text(),'Tomorrow')]/parent::*",
-                "//button[contains(text(),'Tomorrow')]"
-            ]
+            tomorrow_selectors = self.TOMORROW_SELECTORS
             
             for selector in tomorrow_selectors:
                 try:
@@ -2626,10 +3120,9 @@ class SeleniumTestExecutor:
                     if tomorrow_button and tomorrow_button.is_displayed() and tomorrow_button.is_enabled():
                         # Scroll to element before clicking
                         self.scroll_to_element(tomorrow_button)
-                        time.sleep(0.3)  # Brief wait after scroll
                         
                         if self.perform_robust_click_with_result(tomorrow_button):
-                            time.sleep(0.4)  # Reduced wait time
+                            self.wait_for_calendar_close(timeout=0.5)
                             print("[SUCCESS] Tomorrow button clicked successfully")
                             return
                 except Exception:
@@ -2647,11 +3140,7 @@ class SeleniumTestExecutor:
             print(f"[CALENDAR] Selecting Day After Tomorrow for {element_name}")
             
             # Streamlined selectors - only the most effective ones
-            day_after_selectors = [
-                "//p[contains(text(),'Day After')]",
-                "//p[contains(text(),'Day After')]/parent::*",
-                "//div[@data-testid='day-after-tomorrow']"
-            ]
+            day_after_selectors = self.DAY_AFTER_TOMORROW_SELECTORS
             
             for selector in day_after_selectors:
                 try:
@@ -2660,10 +3149,9 @@ class SeleniumTestExecutor:
                     if day_after_button and day_after_button.is_displayed() and day_after_button.is_enabled():
                         # Scroll to element before clicking
                         self.scroll_to_element(day_after_button)
-                        time.sleep(0.3)  # Brief wait after scroll
                         
                         if self.perform_robust_click_with_result(day_after_button):
-                            time.sleep(0.4)  # Reduced wait time
+                            self.wait_for_calendar_close(timeout=0.5)
                             print("[SUCCESS] Day After Tomorrow clicked successfully")
                             return
                 except Exception:
@@ -2682,9 +3170,9 @@ class SeleniumTestExecutor:
             
             normalized_option = quick_date_option.lower().strip()
             
-            if normalized_option == "tomorrow":
+            if normalized_option == self.QUICK_DATE_TOMORROW:
                 self.handle_tomorrow_selection(element_name)
-            elif normalized_option in ["day-after-tomorrow", "day after tomorrow", "dayaftertomorrow"]:
+            elif normalized_option in self.QUICK_DATE_DAY_AFTER_ALIASES:
                 self.handle_day_after_tomorrow_selection(element_name)
             else:
                 raise ValueError(f"Unsupported quick date option: {quick_date_option}. "
@@ -2704,10 +3192,10 @@ class SeleniumTestExecutor:
             normalized_input = date_input.lower().strip()
             
             # Check if it's a quick date option
-            if normalized_input == "tomorrow" or "tomorrow" in normalized_input:
-                self.handle_quick_date_selection("tomorrow", element_name)
-            elif "day after" in normalized_input or normalized_input == "day-after-tomorrow":
-                self.handle_quick_date_selection("day-after-tomorrow", element_name)
+            if normalized_input == self.QUICK_DATE_TOMORROW or self.QUICK_DATE_TOMORROW in normalized_input:
+                self.handle_quick_date_selection(self.QUICK_DATE_TOMORROW, element_name)
+            elif "day after" in normalized_input or normalized_input == self.QUICK_DATE_DAY_AFTER:
+                self.handle_quick_date_selection(self.QUICK_DATE_DAY_AFTER, element_name)
             else:
                 # Use existing date selection method for regular dates
                 self.handle_date_selection_fast(date_input, xpath, element_name)
@@ -2740,24 +3228,24 @@ class SeleniumTestExecutor:
             normalized_element_name = element_name.lower().strip()
             print(f"[CONFIG] Normalized option: '{option_str}' for element: '{normalized_element_name}'")
             # Handle SKIP cases - Skip execution completely
-            if option_str in ["false", "skip", "", "n/a", "0"]:
+            if option_str in self.BUS_QUICK_DATE_SKIP_OPTIONS:
                 print(f"[SKIP] SKIPPING {element_name} - Excel value indicates skip ({quick_date_option})")
                 return  # Exit method without performing any action
             # Handle EXECUTE cases - Execute the button click based on element name
-            if option_str in ["true", "1"]:
+            if option_str in self.BUS_QUICK_DATE_EXECUTE_OPTIONS:
                 print(f"[SUCCESS] Executing button click for: {element_name} (Excel value: {quick_date_option})")
                 # Determine which date to select based on element name
-                if "today" in normalized_element_name:
+                if self.QUICK_DATE_TODAY in normalized_element_name:
                     self.handle_today_selection(element_name)
-                elif "tomorrow" in normalized_element_name:
+                elif self.QUICK_DATE_TOMORROW in normalized_element_name:
                     self.handle_tomorrow_selection_bus(element_name)
                 else:
                     print(f"[WARNING] Cannot determine date type from element name: {element_name}")
                     raise ValueError(f"Cannot determine date selection type for element: {element_name}")
             # Handle specific date options (legacy support - direct string values)
-            elif option_str == "today":
+            elif option_str == self.QUICK_DATE_TODAY:
                 self.handle_today_selection(element_name)
-            elif option_str == "tomorrow":
+            elif option_str == self.QUICK_DATE_TOMORROW:
                 self.handle_tomorrow_selection_bus(element_name)
             else:
                 raise ValueError(f"Unsupported option: {quick_date_option}. "
@@ -2773,11 +3261,7 @@ class SeleniumTestExecutor:
             print(f"[CALENDAR] Selecting Today for {element_name}")
             
             # Only the most effective selectors based on common patterns
-            today_selectors = [
-                "//button[normalize-space(text())='Today']",
-                "//button[contains(text(),'Today')]",
-                "//*[contains(text(),'Today') and (name()='button' or name()='div')]"
-            ]
+            today_selectors = self.TODAY_SELECTORS
             
             for selector in today_selectors:
                 try:
@@ -2790,7 +3274,7 @@ class SeleniumTestExecutor:
                             continue
                         
                         if self.perform_robust_click_with_result(today_button):
-                            time.sleep(0.5)  # Reduced wait time
+                            self.wait_for_calendar_close(timeout=0.5)
                             print("[SUCCESS] Today button clicked successfully")
                             return
                 except Exception:
@@ -2807,12 +3291,7 @@ class SeleniumTestExecutor:
         try:
             print(f"[BUS] Tomorrow selection for bus: {element_name}")
             # Only the most effective selectors - reduced from 10+ to 4 most reliable
-            tomorrow_selectors = [
-                "//button[normalize-space(text())='Tomorrow']",
-                "//button[contains(text(),'Tomorrow')]",
-                "//*[contains(text(),'Tomorrow') and (name()='button' or name()='div')]",
-                "//p[contains(text(),'Tomorrow')]/parent::*"
-            ]
+            tomorrow_selectors = self.TOMORROW_BUS_SELECTORS
             for selector in tomorrow_selectors:
                 try:
                     tomorrow_button = self.find_element_with_advanced_wait(selector)
@@ -2822,7 +3301,7 @@ class SeleniumTestExecutor:
                         if class_name and "disabled" in class_name:
                             continue
                         if self.perform_robust_click_with_result(tomorrow_button):
-                            time.sleep(0.5)  # Reduced wait time
+                            self.wait_for_calendar_close(timeout=0.5)
                             print("[SUCCESS] Tomorrow button clicked successfully")
                             return
                 except Exception:
@@ -2945,12 +3424,12 @@ class SeleniumTestExecutor:
             
             # Determine section type
             section_text = ""
-            if "adult" in element_name.lower():
-                section_text = "Adults"
+            if self.COUNT_TYPE_ADULT in element_name.lower():
+                section_text = self.UI_LABEL_ADULTS
             elif "child" in element_name.lower():
-                section_text = "Children"
-            elif "infant" in element_name.lower():
-                section_text = "Infants"
+                section_text = self.UI_LABEL_CHILDREN
+            elif self.COUNT_TYPE_INFANT in element_name.lower():
+                section_text = self.UI_LABEL_INFANTS
             
             # Direct selection approach
             direct_selector = f"//p[contains(text(),'{section_text}')]/parent::*/following-sibling::*//button[@data-testid='{target_count}']"
@@ -3027,7 +3506,7 @@ class SeleniumTestExecutor:
             
             # Quick check if popup is open
             try:
-                popup_elements = self.driver.find_elements(By.XPATH, "//p[contains(text(),'Adults')]")
+                popup_elements = self.driver.find_elements(By.XPATH, f"//p[contains(text(),'{self.UI_LABEL_ADULTS}')]")
                 if not popup_elements or not popup_elements[0].is_displayed():
                     print("[SUCCESS] Popup already closed")
                     return
@@ -3038,7 +3517,7 @@ class SeleniumTestExecutor:
             try:
                 short_wait = WebDriverWait(self.driver, 1)
                 done_button = short_wait.until(
-                    EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Done')]"))
+                    EC.element_to_be_clickable((By.XPATH, f"//button[contains(text(),'{self.UI_LABEL_DONE}')]"))
                 )
                 done_button.click()
                 print("[SUCCESS] Popup closed using Done button")
@@ -3061,7 +3540,7 @@ class SeleniumTestExecutor:
         try:
             # Click on Rooms & Guests section to open the popup
             rooms_guests_section = self.wait.until(EC.element_to_be_clickable((
-                By.XPATH, "//p[@class='body-xs text-secondary'][contains(text(),'Rooms & Guests')] | //input[@placeholder='Rooms & Guests']"
+                By.XPATH, f"//p[@class='body-xs text-secondary'][contains(text(),'{self.UI_LABEL_ROOMS_AND_GUESTS}')] | //input[@placeholder='{self.UI_LABEL_ROOMS_AND_GUESTS}']"
             )))
             rooms_guests_section.click()
             
@@ -3069,9 +3548,9 @@ class SeleniumTestExecutor:
             time.sleep(1)
             
             # Set counts
-            self.set_count_by_increment("room", desired_rooms)
-            self.set_count_by_increment("adult", desired_adults)
-            self.set_count_by_increment("children", desired_children)
+            self.set_count_by_increment(self.COUNT_TYPE_ROOM, desired_rooms)
+            self.set_count_by_increment(self.COUNT_TYPE_ADULT, desired_adults)
+            self.set_count_by_increment(self.COUNT_TYPE_CHILDREN, desired_children)
             
             print(f"Successfully set Rooms: {desired_rooms}, Adults: {desired_adults}, Children: {desired_children}")
             
@@ -3084,7 +3563,7 @@ class SeleniumTestExecutor:
         try:
             # Click on Rooms & Guests section to open the popup
             rooms_guests_section = self.wait.until(EC.element_to_be_clickable((
-                By.XPATH, "//p[@class='body-xs text-secondary'][contains(text(),'Rooms & Guests')] | //input[@placeholder='Rooms & Guests']"
+                By.XPATH, f"//p[@class='body-xs text-secondary'][contains(text(),'{self.UI_LABEL_ROOMS_AND_GUESTS}')] | //input[@placeholder='{self.UI_LABEL_ROOMS_AND_GUESTS}']"
             )))
             rooms_guests_section.click()
             
@@ -3092,9 +3571,9 @@ class SeleniumTestExecutor:
             time.sleep(1)
             
             # Set counts
-            self.set_count_by_increment("room", desired_rooms)
-            self.set_count_by_increment("adult", desired_adults)
-            self.set_count_by_increment("children", desired_children)
+            self.set_count_by_increment(self.COUNT_TYPE_ROOM, desired_rooms)
+            self.set_count_by_increment(self.COUNT_TYPE_ADULT, desired_adults)
+            self.set_count_by_increment(self.COUNT_TYPE_CHILDREN, desired_children)
             
             # Set children ages if children count > 0
             if desired_children > 0 and children_ages and len(children_ages) > 0:
@@ -3228,15 +3707,8 @@ class SeleniumTestExecutor:
             decrement_xpath = ""
             
             # Define XPaths based on element type - target parent clickable elements instead of child SVG/path elements
-            if element_type.lower() == "room":
-                increment_xpath = "//p[contains(@data-testid,'room-increment')]"
-                decrement_xpath = "//p[@data-testid='room-decrement']"
-            elif element_type.lower() == "adult":
-                increment_xpath = "//p[@data-testid='adult-increment']"
-                decrement_xpath = "//p[contains(@data-testid,'adult-decrement')]"
-            elif element_type.lower() == "children":
-                increment_xpath = "//p[@data-testid='counter-increment-children']"
-                decrement_xpath = "//p[@data-testid='counter-decrement-children']"
+            if element_type.lower() in self.COUNT_CONTROL_XPATHS:
+                increment_xpath, decrement_xpath = self._get_count_control_xpaths(element_type)
             else:
                 raise ValueError(f"Invalid element type: {element_type}")
             
@@ -3271,9 +3743,10 @@ class SeleniumTestExecutor:
             
             # Based on typical order: rooms, adults, children
             index_map = {
-                "room": 0,
-                "adult": 1,
-                "children": 2
+                self.COUNT_TYPE_ROOM: 0,
+                self.COUNT_TYPE_ADULT: 1,
+                self.COUNT_TYPE_CHILDREN: 2,
+                self.COUNT_TYPE_INFANT: 3
             }
             
             index = index_map.get(element_type.lower(), -1)
@@ -3288,18 +3761,35 @@ class SeleniumTestExecutor:
             print(f"Error getting current count for {element_type}: {str(e)}")
             raise e
 
-    def find_element_with_advanced_wait(self, xpath):
-        """Find element with advanced wait strategies"""
+    def find_element_with_advanced_wait(self, locator):
+        """Find an element with robust multi-strategy waits across locator types."""
+        parsed = self._parse_locator(locator)
+        if not parsed:
+            raise Exception(f"Invalid or empty locator: {locator}")
+
+        by, value = parsed
+        wait = self.wait or WebDriverWait(self.driver, self.default_wait_timeout)
+
+        # Try clickable first for interactable targets.
         try:
-            # Try with standard wait first
-            return self.wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+            return wait.until(EC.element_to_be_clickable((by, value)))
         except Exception:
-            try:
-                # Try with presence_of_element_located
-                return self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
-            except Exception:
-                # Last resort - direct find
-                return self.driver.find_element(By.XPATH, xpath)
+            pass
+
+        # Fallback to visibility.
+        try:
+            return wait.until(EC.visibility_of_element_located((by, value)))
+        except Exception:
+            pass
+
+        # Fallback to presence.
+        try:
+            return wait.until(EC.presence_of_element_located((by, value)))
+        except Exception:
+            pass
+
+        # Final direct lookup.
+        return self.driver.find_element(by, value)
 
     def perform_robust_click(self, element):
         """Perform robust click with multiple fallback strategies"""
@@ -3361,6 +3851,95 @@ class SeleniumTestExecutor:
                 print(f"[ERROR] All text input methods failed: {e}")
                 raise e
 
+    def handle_clear_and_type(self, test_data, xpath, element_name):
+        """Clear existing value and type new input."""
+        target = self.find_element_with_advanced_wait(xpath)
+        self.perform_robust_text_input(target, str(test_data or ""))
+        print(f"[ACTION] Clear and type successful for {element_name}")
+
+    def handle_double_click(self, xpath, element_name):
+        """Perform a double-click on target element."""
+        target = self.find_element_with_advanced_wait(xpath)
+        try:
+            ActionChains(self.driver).move_to_element(target).double_click(target).perform()
+        except Exception:
+            # Fallback to JavaScript dblclick event
+            self.driver.execute_script(
+                "arguments[0].dispatchEvent(new MouseEvent('dblclick', {bubbles:true, cancelable:true}));",
+                target
+            )
+        print(f"[ACTION] Double click successful for {element_name}")
+
+    def handle_right_click(self, xpath, element_name):
+        """Perform a context (right) click on target element."""
+        target = self.find_element_with_advanced_wait(xpath)
+        ActionChains(self.driver).move_to_element(target).context_click(target).perform()
+        print(f"[ACTION] Right click successful for {element_name}")
+
+    def handle_mouse_over(self, xpath, element_name):
+        """Hover mouse over target element."""
+        target = self.find_element_with_advanced_wait(xpath)
+        try:
+            ActionChains(self.driver).move_to_element(target).perform()
+        except Exception:
+            self.driver.execute_script(
+                "arguments[0].dispatchEvent(new MouseEvent('mouseover', {bubbles:true, cancelable:true}));",
+                target
+            )
+        print(f"[ACTION] Mouse over successful for {element_name}")
+
+    def handle_radio_button_action(self, test_data, xpath, element_name):
+        """Handle radio button selection. Selects the target radio when needed."""
+        target = self.find_element_with_advanced_wait(xpath)
+        should_select = str(test_data or "true").strip().lower() in ["", "true", "1", "yes", "on", "select", "selected"]
+
+        if should_select:
+            if not target.is_selected():
+                self.perform_robust_click(target)
+            if not target.is_selected():
+                raise Exception(f"Radio button '{element_name}' is not selected after click")
+            print(f"[ACTION] Radio button selected for {element_name}")
+        else:
+            # Radios cannot be safely "unselected" directly in most UIs.
+            print(f"[ACTION] Radio button action skipped unselect for {element_name} (not supported)")
+
+    def handle_drag_and_drop(self, source_locator, test_data, element_name):
+        """Drag source element and drop it on target element."""
+        target_locator = self._parse_drag_drop_target_locator(test_data)
+        if not target_locator:
+            raise Exception("DRAG_AND_DROP requires target locator in step values")
+
+        source_element = self.find_element_with_advanced_wait(source_locator)
+        target_element = self.find_element_with_advanced_wait(target_locator)
+
+        try:
+            ActionChains(self.driver).drag_and_drop(source_element, target_element).perform()
+        except Exception:
+            try:
+                ActionChains(self.driver).click_and_hold(source_element).move_to_element(target_element).release().perform()
+            except Exception:
+                # HTML5 fallback for modern frontends where native drag_and_drop can fail.
+                self.driver.execute_script(
+                    """
+                    const src = arguments[0];
+                    const dst = arguments[1];
+                    const dataTransfer = new DataTransfer();
+                    src.dispatchEvent(new DragEvent('dragstart', {dataTransfer, bubbles:true}));
+                    dst.dispatchEvent(new DragEvent('dragover', {dataTransfer, bubbles:true}));
+                    dst.dispatchEvent(new DragEvent('drop', {dataTransfer, bubbles:true}));
+                    src.dispatchEvent(new DragEvent('dragend', {dataTransfer, bubbles:true}));
+                    """,
+                    source_element,
+                    target_element
+                )
+
+        self._last_drag_drop_state = {
+            "source_locator": source_locator,
+            "target_locator": target_locator,
+            "element_name": element_name,
+        }
+        print(f"[ACTION] Drag and drop successful for {element_name}")
+
     def validate_action_result(self, action_type, test_data, xpath, element_name):
         """
         Validate that the action achieved the expected result
@@ -3380,56 +3959,156 @@ class SeleniumTestExecutor:
                     return {'success': False, 'message': f'Expected URL containing "{test_data}", but got: {current_url}'}
             
             elif action_type == "CLICK_AND_SELECT":
-                # Unified validation for CLICK_AND_SELECT action
-                selection_type = self.determine_selection_type(element_name, test_data)
-                
-                if selection_type == "CITY_SELECTION":
-                    # Validate city selection
-                    return self.validate_city_selection(test_data, xpath, element_name)
-                elif selection_type == "DATE_SELECTION":
-                    # Validate date selection
-                    return self.validate_date_selection(test_data, xpath, element_name)
-                elif selection_type == "QUICK_DATE_SELECTION":
-                    # Validate quick date selection
-                    return self.validate_date_selection(test_data, xpath, element_name)
-                elif selection_type == "AGE_SELECTION":
-                    # Validate age selection
-                    return self.validate_age_selection(test_data, element_name)
-                else:
-                    # Validate generic click action
-                    try:
-                        element = self.find_element_with_advanced_wait(xpath)
-                        if element and element.is_enabled():
-                            print(f"[VALIDATION_PASS] Element {element_name} is accessible and enabled")
-                            return {'success': True, 'message': f'Element {element_name} clicked successfully'}
-                        else:
-                            return {'success': False, 'message': f'Element {element_name} is not enabled or accessible'}
-                    except Exception:
+                # Reusable validation for CLICK_AND_SELECT action.
+                try:
+                    value_text = str(test_data or "").strip()
+                    if self._looks_like_child_age_selection(value_text, xpath):
+                        return self.validate_age_selection(test_data, element_name)
+
+                    if self._is_quick_date_value(value_text) or self.is_date_format_data(value_text):
+                        return self.validate_date_selection(test_data, xpath, element_name)
+
+                    element = self.find_element_with_advanced_wait(xpath)
+                    if not element:
                         return {'success': False, 'message': f'Element {element_name} not found or not accessible'}
+
+                    tag_name = (element.tag_name or "").lower()
+                    if tag_name == "select":
+                        try:
+                            selected = Select(element).first_selected_option.text.strip()
+                        except Exception:
+                            selected = (element.get_attribute("value") or "").strip()
+                        if not value_text or value_text.lower() in selected.lower():
+                            return {'success': True, 'message': f'Select option validated for "{element_name}"'}
+                        return {'success': False, 'message': f'Expected "{value_text}" but found "{selected}" for "{element_name}"'}
+
+                    current_value = (element.get_attribute("value") or element.text or "").strip()
+                    if value_text:
+                        if value_text.lower() in current_value.lower():
+                            return {'success': True, 'message': f'Value "{value_text}" applied for "{element_name}"'}
+                        # Fallback for autocomplete UIs where value may render outside the input.
+                        page_match = self.driver.find_elements(By.XPATH, f"//*[contains(text(),'{value_text}')]")
+                        if any(elem.is_displayed() for elem in page_match):
+                            return {'success': True, 'message': f'Value "{value_text}" appears on page for "{element_name}"'}
+                        return {'success': False, 'message': f'Expected "{value_text}" but found "{current_value}" for "{element_name}"'}
+
+                    if element.is_enabled():
+                        print(f"[VALIDATION_PASS] Element {element_name} is accessible and enabled")
+                        return {'success': True, 'message': f'Element {element_name} clicked successfully'}
+                    return {'success': False, 'message': f'Element {element_name} is not enabled or accessible'}
+                except Exception as validation_error:
+                    return {'success': False, 'message': f'CLICK_AND_SELECT validation failed: {validation_error}'}
             
             elif action_type == "CLICK":
                 # First check if this should be a different action type
                 if self.is_date_field(element_name, test_data):
                     return {'success': False, 'message': f'Wrong action type for date field "{element_name}". Use CLICK_AND_SELECT instead of CLICK'}
                 
-                if element_name.upper() == "TRAVELCLASS":
+                if element_name.upper() == self.ELEMENT_NAME_TRAVEL_CLASS:
                     # Validate travel class selection
                     return self.validate_travel_class_selection(test_data, element_name)
-                elif element_name.upper() == "DONEBUTTON":
+                elif element_name.upper() in self.ELEMENT_NAME_DONE_ALIASES:
                     # Validate popup was closed
                     return self.validate_popup_closed()
                 else:
                     # Validate general click action
                     return self.validate_click_action(xpath, element_name)
+
+            elif action_type == "CLICK_AND_TYPE":
+                try:
+                    element = self.find_element_with_advanced_wait(xpath)
+                    value = (element.get_attribute("value") or "").strip()
+                    if str(test_data or "") in value or value:
+                        return {'success': True, 'message': f'Click and type completed for "{element_name}"'}
+                    return {'success': False, 'message': f'Input validation failed for "{element_name}"'}
+                except Exception as input_error:
+                    return {'success': False, 'message': f'Click and type validation error: {input_error}'}
+
+            elif action_type == "CLEAR_AND_TYPE":
+                try:
+                    element = self.find_element_with_advanced_wait(xpath)
+                    value = (element.get_attribute("value") or "").strip()
+                    expected = str(test_data or "").strip()
+                    if value == expected:
+                        return {'success': True, 'message': f'Clear and type validated for "{element_name}"'}
+                    return {'success': False, 'message': f'Expected value "{expected}" but found "{value}" for "{element_name}"'}
+                except Exception as clear_type_error:
+                    return {'success': False, 'message': f'Clear and type validation error: {clear_type_error}'}
+
+            elif action_type == "RADIO_BUTTON":
+                try:
+                    element = self.find_element_with_advanced_wait(xpath)
+                    if element.is_selected():
+                        return {'success': True, 'message': f'Radio button "{element_name}" selected successfully'}
+                    return {'success': False, 'message': f'Radio button "{element_name}" is not selected'}
+                except Exception as radio_error:
+                    return {'success': False, 'message': f'Radio validation error: {radio_error}'}
+
+            elif action_type in ["DOUBLE_CLICK", "RIGHT_CLICK", "MOUSE_OVER"]:
+                # These actions are interaction-oriented; ensure element and browser remain healthy.
+                try:
+                    _ = self.find_element_with_advanced_wait(xpath)
+                    _ = self.driver.current_url
+                    return {'success': True, 'message': f'{action_type} completed for "{element_name}"'}
+                except Exception as interaction_error:
+                    return {'success': False, 'message': f'{action_type} validation error: {interaction_error}'}
+
+            elif action_type == "DRAG_AND_DROP":
+                state = getattr(self, "_last_drag_drop_state", None) or {}
+                source_locator = state.get("source_locator") or xpath
+                target_locator = state.get("target_locator") or self._parse_drag_drop_target_locator(test_data)
+                if not source_locator or not target_locator:
+                    return {'success': False, 'message': 'Drag and drop validation failed: missing source or target locator'}
+                try:
+                    _ = self.find_element_with_advanced_wait(source_locator)
+                    _ = self.find_element_with_advanced_wait(target_locator)
+                    _ = self.driver.current_url
+                    return {'success': True, 'message': f'DRAG_AND_DROP completed for "{element_name}"'}
+                except Exception as drag_validation_error:
+                    return {'success': False, 'message': f'DRAG_AND_DROP validation error: {drag_validation_error}'}
             
             elif action_type == "HANDLE_CHECKBOX":
                 # Validate checkbox state
                 return self.validate_checkbox_state(test_data, xpath, element_name)
+
+            elif action_type in ["SELECT_COUNT", "INCREMENT", "DECREMENT"]:
+                state = getattr(self, "_last_count_action_state", None) or {}
+                expected_after = state.get("expected_after")
+                after_count = state.get("after_count")
+                element_type = state.get("element_type")
+
+                # If we have concrete before/after state, validate strongly.
+                if expected_after is not None and after_count is not None:
+                    if int(after_count) == int(expected_after):
+                        return {'success': True, 'message': f'Count action validated: expected {expected_after}, found {after_count}'}
+                    return {'success': False, 'message': f'Count action mismatch: expected {expected_after}, found {after_count}'}
+
+                # Fallback: best-effort UI validation for absolute select_count.
+                if action_type == "SELECT_COUNT":
+                    return self.validate_count_selection(test_data, xpath, element_name)
+
+                # For increment/decrement without readable counter, at least ensure the control remains interactable.
+                try:
+                    locator = state.get("locator") or xpath
+                    if locator:
+                        _ = self.find_element_with_advanced_wait(locator)
+                    elif element_type:
+                        inc_xpath, dec_xpath = self._get_count_control_xpaths(element_type)
+                        target = inc_xpath if action_type == "INCREMENT" else dec_xpath
+                        if target:
+                            _ = self.find_element_with_advanced_wait(target)
+                    return {'success': True, 'message': f'{action_type} action completed and control remains accessible'}
+                except Exception as count_validation_error:
+                    return {'success': False, 'message': f'{action_type} validation failed: {count_validation_error}'}
             
             else:
-                # Unknown action type - consider it successful if no exception was thrown
-                print(f"[VALIDATION_SKIP] Unknown action type {action_type}, skipping validation")
-                return {'success': True, 'message': f'Action {action_type} completed (no validation available)'}
+                # Generic validation for non-standard actions.
+                try:
+                    _ = self.driver.current_url
+                    self.driver.execute_script("return document.readyState")
+                    return {'success': True, 'message': f'Action {action_type} completed; browser remains responsive'}
+                except Exception as unknown_validation_error:
+                    return {'success': False, 'message': f'Action {action_type} completed but browser became unstable: {unknown_validation_error}'}
                 
         except Exception as e:
             print(f"[VALIDATION_ERROR] Validation failed with exception: {str(e)}")
@@ -3505,37 +4184,61 @@ class SeleniumTestExecutor:
             if not action_type or action_type.strip() == "":
                 return {'success': False, 'message': f'Action type is empty or invalid for element "{element_name}"'}
             
-            # Validate element name
             if not element_name or element_name.strip() == "":
-                return {'success': False, 'message': f'Element name is empty for action type "{action_type}"'}
+                element_name = "unnamed_element"
             
-            # 2. XPath validation (for actions that need XPath)
-            xpath_required_actions = [
-                "CLICK_AND_SELECT", "CLICK", "HANDLE_CHECKBOX"
+            # 2. Locator validation (for actions that need a target element)
+            locator_required_actions = [
+                "CLICK_AND_SELECT",
+                "CLICK",
+                "CLICK_AND_TYPE",
+                "CLEAR_AND_TYPE",
+                "DOUBLE_CLICK",
+                "RIGHT_CLICK",
+                "MOUSE_OVER",
+                "RADIO_BUTTON",
+                "DRAG_AND_DROP",
+                "HANDLE_CHECKBOX",
+                "INCREMENT",
+                "DECREMENT"
             ]
             
-            if action_type in xpath_required_actions:
-                if not xpath or xpath.strip() == "" or xpath.upper() == "NA":
-                    return {'success': False, 'message': f'Invalid or missing XPath for element "{element_name}": "{xpath}"'}
-                
-                # Test XPath syntax by trying to parse it
+            if action_type in locator_required_actions:
+                missing_locator = (not xpath or xpath.strip() == "" or xpath.upper() == "NA")
+                if missing_locator:
+                    # INCREMENT/DECREMENT may use known count controls from element_name.
+                    if action_type in ["INCREMENT", "DECREMENT"] and self.resolve_count_element_type(element_name):
+                        missing_locator = False
+                    else:
+                        return {'success': False, 'message': f'Invalid or missing locator for element "{element_name}": "{xpath}"'}
+
+                locator_by = None
+                locator_value = None
+                if xpath and xpath.strip() and xpath.upper() != "NA":
+                    parsed = self._parse_locator(xpath)
+                    if not parsed:
+                        return {'success': False, 'message': f'Unable to parse locator for element "{element_name}": "{xpath}"'}
+                    locator_by, locator_value = parsed
+
+                # Test selector syntax by trying a short lookup
                 try:
-                    # Clean the XPath first - remove any obvious syntax issues
-                    cleaned_xpath = self.clean_xpath(xpath)
-                    if cleaned_xpath != xpath:
-                        print(f"[PRE_VALIDATION] XPath cleaned from '{xpath}' to '{cleaned_xpath}'")
-                        xpath = cleaned_xpath
-                    
-                    # Try to find elements with the xpath (don't wait long)
-                    elements = self.driver.find_elements(By.XPATH, xpath)
+                    elements = self.driver.find_elements(locator_by, locator_value) if locator_by and locator_value else []
                     if not elements:
-                        # Try alternative XPaths to see if element exists with different locator
-                        found_with_alternative = self.try_alternative_locators(element_name)
-                        if found_with_alternative:
-                            print(f"[PRE_VALIDATION] Element exists but XPath may be incorrect, allowing execution to proceed")
-                            # Don't fail here - let the execution try and the post-validation catch real issues
+                        element_name_upper = str(element_name or "").upper()
+                        if action_type == "CLICK" and element_name_upper in self.ELEMENT_NAME_DONE_ALIASES:
+                            # Travellers popup may already be closed by a previous action.
+                            print(f"[PRE_VALIDATION] {element_name} not present; popup likely already closed. Allowing execution.")
+                        elif action_type in ["INCREMENT", "DECREMENT"] and self.resolve_count_element_type(element_name):
+                            elements = []
+                            print(f"[PRE_VALIDATION] Using derived count controls for {action_type} on {element_name}")
                         else:
-                            return {'success': False, 'message': f'Element "{element_name}" not found with XPath: "{xpath}". Check if element exists on current page.'}
+                        # Try alternative XPaths to see if element exists with different locator
+                            found_with_alternative = self.try_alternative_locators(element_name)
+                            if found_with_alternative:
+                                print(f"[PRE_VALIDATION] Element exists but locator may be incorrect, allowing execution to proceed")
+                                # Don't fail here - let the execution try and the post-validation catch real issues
+                            else:
+                                return {'success': False, 'message': f'Element "{element_name}" not found with locator: "{xpath}". Check if selector exists on current page.'}
                     
                     # Check if found element is accessible (but don't fail for minor issues)
                     if elements:
@@ -3553,13 +4256,13 @@ class SeleniumTestExecutor:
                         if not element.is_enabled():
                             print(f"[PRE_VALIDATION] Element {element_name} appears disabled but allowing execution to proceed")
                         
-                except Exception as xpath_error:
-                    error_message = str(xpath_error)
-                    # Only fail for truly invalid XPath syntax, not for element not found
+                except Exception as selector_error:
+                    error_message = str(selector_error)
+                    # Only fail for truly invalid selector syntax, not for element not found
                     if "invalid selector" in error_message.lower() or "xpath expression" in error_message.lower():
-                        return {'success': False, 'message': f'XPath syntax error for element "{element_name}": {str(xpath_error)}'}
+                        return {'success': False, 'message': f'Selector syntax error for element "{element_name}": {str(selector_error)}'}
                     else:
-                        print(f"[PRE_VALIDATION] XPath test failed but allowing execution: {str(xpath_error)}")
+                        print(f"[PRE_VALIDATION] Selector test failed but allowing execution: {str(selector_error)}")
             
             # 3. Action-specific validations
             
@@ -3572,12 +4275,54 @@ class SeleniumTestExecutor:
                 # Validate test data is provided
                 if not test_data or test_data.strip() == "":
                     return {'success': False, 'message': f'No value provided for CLICK_AND_SELECT action on element "{element_name}"'}
+
+            elif action_type in ["CLICK_AND_TYPE", "CLEAR_AND_TYPE"]:
+                if test_data is None:
+                    return {'success': False, 'message': f'No input value provided for {action_type} on element "{element_name}"'}
+
+            elif action_type == "DRAG_AND_DROP":
+                target_locator = self._parse_drag_drop_target_locator(test_data)
+                if not target_locator:
+                    return {'success': False, 'message': f'DRAG_AND_DROP requires target locator in values for element "{element_name}"'}
+                parsed_target = self._parse_locator(target_locator)
+                if not parsed_target:
+                    return {'success': False, 'message': f'Unable to parse DRAG_AND_DROP target locator: "{test_data}"'}
+                try:
+                    target_by, target_value = parsed_target
+                    target_elements = self.driver.find_elements(target_by, target_value)
+                    if not target_elements:
+                        return {'success': False, 'message': f'DRAG_AND_DROP target not found: "{target_locator}"'}
+                except Exception as drag_target_error:
+                    error_message = str(drag_target_error)
+                    if "invalid selector" in error_message.lower() or "xpath expression" in error_message.lower():
+                        return {'success': False, 'message': f'DRAG_AND_DROP target selector syntax error: {drag_target_error}'}
+                    return {'success': False, 'message': f'DRAG_AND_DROP target validation failed: {drag_target_error}'}
+
+            elif action_type == "SELECT_COUNT":
+                try:
+                    int(str(test_data).strip())
+                except Exception:
+                    return {'success': False, 'message': f'Invalid SELECT_COUNT value "{test_data}". Expected integer target count.'}
+
+            elif action_type in ["INCREMENT", "DECREMENT"]:
+                if test_data not in [None, ""]:
+                    try:
+                        parsed_steps = int(str(test_data).strip())
+                        if parsed_steps < 0:
+                            return {'success': False, 'message': f'{action_type} requires non-negative value; got "{test_data}"'}
+                    except Exception:
+                        return {'success': False, 'message': f'Invalid {action_type} value "{test_data}". Expected non-negative integer target/step count.'}
             
             elif action_type == "HANDLE_CHECKBOX":
                 # Validate checkbox value
                 valid_checkbox_values = ['true', 'false', '1', '0', 'yes', 'no']
-                if test_data.lower() not in valid_checkbox_values:
+                if str(test_data or "").lower() not in valid_checkbox_values:
                     return {'success': False, 'message': f'Invalid checkbox value: "{test_data}". Use: true/false, 1/0, or yes/no'}
+
+            elif action_type == "RADIO_BUTTON":
+                valid_radio_values = ['', 'true', '1', 'yes', 'on', 'select', 'selected']
+                if str(test_data or '').strip().lower() not in valid_radio_values:
+                    return {'success': False, 'message': f'Invalid RADIO_BUTTON value: "{test_data}". Use true/yes/1/select or leave blank.'}
             
             elif action_type == "CLICK":
                 # For general clicks, validate that test_data makes sense if provided
@@ -3634,12 +4379,9 @@ class SeleniumTestExecutor:
                 print(f"[XPATH_CLEAN] Fixed simple concatenated XPath, using: {cleaned}")
                 return cleaned
 
-            # Fix other common issues
-            # Remove double slashes except at the beginning
-            cleaned = re.sub(r'(?<!^)//', '/', cleaned)
-
-            # Ensure it starts with // or /
-            if not cleaned.startswith(('/', './/')):
+            # Keep valid internal '//' axes untouched to avoid corrupting XPath semantics.
+            # Ensure it starts with //, /, .//, or a parenthesized XPath group.
+            if not cleaned.startswith(('/', './/', '(')):
                 cleaned = '//' + cleaned
 
             return cleaned
@@ -3814,13 +4556,7 @@ class SeleniumTestExecutor:
             # Try multiple strategies to find the actual city input field
             input_selectors = [
                 # Common input field patterns for city selection
-                "//input[contains(@placeholder,'From') or contains(@placeholder,'from')]",
-                "//input[contains(@placeholder,'To') or contains(@placeholder,'to')]",
-                "//input[contains(@placeholder,'City') or contains(@placeholder,'city')]",
-                "//input[@type='text' and contains(@name,'from')]",
-                "//input[@type='text' and contains(@name,'to')]",
-                "//input[@type='text' and contains(@id,'from')]",
-                "//input[@type='text' and contains(@id,'to')]",
+                *self.CITY_INPUT_SELECTORS,
                 # Generic text inputs near From/To labels
                 f"//label[contains(text(),'{element_name}')]//following::input[1]",
                 f"//span[contains(text(),'{element_name}')]//following::input[1]",
@@ -3839,7 +4575,7 @@ class SeleniumTestExecutor:
                     for elem in elements:
                         if elem.is_displayed():
                             value = elem.get_attribute('value') or elem.get_attribute('placeholder') or elem.text
-                            if value and value.strip() and value.strip() not in ['From', 'To', 'City']:
+                            if value and value.strip() and value.strip() not in self.CITY_PLACEHOLDER_BLOCKLIST:
                                 current_value = value.strip()
                                 print(f"[VALIDATION] Found city value: '{current_value}' using selector: {selector}")
                                 break
@@ -3880,7 +4616,7 @@ class SeleniumTestExecutor:
                             for elem in elements:
                                 if elem.is_displayed():
                                     value = elem.get_attribute('value') or elem.get_attribute('placeholder') or elem.text
-                                    if value and value.strip() and value.strip() not in ['From', 'To', 'City']:
+                                    if value and value.strip() and value.strip() not in self.CITY_PLACEHOLDER_BLOCKLIST:
                                         current_value = value.strip()
                                         print(f"[VALIDATION] Found city value on retry: '{current_value}' using selector: {selector}")
                                         break
@@ -3904,11 +4640,11 @@ class SeleniumTestExecutor:
     def validate_date_selection(self, expected_date, xpath, element_name):
         """Validate that the correct date was selected"""
         try:
-            # Wait for date selection to take effect
-            time.sleep(1)
+            # Wait briefly for date selection to settle without fixed long delay.
+            self.wait_for_calendar_close(timeout=0.4)
             
             # For quick date options like "tomorrow", "today", just verify the calendar is closed
-            if expected_date.lower() in ["tomorrow", "today", "day-after-tomorrow"]:
+            if expected_date.lower() in self.DATE_QUICK_OPTIONS:
                 # Check if calendar popup is closed (indicates successful selection)
                 try:
                     calendar_elements = self.driver.find_elements(By.XPATH, "//div[contains(@class,'calendar') or contains(@class,'date-picker')]")
@@ -3979,7 +4715,7 @@ class SeleniumTestExecutor:
             popup_selectors = [
                 "//div[contains(@class,'modal') and contains(@style,'display: block')]",
                 "//div[contains(@class,'popup') and not(contains(@style,'display: none'))]",
-                "//div[contains(text(),'Adults') or contains(text(),'Children')]//ancestor::div[contains(@class,'visible')]"
+                f"//div[contains(text(),'{self.UI_LABEL_ADULTS}') or contains(text(),'{self.UI_LABEL_CHILDREN}')]//ancestor::div[contains(@class,'visible')]"
             ]
             
             for selector in popup_selectors:
@@ -4000,6 +4736,7 @@ class SeleniumTestExecutor:
     def validate_click_action(self, xpath, element_name):
         """Validate that click action was successful"""
         try:
+            element_name = element_name or "unnamed_element"
             # Special handling for search buttons - they often cause page navigation
             if 'search' in element_name.lower() or 'button' in element_name.lower():
                 print(f"[VALIDATION] Special validation for search/button element: {element_name}")
@@ -4029,14 +4766,10 @@ class SeleniumTestExecutor:
                         print(f"[VALIDATION_PASS] Click action validated for: {element_name}")
                         return {'success': True, 'message': f'Click action on "{element_name}" completed successfully'}
                     else:
-                        # Element not found might be normal after some clicks (like submits)
-                        print(f"[VALIDATION_PASS] Element {element_name} not found after click (may be normal)")
-                        return {'success': True, 'message': f'Click action on "{element_name}" completed - element changed after interaction'}
+                        return {'success': False, 'message': f'Click validation failed: element "{element_name}" not found after interaction'}
                         
                 except Exception as element_error:
-                    # Be lenient - click might have caused page changes
-                    print(f"[VALIDATION_PASS] Element validation failed but allowing success: {str(element_error)}")
-                    return {'success': True, 'message': f'Click action on "{element_name}" completed - page may have changed'}
+                    return {'success': False, 'message': f'Click validation failed for "{element_name}": {str(element_error)}'}
                 
         except Exception as e:
             print(f"[VALIDATION_ERROR] Click validation error: {str(e)}")
@@ -4195,6 +4928,81 @@ class SeleniumTestExecutor:
             # Don't fail the test, just continue
 
     # ==================== WINDOW/TAB MANAGEMENT METHODS ====================
+
+    # ==================== FRAME/IFRAME MANAGEMENT METHODS ====================
+
+    def switch_to_iframe(self, frame_reference):
+        """Switch WebDriver context to iframe by index/name/id/url or selector."""
+        if not self.driver:
+            raise Exception("Driver is not initialized")
+
+        ref = str(frame_reference or "").strip()
+        if not ref:
+            ref = "0"
+
+        ref_lower = ref.lower()
+        if ref_lower in {"default", "main", "top", "parent", "root"}:
+            self.driver.switch_to.default_content()
+            print("[FRAME] Switched to default content")
+            return True
+
+        # Numeric reference: iframe index
+        if ref.isdigit():
+            index = int(ref)
+            self.driver.switch_to.frame(index)
+            print(f"[FRAME] Switched to iframe by index: {index}")
+            return True
+
+        # Try direct name/id switch
+        try:
+            self.driver.switch_to.frame(ref)
+            print(f"[FRAME] Switched to iframe by name/id: {ref}")
+            return True
+        except Exception:
+            pass
+
+        # Try selector lookup (xpath/css/id styles).
+        try:
+            locator_value = ref
+            locator_lower = locator_value.lower()
+            if locator_lower.startswith("xpath="):
+                by, query = By.XPATH, locator_value[6:]
+            elif locator_lower.startswith("css="):
+                by, query = By.CSS_SELECTOR, locator_value[4:]
+            elif locator_lower.startswith("id="):
+                by, query = By.ID, locator_value[3:]
+            elif locator_value.startswith(("/", ".//", "(")):
+                by, query = By.XPATH, locator_value
+            else:
+                by, query = By.CSS_SELECTOR, locator_value
+
+            iframe_element = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((by, query))
+            )
+            self.driver.switch_to.frame(iframe_element)
+            print(f"[FRAME] Switched to iframe via selector: {ref}")
+            return True
+        except Exception:
+            pass
+
+        # Fallback: match iframe attributes by substring.
+        frames = self.driver.find_elements(By.TAG_NAME, "iframe")
+        for idx, frame in enumerate(frames):
+            try:
+                attrs = " ".join([
+                    frame.get_attribute("id") or "",
+                    frame.get_attribute("name") or "",
+                    frame.get_attribute("title") or "",
+                    frame.get_attribute("src") or "",
+                ]).lower()
+                if ref_lower in attrs:
+                    self.driver.switch_to.frame(frame)
+                    print(f"[FRAME] Switched to iframe by attribute match at index {idx}")
+                    return True
+            except Exception:
+                continue
+
+        raise Exception(f"Unable to switch to iframe using reference: {frame_reference}")
     
     def initialize_window_tracking(self):
         """Initialize window tracking when browser is launched"""

@@ -32,17 +32,61 @@ interface TestConfigDashboardProps {
   onSave?: () => void;
 }
 
-const ACTION_TYPES = ['OPEN_BROWSER', 'CLICK', 'CLICK_AND_SELECT', 'SELECT_COUNT', 'CLICK_AND_TYPE', 'HANDLE_CHECKBOX'];
+const ACTION_TYPES = [
+  'OPEN_BROWSER',
+  'CLICK',
+  'DOUBLE_CLICK',
+  'RIGHT_CLICK',
+  'MOUSE_OVER',
+  'CLICK_AND_SELECT',
+  'CLICK_AND_TYPE',
+  'CLEAR_AND_TYPE',
+  'RADIO_BUTTON',
+  'DRAG_AND_DROP',
+  'SELECT_COUNT',
+  'INCREMENT',
+  'DECREMENT',
+  'HANDLE_CHECKBOX',
+  'SWITCH_TO_NEW_WINDOW',
+  'SWITCH_TO_WINDOW_BY_INDEX',
+  'SWITCH_TO_WINDOW_BY_URL',
+  'SWITCH_TO_IFRAME',
+  'CLOSE_EXTRA_WINDOWS',
+  'NAVIGATE_TO_URL',
+  'REFRESH_PAGE',
+  'GO_BACK',
+  'GO_FORWARD',
+  'TYPE',
+  'SELECT',
+  'WAIT',
+  'PRESS_KEY'
+];
 
 const LEGACY_TO_CURRENT_ACTION: Record<string, string> = {
   CLICK_AND_SELECT_DATE: 'CLICK_AND_SELECT',
   CLICK_QUICK_DATE: 'CLICK_AND_SELECT',
   CLICK_BUS_QUICK_DATE: 'CLICK_AND_SELECT',
   CLICK_AND_SELECT_AGE: 'CLICK_AND_SELECT',
+  DOUBLECLICK: 'DOUBLE_CLICK',
+  RIGHTCLICK: 'RIGHT_CLICK',
+  MOUSEOVER: 'MOUSE_OVER',
+  MOUSE_HOVER: 'MOUSE_OVER',
+  HOVER: 'MOUSE_OVER',
+  HOVER_MOUSE_OVER: 'MOUSE_OVER',
+  CLEAR_TYPE: 'CLEAR_AND_TYPE',
+  TYPE_AND_CLEAR: 'CLEAR_AND_TYPE',
+  RADIO: 'RADIO_BUTTON',
+  RADIOBUTTON: 'RADIO_BUTTON',
+  HANDLE_RADIO: 'RADIO_BUTTON',
+  DRAGDROP: 'DRAG_AND_DROP',
+  'DRAG_&_DROP': 'DRAG_AND_DROP',
+  SWITCH_FRAME: 'SWITCH_TO_IFRAME',
+  SWITCH_TO_FRAME: 'SWITCH_TO_IFRAME',
+  SWITCH_IFRAME: 'SWITCH_TO_IFRAME',
 };
 
 const normalizeActionType = (actionType?: string): string => {
-  const raw = (actionType || 'CLICK').toUpperCase().trim();
+  const raw = (actionType || 'CLICK').toUpperCase().trim().replace(/[\s\-/]+/g, '_');
   if (raw in LEGACY_TO_CURRENT_ACTION) return LEGACY_TO_CURRENT_ACTION[raw];
   if (ACTION_TYPES.includes(raw)) return raw;
   return 'CLICK';
@@ -507,8 +551,16 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                 {normalizeActionType(formData.action_type) === 'OPEN_BROWSER' && 'Use Values for URL (e.g. https://example.com).'}
                 {normalizeActionType(formData.action_type) === 'CLICK_AND_SELECT' && 'Use for selection flows (city/date/age) with Values as the input.'}
                 {normalizeActionType(formData.action_type) === 'SELECT_COUNT' && 'Use for count updates (rooms/adults/children/infants) with numeric Values.'}
+                {normalizeActionType(formData.action_type) === 'INCREMENT' && 'Use Values as step count (default 1) to increase counters.'}
+                {normalizeActionType(formData.action_type) === 'DECREMENT' && 'Use Values as step count (default 1) to decrease counters.'}
                 {normalizeActionType(formData.action_type) === 'CLICK' && 'Use for pure click actions where no selection/input is needed.'}
                 {normalizeActionType(formData.action_type) === 'CLICK_AND_TYPE' && 'Clicks the element and types the text from Values.'}
+                {normalizeActionType(formData.action_type) === 'CLEAR_AND_TYPE' && 'Clears existing/default value, then types Values.'}
+                {normalizeActionType(formData.action_type) === 'DOUBLE_CLICK' && 'Performs a double click on the target element.'}
+                {normalizeActionType(formData.action_type) === 'RIGHT_CLICK' && 'Performs a context (right) click on the target element.'}
+                {normalizeActionType(formData.action_type) === 'MOUSE_OVER' && 'Moves mouse over target element to trigger hover states.'}
+                {normalizeActionType(formData.action_type) === 'RADIO_BUTTON' && 'Selects the target radio button (Values can be true/yes/1/select).' }
+                {normalizeActionType(formData.action_type) === 'DRAG_AND_DROP' && 'Use XPath as source and Values as target locator (or target=...).'}
                 {normalizeActionType(formData.action_type) === 'HANDLE_CHECKBOX' && 'Use Values: true/false, yes/no, or 1/0.'}
               </p>
             </div>

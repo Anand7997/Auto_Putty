@@ -44,20 +44,69 @@ interface TestStepsGridProps {
 export interface TestStepsGridRef {
   addNewStep: () => void;
   editStep: (stepId: number) => void;
-  triggerXPathRefresh: () => void;
+  triggerXPathRefresh: (change?: {
+    old_object_name?: string;
+    object_name?: string;
+    xpath?: string;
+    page_name?: string;
+  }) => void;
 }
 
-const ACTION_TYPES = ['OPEN_BROWSER', 'CLICK', 'CLICK_AND_SELECT', 'SELECT_COUNT', 'CLICK_AND_TYPE', 'HANDLE_CHECKBOX'];
+const ACTION_TYPES = [
+  'OPEN_BROWSER',
+  'CLICK',
+  'DOUBLE_CLICK',
+  'RIGHT_CLICK',
+  'MOUSE_OVER',
+  'CLICK_AND_SELECT',
+  'CLICK_AND_TYPE',
+  'CLEAR_AND_TYPE',
+  'RADIO_BUTTON',
+  'DRAG_AND_DROP',
+  'SELECT_COUNT',
+  'INCREMENT',
+  'DECREMENT',
+  'HANDLE_CHECKBOX',
+  'SWITCH_TO_NEW_WINDOW',
+  'SWITCH_TO_WINDOW_BY_INDEX',
+  'SWITCH_TO_WINDOW_BY_URL',
+  'SWITCH_TO_IFRAME',
+  'CLOSE_EXTRA_WINDOWS',
+  'NAVIGATE_TO_URL',
+  'REFRESH_PAGE',
+  'GO_BACK',
+  'GO_FORWARD',
+  'TYPE',
+  'SELECT',
+  'WAIT',
+  'PRESS_KEY'
+];
 
 const LEGACY_TO_CURRENT_ACTION: Record<string, string> = {
   CLICK_AND_SELECT_DATE: 'CLICK_AND_SELECT',
   CLICK_QUICK_DATE: 'CLICK_AND_SELECT',
   CLICK_BUS_QUICK_DATE: 'CLICK_AND_SELECT',
   CLICK_AND_SELECT_AGE: 'CLICK_AND_SELECT',
+  DOUBLECLICK: 'DOUBLE_CLICK',
+  RIGHTCLICK: 'RIGHT_CLICK',
+  MOUSEOVER: 'MOUSE_OVER',
+  MOUSE_HOVER: 'MOUSE_OVER',
+  HOVER: 'MOUSE_OVER',
+  HOVER_MOUSE_OVER: 'MOUSE_OVER',
+  CLEAR_TYPE: 'CLEAR_AND_TYPE',
+  TYPE_AND_CLEAR: 'CLEAR_AND_TYPE',
+  RADIO: 'RADIO_BUTTON',
+  RADIOBUTTON: 'RADIO_BUTTON',
+  HANDLE_RADIO: 'RADIO_BUTTON',
+  DRAGDROP: 'DRAG_AND_DROP',
+  'DRAG_&_DROP': 'DRAG_AND_DROP',
+  SWITCH_FRAME: 'SWITCH_TO_IFRAME',
+  SWITCH_TO_FRAME: 'SWITCH_TO_IFRAME',
+  SWITCH_IFRAME: 'SWITCH_TO_IFRAME',
 };
 
 const normalizeActionType = (actionType?: string): string => {
-  const raw = (actionType || 'CLICK').toUpperCase().trim();
+  const raw = (actionType || 'CLICK').toUpperCase().trim().replace(/[\s\-/]+/g, '_');
   if (raw in LEGACY_TO_CURRENT_ACTION) return LEGACY_TO_CURRENT_ACTION[raw];
   if (ACTION_TYPES.includes(raw)) return raw;
   return 'CLICK';
@@ -103,10 +152,64 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
     
   }, []);
 
+  const applyObjectRenameAndXPathUpdate = (change?: {
+    old_object_name?: string;
+    object_name?: string;
+    xpath?: string;
+    page_name?: string;
+  }) => {
+    if (!change) return;
+
+    const oldName = String(change.old_object_name || '').trim();
+    const newName = String(change.object_name || '').trim();
+    const newXPath = String(change.xpath || '').trim();
+    const changedPage = String(change.page_name || '').trim();
+
+    if (!newName && !newXPath) return;
+
+    const updatedSteps = testSteps.map(step => {
+      const stepPage = String(step.page || '').trim();
+      const pageMatches = !changedPage || !stepPage || stepPage === changedPage;
+      const nameMatches =
+        (oldName && step.element_name === oldName) ||
+        (!oldName && newName && step.element_name === newName);
+
+      if (!pageMatches || !nameMatches) {
+        return step;
+      }
+
+      const nextStep = { ...step };
+      if (newName && nextStep.element_name !== newName) {
+        nextStep.element_name = newName;
+      }
+      if (newXPath && nextStep.xpath !== newXPath) {
+        nextStep.xpath = newXPath;
+      }
+      return nextStep;
+    });
+
+    const hasChanges = updatedSteps.some((step, idx) =>
+      step.element_name !== testSteps[idx].element_name || step.xpath !== testSteps[idx].xpath
+    );
+
+    if (!hasChanges) return;
+
+    onTestStepsChange(updatedSteps);
+
+    if (onAutoXPathRefresh) {
+      onAutoXPathRefresh(updatedSteps).catch(error => {
+        console.error('❌ [Object Rename Sync] Failed to save updated steps:', error);
+      });
+    }
+  };
+
   useImperativeHandle(ref, () => ({
     addNewStep: handleAddNewStep,
     editStep: () => {}, // Not needed anymore
-    triggerXPathRefresh: triggerRefresh,
+    triggerXPathRefresh: (change) => {
+      applyObjectRenameAndXPathUpdate(change);
+      triggerRefresh();
+    },
   }));
 
   const updateStep = (stepId: number, field: keyof TestStep, value: string | number) => {

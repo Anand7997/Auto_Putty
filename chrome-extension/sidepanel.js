@@ -1,444 +1,562 @@
-// Smart XPath Capture - Side Panel Script
-// Handles the official Chrome side panel functionality
+(function () {
+  'use strict';
 
-(function() {
-    'use strict';
+  let capturedItems = [];
+  let latestCaptured = null;
+  let lastScrapePayload = null;
+  const DEFAULT_SCRAPE_MESSAGE = 'Run scrape mode to extract list/table patterns as JSON.';
 
-    console.log('Smart XPath Capture: Side panel script loading...');
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initialize);
+  } else {
+    initialize();
+  }
 
-    // Initialize when DOM is ready
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initialize);
-    } else {
-        initialize();
-    }
+  function initialize() {
+    bindEvents();
+    checkExtensionStatus();
+    renderAll();
+  }
 
-    function initialize() {
-        console.log('Smart XPath Capture: Side panel initializing...');
+  function bindEvents() {
+    const startCaptureBtn = document.getElementById('start-capture-btn');
+    const stopCaptureBtn = document.getElementById('stop-capture-btn');
 
-        // Setup event listeners
-        setupSidePanelEventListeners();
-
-        // Load any existing state
-        loadExistingState();
-
-        // Check extension status
-        checkExtensionStatus();
-
-        console.log('Smart XPath Capture: Side panel initialized');
-    }
-
-    function checkExtensionStatus() {
-        updateStatusIndicator('checking', '⏳', 'Checking...');
-
-        chrome.runtime.sendMessage({ action: 'PING_CONTENT_SCRIPT' }, (response) => {
-            if (response && response.available) {
-                updateStatusIndicator('ready', '✅', 'Ready');
-                console.log('Extension status: Content script available');
-            } else {
-                updateStatusIndicator('not-ready', '❌', 'Not Ready');
-                console.log('Extension status: Content script not available');
-            }
-        });
-    }
-
-    function updateStatusIndicator(statusClass, indicator, text) {
-        const statusDiv = document.getElementById('extension-status');
-        const indicatorSpan = document.getElementById('status-indicator');
-        const textSpan = document.getElementById('status-text');
-
-        if (statusDiv) {
-            // Remove existing status classes
-            statusDiv.classList.remove('ready', 'not-ready', 'checking');
-            // Add new status class
-            statusDiv.classList.add(statusClass);
-        }
-
-        if (indicatorSpan) indicatorSpan.textContent = indicator;
-        if (textSpan) textSpan.textContent = text;
-    }
-
-    function setupSidePanelEventListeners() {
-        // Close button
-        const closeBtn = document.querySelector('.xpath-panel-close');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', function() {
-                chrome.sidePanel.setOptions({ enabled: false });
+    if (startCaptureBtn) {
+      startCaptureBtn.addEventListener('click', () => {
+        startCaptureBtn.disabled = true;
+        chrome.runtime.sendMessage({ action: 'PING_CONTENT_SCRIPT' }, (pingResponse) => {
+          if (pingResponse && pingResponse.available) {
+            chrome.runtime.sendMessage({ action: 'START_CAPTURE' }, (response) => {
+              startCaptureBtn.disabled = false;
+              if (response && response.success) {
+                updateCaptureControls(true);
+                showNotification('Capture mode enabled', 'success');
+              } else {
+                showNotification(response?.error || 'Failed to start capture', 'error');
+              }
             });
-        }
-
-        // Minimize button - remove for side panel
-        const minimizeBtn = document.querySelector('.xpath-panel-minimize');
-        if (minimizeBtn) {
-            minimizeBtn.style.display = 'none';
-        }
-
-        // Start Capture button
-        const startCaptureBtn = document.getElementById('start-capture-btn');
-        console.log('Start capture button found:', !!startCaptureBtn);
-        if (startCaptureBtn) {
-            startCaptureBtn.addEventListener('click', function() {
-                console.log('Start capture button clicked');
-                startCaptureBtn.disabled = true;
-                startCaptureBtn.textContent = 'Checking...';
-
-                // First ping to check if content script is available
-                chrome.runtime.sendMessage({ action: 'PING_CONTENT_SCRIPT' }, (pingResponse) => {
-                    console.log('Content script ping response:', pingResponse);
-
-                    if (pingResponse && pingResponse.available) {
-                        // Content script is available, proceed with start capture
-                        updateStatusIndicator('ready', '✅', 'Ready');
-                        startCaptureBtn.textContent = 'Starting...';
-                        chrome.runtime.sendMessage({ action: 'START_CAPTURE' }, (response) => {
-                            console.log('START_CAPTURE response:', response);
-                            startCaptureBtn.disabled = false;
-                            startCaptureBtn.textContent = '🎯 Start Capture';
-                            if (response && response.success) {
-                                updateCaptureControls(true);
-                                console.log('Capture started successfully');
-                            } else {
-                                console.error('Failed to start capture:', response);
-                                alert('Failed to start capture: ' + (response ? response.error : 'Unknown error'));
-                            }
-                        });
-                    } else {
-                        // Content script not available
-                        updateStatusIndicator('not-ready', '❌', 'Not Ready');
-                        startCaptureBtn.disabled = false;
-                        startCaptureBtn.textContent = '🎯 Start Capture';
-                        console.error('Content script not available:', pingResponse);
-                        alert('Extension not ready on this page.\n\nPlease reload the page and try again.');
-                    }
-                });
-            });
-        }
-
-        // Stop Capture button
-        const stopCaptureBtn = document.getElementById('stop-capture-btn');
-        console.log('Stop capture button found:', !!stopCaptureBtn);
-        if (stopCaptureBtn) {
-            stopCaptureBtn.addEventListener('click', function() {
-                console.log('Stop capture button clicked');
-                chrome.runtime.sendMessage({ action: 'STOP_CAPTURE' }, (response) => {
-                    console.log('STOP_CAPTURE response:', response);
-                    if (response && response.success) {
-                        updateCaptureControls(false);
-                    } else {
-                        alert('Failed to stop capture: ' + (response ? response.error : 'Unknown error'));
-                    }
-                });
-            });
-        }
-
-        // Add to TestSteps button
-        const addToTestStepsBtn = document.getElementById('add-to-teststeps-btn');
-        if (addToTestStepsBtn) {
-            addToTestStepsBtn.addEventListener('click', function() {
-                console.log('Add to TestSteps button clicked');
-                // Collect XPaths from the list
-                const xpathItems = document.querySelectorAll('#selected-xpaths-list li[data-xpath]');
-                const xpaths = Array.from(xpathItems).map(item => ({
-                    xpath: item.getAttribute('data-xpath'),
-                    element_name:
-                        item.getAttribute('data-element-name') ||
-                        item.querySelector('.element-name')?.textContent?.trim() ||
-                        'Captured Element',
-                    elementName:
-                        item.getAttribute('data-element-name') ||
-                        item.querySelector('.element-name')?.textContent?.trim() ||
-                        'Captured Element',
-                    page_name: item.getAttribute('data-page-name') || document.title || 'Unknown Page',
-                    page_url: item.getAttribute('data-page-url') || window.location.href || 'Unknown URL',
-                    page_domain: item.getAttribute('data-page-domain') || window.location.hostname || 'Unknown Domain'
-                }));
-
-                console.log('Collected XPaths:', xpaths);
-
-                // Send XPaths directly to backend database only
-                chrome.runtime.sendMessage({
-                    action: 'SAVE_XPATHS_TO_BACKEND',
-                    xpaths: xpaths,
-                    session_id: 'sidepanel_session_' + Date.now()
-                }, (response) => {
-                    console.log('SAVE_XPATHS_TO_BACKEND response:', response);
-                    if (response && response.success) {
-                        // Clear the list after successful save to database
-                        const list = document.getElementById('selected-xpaths-list');
-                        if (list) {
-                            list.innerHTML = '<li class="empty-section-b">No XPaths selected yet</li>';
-                            updateXPathCount();
-                        }
-                        console.log('✅ XPaths saved to database successfully');
-                    } else {
-                        console.error('❌ Failed to save XPaths to database:', response ? response.error : 'Unknown error');
-                        alert('Failed to save XPaths to database: ' + (response ? response.error : 'Unknown error'));
-                    }
-                });
-            });
-        }
-    }
-
-    function updateCaptureControls(isCapturing) {
-        const startBtn = document.getElementById('start-capture-btn');
-        const stopBtn = document.getElementById('stop-capture-btn');
-
-        if (isCapturing) {
-            if (startBtn) startBtn.style.display = 'none';
-            if (stopBtn) stopBtn.style.display = 'inline-flex';
-        } else {
-            if (startBtn) startBtn.style.display = 'inline-flex';
-            if (stopBtn) stopBtn.style.display = 'none';
-        }
-    }
-
-    function loadExistingState() {
-        // Load any existing XPath data from storage
-        chrome.storage.local.get(['xpathData'], (result) => {
-            if (result.xpathData) {
-                updateXPathDisplay(result.xpathData);
-            }
+          } else {
+            startCaptureBtn.disabled = false;
+            showNotification('Page is not ready for capture. Reload and retry.', 'error');
+          }
         });
+      });
     }
 
-    function updateXPathDisplay(data) {
-        // Update the side panel with XPath data
-        const sectionAContent = document.getElementById('section-a-content');
-        if (sectionAContent && data.finalXPath) {
-            sectionAContent.innerHTML = `
-                <div class="xpath-display-section">
-                    <div class="xpath-display-title">
-                        🎯 Best XPath (Score: ${data.score || 0}/100)
-                    </div>
-                    <div class="xpath-display">${data.finalXPath}</div>
-                    <div style="margin-top: 12px;">
-                        <button class="copy-btn" data-xpath="${data.finalXPath}">
-                            📋 Copy
-                        </button>
-                        <button class="add-btn" data-xpath="${data.finalXPath}">
-                            ➕ Add to Panel
-                        </button>
-                    </div>
-                </div>
-            `;
-
-            // Add event listeners for buttons
-            setupXPathButtons();
-        }
-    }
-
-    function updateSelectedXPaths(xpaths) {
-        const list = document.getElementById('selected-xpaths-list');
-        const countSpan = document.getElementById('selected-count');
-        const addToTestStepsBtn = document.getElementById('add-to-teststeps-btn');
-
-        if (countSpan) {
-            countSpan.textContent = xpaths ? xpaths.length : 0;
-        }
-
-        if (addToTestStepsBtn) {
-            const shouldDisable = !xpaths || xpaths.length === 0;
-            addToTestStepsBtn.disabled = shouldDisable;
-            addToTestStepsBtn.textContent = shouldDisable ? '📌 Add to TestSteps' : `📌 Add to TestSteps (${xpaths.length})`;
-        }
-
-        if (list) {
-            if (!xpaths || xpaths.length === 0) {
-                list.innerHTML = '<li class="empty-section-b">No XPaths selected yet</li>';
-            } else {
-                list.innerHTML = xpaths.map(item => `
-                    <li class="selected-xpath-item">
-                        <div class="selected-xpath-text">${item.xpath}</div>
-                        <button class="remove-xpath-btn" data-xpath="${encodeURIComponent(item.xpath)}">
-                            ×
-                        </button>
-                    </li>
-                `).join('');
-
-                // Add remove event listeners
-                const removeBtns = list.querySelectorAll('.remove-xpath-btn');
-                removeBtns.forEach(btn => {
-                    btn.addEventListener('click', function() {
-                        const encodedXpath = this.getAttribute('data-xpath');
-                        if (encodedXpath) {
-                            const xpath = decodeURIComponent(encodedXpath);
-                            removeXPath(xpath);
-                        }
-                    });
-                });
-            }
-        }
-    }
-
-    function setupXPathButtons() {
-        // Copy buttons
-        const copyBtns = document.querySelectorAll('.copy-btn');
-        copyBtns.forEach(btn => {
-            btn.addEventListener('click', function() {
-                const xpath = this.getAttribute('data-xpath');
-                if (xpath) {
-                    navigator.clipboard.writeText(xpath).then(() => {
-                        showNotification('✅ XPath copied to clipboard!');
-                    });
-                }
-            });
+    if (stopCaptureBtn) {
+      stopCaptureBtn.addEventListener('click', () => {
+        chrome.runtime.sendMessage({ action: 'STOP_CAPTURE' }, (response) => {
+          if (response && response.success) {
+            updateCaptureControls(false);
+            showNotification('Capture mode stopped', 'success');
+          } else {
+            showNotification(response?.error || 'Failed to stop capture', 'error');
+          }
         });
+      });
+    }
 
-        // Add buttons
-        const addBtns = document.querySelectorAll('.add-btn');
-        addBtns.forEach(btn => {
-            btn.addEventListener('click', function() {
-                const xpath = this.getAttribute('data-xpath');
-                if (xpath) {
-                    addXPathToSelection(xpath);
-                }
-            });
+    const addToTestStepsBtn = document.getElementById('add-to-teststeps-btn');
+    if (addToTestStepsBtn) {
+      addToTestStepsBtn.addEventListener('click', async () => {
+        if (!capturedItems.length) return;
+        const userEmail = await getCurrentUserEmailFromActiveTab();
+        chrome.runtime.sendMessage({
+          action: 'SAVE_XPATHS_TO_BACKEND',
+          xpaths: capturedItems,
+          session_id: `sidepanel_session_${Date.now()}`,
+          user_email: userEmail
+        }, (response) => {
+          if (response && response.success) {
+            showNotification('Saved selectors to backend', 'success');
+          } else {
+            showNotification(response?.error || 'Failed to save selectors', 'error');
+          }
         });
+      });
     }
 
-    function addXPathToSelection(xpath) {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs[0] && tabs[0].id) {
-                chrome.tabs.sendMessage(tabs[0].id, {
-                    action: 'ADD_XPATH_TO_SELECTION',
-                    xpath: xpath
-                });
-            }
+    const bulkValidateBtn = document.getElementById('bulk-validate-btn');
+    if (bulkValidateBtn) {
+      bulkValidateBtn.addEventListener('click', runBulkValidation);
+    }
+
+    const startWatcherBtn = document.getElementById('start-watcher-btn');
+    const stopWatcherBtn = document.getElementById('stop-watcher-btn');
+
+    if (startWatcherBtn) {
+      startWatcherBtn.addEventListener('click', () => {
+        chrome.runtime.sendMessage({ action: 'START_DOM_WATCHER', items: capturedItems }, (response) => {
+          if (response && response.success) {
+            startWatcherBtn.disabled = true;
+            if (stopWatcherBtn) stopWatcherBtn.disabled = false;
+            showNotification('DOM watcher started', 'success');
+          } else {
+            showNotification(response?.error || 'Failed to start watcher', 'error');
+          }
         });
+      });
     }
 
-    function removeXPath(xpath) {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs[0] && tabs[0].id) {
-                chrome.tabs.sendMessage(tabs[0].id, {
-                    action: 'REMOVE_XPATH_FROM_SELECTION',
-                    xpath: xpath
-                });
-            }
+    if (stopWatcherBtn) {
+      stopWatcherBtn.addEventListener('click', () => {
+        chrome.runtime.sendMessage({ action: 'STOP_DOM_WATCHER' }, (response) => {
+          if (response && response.success) {
+            stopWatcherBtn.disabled = true;
+            if (startWatcherBtn) startWatcherBtn.disabled = false;
+            showNotification('DOM watcher stopped', 'success');
+          } else {
+            showNotification(response?.error || 'Failed to stop watcher', 'error');
+          }
         });
+      });
     }
 
-    function addCapturedXPathToPanel(xpathData) {
-        if (!xpathData || !xpathData.xpath) return;
-
-        const list = document.getElementById('selected-xpaths-list');
-        const countSpan = document.getElementById('selected-count');
-        const addToTestStepsBtn = document.getElementById('add-to-teststeps-btn');
-
-        if (!list) return;
-
-        // Check if XPath already exists - use querySelectorAll to avoid CSS selector issues
-        const existingItems = list.querySelectorAll('li[data-xpath]');
-        for (let item of existingItems) {
-            if (item.getAttribute('data-xpath') === xpathData.xpath) {
-                return; // Already exists
-            }
-        }
-
-        // Remove empty message if present
-        const emptySection = list.querySelector('.empty-section-b');
-        if (emptySection) {
-            list.removeChild(emptySection);
-        }
-
-        // Create new list item
-        const li = document.createElement('li');
-        li.className = 'selected-xpath-item';
-        li.setAttribute('data-xpath', xpathData.xpath);
-        li.setAttribute('data-element-name', xpathData.elementName || xpathData.element_name || 'Captured Element');
-        li.setAttribute('data-page-name', xpathData.page_name || 'Unknown Page');
-        li.setAttribute('data-page-url', xpathData.page_url || 'Unknown URL');
-        li.setAttribute('data-page-domain', xpathData.page_domain || 'Unknown Domain');
-        li.innerHTML = `
-            <div class="selected-xpath-text">
-                <span class="element-name">${xpathData.elementName || xpathData.element_name || 'Captured Element'}</span>
-                <span class="page-info">[${xpathData.page_name || 'Unknown Page'}]</span>
-                <div class="xpath-value">${xpathData.xpath}</div>
-            </div>
-            <button class="remove-xpath-btn" data-xpath="${encodeURIComponent(xpathData.xpath)}">
-                ×
-            </button>
-        `;
-
-        // Add remove event listener
-        const removeBtn = li.querySelector('.remove-xpath-btn');
-        removeBtn.addEventListener('click', function() {
-            const encodedXpath = this.getAttribute('data-xpath');
-            if (encodedXpath) {
-                const xpath = decodeURIComponent(encodedXpath);
-                removeXPath(xpath);
-                li.remove();
-                updateXPathCount();
-            }
-        });
-
-        list.appendChild(li);
-        updateXPathCount();
+    const scrapeBtn = document.getElementById('scrape-btn');
+    if (scrapeBtn) {
+      scrapeBtn.addEventListener('click', runScrape);
     }
 
-    function updateXPathCount() {
-        const countSpan = document.getElementById('selected-count');
-        const addToTestStepsBtn = document.getElementById('add-to-teststeps-btn');
-        const list = document.getElementById('selected-xpaths-list');
-
-        const itemCount = list.querySelectorAll('li[data-xpath]').length;
-        if (countSpan) {
-            countSpan.textContent = itemCount;
-        }
-
-        if (addToTestStepsBtn) {
-            const shouldDisable = itemCount === 0;
-            addToTestStepsBtn.disabled = shouldDisable;
-            addToTestStepsBtn.textContent = shouldDisable ? '📌 Add to TestSteps' : `📌 Add to TestSteps (${itemCount})`;
-        }
+    const resetPanelBtn = document.getElementById('reset-panel-btn');
+    if (resetPanelBtn) {
+      resetPanelBtn.addEventListener('click', resetPanelState);
     }
 
-    function showNotification(message) {
-        const notification = document.createElement('div');
-        notification.className = 'xpath-notification success';
-        notification.textContent = message;
-        notification.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: #38a169;
-            color: white;
-            padding: 12px 16px;
-            border-radius: 6px;
-            z-index: 10000;
-            font-family: Arial, sans-serif;
-        `;
-        document.body.appendChild(notification);
-        setTimeout(() => {
-            if (notification.parentNode) {
-                notification.remove();
-            }
-        }, 2500);
+    const exportJsonBtn = document.getElementById('export-json-btn');
+    if (exportJsonBtn) {
+      exportJsonBtn.addEventListener('click', () => {
+        if (!lastScrapePayload) {
+          showNotification('Run scrape first', 'error');
+          return;
+        }
+        downloadFile(`qfast-scrape-${todayStamp()}.json`, JSON.stringify(lastScrapePayload, null, 2), 'application/json');
+      });
     }
 
-    // Listen for messages from content script
-    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-      if (request.action === 'SHOW_XPATH_RESULT') {
-        updateXPathDisplay(request.xpathData);
-      } else if (request.action === 'UPDATE_SELECTED_XPATHS') {
-        updateSelectedXPaths(request.xpaths);
-      } else if (request.action === 'ELEMENT_CAPTURED') {
-        // Handle captured element from content script
-        addCapturedXPathToPanel(request.xpathData);
+    const exportCsvBtn = document.getElementById('export-csv-btn');
+    if (exportCsvBtn) {
+      exportCsvBtn.addEventListener('click', () => {
+        if (!lastScrapePayload) {
+          showNotification('Run scrape first', 'error');
+          return;
+        }
+        const csv = buildCsvFromScrape(lastScrapePayload);
+        downloadFile(`qfast-scrape-${todayStamp()}.csv`, csv, 'text/csv');
+      });
+    }
+
+    chrome.runtime.onMessage.addListener((request) => {
+      if (request.action === 'ELEMENT_CAPTURED') {
+        addCapturedItem(request.xpathData);
+      }
+
+      if (request.action === 'DOM_WATCH_ALERT') {
+        handleWatchAlert(request.payload);
       }
     });
+  }
 
-    // Listen for tab updates to refresh status
-    chrome.tabs.onActivated.addListener((activeInfo) => {
-      console.log('Tab activated, checking extension status');
-      checkExtensionStatus();
-    });
+  async function getCurrentUserEmailFromActiveTab() {
+    try {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const activeTab = tabs && tabs[0];
+      if (!activeTab || !activeTab.id) return 'extension_user';
 
-    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-      if (changeInfo.status === 'complete') {
-        console.log('Tab updated, checking extension status');
-        checkExtensionStatus();
+      const result = await chrome.scripting.executeScript({
+        target: { tabId: activeTab.id },
+        func: () => {
+          try {
+            const raw = window.localStorage.getItem('qfast_user');
+            if (!raw) return 'extension_user';
+            const parsed = JSON.parse(raw);
+            return parsed?.email || 'extension_user';
+          } catch (e) {
+            return 'extension_user';
+          }
+        }
+      });
+
+      const value = result && result[0] ? result[0].result : 'extension_user';
+      return (value || 'extension_user').toString();
+    } catch (error) {
+      console.warn('Failed to read qfast_user from active tab localStorage:', error);
+      return 'extension_user';
+    }
+  }
+
+  function runBulkValidation() {
+    if (!capturedItems.length) {
+      showNotification('Capture selectors first', 'error');
+      return;
+    }
+
+    chrome.runtime.sendMessage({ action: 'BULK_VALIDATE_SELECTORS', items: capturedItems }, (response) => {
+      if (response && response.success) {
+        applyValidationResults(response.results || []);
+        updateValidationSummary(response.summary || { total: 0, passed: 0, failed: 0, pass_rate: 0 });
+        showNotification('Bulk validation completed', 'success');
+      } else {
+        showNotification(response?.error || 'Bulk validation failed', 'error');
       }
     });
+  }
 
+  function runScrape() {
+    chrome.runtime.sendMessage({ action: 'SCRAPE_PATTERNS' }, (response) => {
+      if (response && response.success) {
+        lastScrapePayload = response;
+        const output = document.getElementById('scrape-output');
+        if (output) output.textContent = JSON.stringify(response, null, 2);
+        showNotification('Scrape completed', 'success');
+      } else {
+        showNotification(response?.error || 'Scrape failed', 'error');
+      }
+    });
+  }
+
+  function resetPanelState() {
+    chrome.runtime.sendMessage({ action: 'STOP_CAPTURE' }, () => {
+      chrome.runtime.sendMessage({ action: 'STOP_DOM_WATCHER' }, () => {
+        applyFreshPanelState();
+        showNotification('Panel reset completed', 'success');
+      });
+    });
+  }
+
+  function applyFreshPanelState() {
+    capturedItems = [];
+    latestCaptured = null;
+    lastScrapePayload = null;
+
+    updateCaptureControls(false);
+    updateWatcherControls(false);
+    updateValidationSummary({ total: 0, passed: 0, failed: 0, pass_rate: 0 });
+
+    const output = document.getElementById('scrape-output');
+    if (output) output.textContent = DEFAULT_SCRAPE_MESSAGE;
+
+    renderAll();
+    checkExtensionStatus();
+  }
+
+  function handleWatchAlert(payload) {
+    if (!payload || !payload.summary) return;
+    updateValidationSummary(payload.summary);
+    applyValidationResults(payload.results || []);
+
+    if (payload.summary.failed > 0) {
+      showNotification(`Watcher alert: ${payload.summary.failed} selector(s) invalid`, 'error');
+    }
+  }
+
+  function applyValidationResults(results) {
+    const map = new Map(results.map(r => [r.id, r]));
+
+    capturedItems = capturedItems.map((item) => {
+      const id = getItemId(item);
+      const found = map.get(id) || map.get(item.xpath) || map.get(item.elementName);
+      if (!found) return item;
+      return {
+        ...item,
+        validation: {
+          passed: !!found.passed,
+          matched_by: found.matched_by || null,
+          selector: found.selector || null,
+          checked_at: found.checked_at || new Date().toISOString()
+        }
+      };
+    });
+
+    renderList();
+  }
+
+  function updateValidationSummary(summary) {
+    const el = document.getElementById('validation-summary');
+    if (!el) return;
+    el.innerHTML = `
+      <span>Total: ${summary.total || 0}</span>
+      <span>Pass: ${summary.passed || 0}</span>
+      <span>Fail: ${summary.failed || 0}</span>
+      <span>Pass Rate: ${summary.pass_rate || 0}%</span>
+    `;
+  }
+
+  function addCapturedItem(rawItem) {
+    if (!rawItem || !rawItem.xpath) return;
+
+    const item = {
+      ...rawItem,
+      id: rawItem.id || getItemId(rawItem),
+      elementName: rawItem.elementName || rawItem.element_name || 'Captured Element'
+    };
+
+    const exists = capturedItems.some(it => it.xpath === item.xpath);
+    if (exists) return;
+
+    capturedItems.unshift(item);
+    latestCaptured = item;
+    renderAll();
+  }
+
+  function removeCapturedItem(itemId) {
+    capturedItems = capturedItems.filter(item => getItemId(item) !== itemId);
+    if (latestCaptured && getItemId(latestCaptured) === itemId) {
+      latestCaptured = capturedItems[0] || null;
+    }
+    renderAll();
+  }
+
+  function renderAll() {
+    renderStrategyPanel();
+    renderList();
+    updateCounter();
+  }
+
+  function renderStrategyPanel() {
+    const strategyContent = document.getElementById('strategy-content');
+    const chip = document.getElementById('reliability-chip');
+
+    if (!strategyContent || !chip) return;
+
+    if (!latestCaptured) {
+      strategyContent.classList.add('empty');
+      strategyContent.textContent = 'Capture an element to see XPath, CSS, Playwright selectors and reliability scoring.';
+      updateScoreChip(chip, 0);
+      return;
+    }
+
+    strategyContent.classList.remove('empty');
+    const score = latestCaptured.reliability_score || latestCaptured.primary_selector?.score || 0;
+    updateScoreChip(chip, score);
+
+    const xpathItems = (latestCaptured.strategies && latestCaptured.strategies.xpath) || [latestCaptured.xpath].filter(Boolean);
+    const cssItems = (latestCaptured.strategies && latestCaptured.strategies.css) || [latestCaptured.css].filter(Boolean);
+    const playItems = (latestCaptured.strategies && latestCaptured.strategies.playwright) || [latestCaptured.playwright].filter(Boolean);
+
+    strategyContent.innerHTML = `
+      <div class="strategy-group">
+        <p class="strategy-label">Element: ${escapeHtml(latestCaptured.elementName || 'Captured Element')}</p>
+        <p class="strategy-label">Primary: ${escapeHtml(latestCaptured.primary_selector?.type || 'xpath')} (${score})</p>
+      </div>
+      ${renderStrategyGroup('XPath', xpathItems)}
+      ${renderStrategyGroup('CSS', cssItems)}
+      ${renderStrategyGroup('Playwright', playItems)}
+      <div class="strategy-group">
+        <p class="strategy-label">Context</p>
+        <span class="selector-code">Frame: ${escapeHtml(JSON.stringify(latestCaptured.frame_context || {}))}</span>
+        <span class="selector-code">Shadow: ${escapeHtml(JSON.stringify(latestCaptured.shadow_context || {}))}</span>
+      </div>
+    `;
+  }
+
+  function renderStrategyGroup(label, values) {
+    const top = (values || []).slice(0, 3);
+    if (!top.length) return '';
+
+    return `
+      <div class="strategy-group">
+        <p class="strategy-label">${label}</p>
+        ${top.map(v => `<span class="selector-code">${escapeHtml(v)}</span>`).join('')}
+      </div>
+    `;
+  }
+
+  function renderList() {
+    const list = document.getElementById('selected-xpaths-list');
+    const addToTestStepsBtn = document.getElementById('add-to-teststeps-btn');
+
+    if (!list) return;
+
+    if (!capturedItems.length) {
+      list.innerHTML = '<li class="empty-state">No selectors captured yet.</li>';
+      if (addToTestStepsBtn) addToTestStepsBtn.disabled = true;
+      return;
+    }
+
+    list.innerHTML = capturedItems.map((item) => {
+      const score = item.reliability_score || item.primary_selector?.score || 0;
+      const status = item.validation
+        ? (item.validation.passed ? 'PASS' : 'FAIL')
+        : 'UNTESTED';
+
+      return `
+        <li class="selector-item" data-id="${escapeHtml(getItemId(item))}">
+          <div class="selector-item-head">
+            <span class="selector-name">${escapeHtml(item.elementName || 'Captured Element')}</span>
+            <span class="score-chip ${scoreClass(score)}">${score}</span>
+          </div>
+          <div class="selector-meta">${escapeHtml(status)}${item.validation?.matched_by ? ` | ${escapeHtml(item.validation.matched_by)}` : ''}</div>
+          <div class="selector-main">${escapeHtml(item.xpath || '')}</div>
+          <div class="selector-actions">
+            <button class="btn btn-soft" data-action="copy" data-id="${escapeHtml(getItemId(item))}">Copy</button>
+            <button class="btn btn-soft" data-action="focus" data-id="${escapeHtml(getItemId(item))}">Focus</button>
+            <button class="btn btn-danger" data-action="remove" data-id="${escapeHtml(getItemId(item))}">Remove</button>
+          </div>
+        </li>
+      `;
+    }).join('');
+
+    if (addToTestStepsBtn) addToTestStepsBtn.disabled = false;
+
+    list.querySelectorAll('button[data-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = btn.getAttribute('data-action');
+        const id = btn.getAttribute('data-id');
+        const item = capturedItems.find(it => getItemId(it) === id);
+        if (!item) return;
+
+        if (action === 'copy') {
+          navigator.clipboard.writeText(item.xpath || '').then(() => {
+            showNotification('XPath copied', 'success');
+          });
+        }
+
+        if (action === 'focus') {
+          latestCaptured = item;
+          renderStrategyPanel();
+        }
+
+        if (action === 'remove') {
+          removeCapturedItem(id);
+        }
+      });
+    });
+  }
+
+  function updateCounter() {
+    const count = document.getElementById('selected-count');
+    if (count) count.textContent = String(capturedItems.length);
+  }
+
+  function updateCaptureControls(isCapturing) {
+    const startBtn = document.getElementById('start-capture-btn');
+    const stopBtn = document.getElementById('stop-capture-btn');
+
+    if (startBtn) startBtn.style.display = isCapturing ? 'none' : 'inline-block';
+    if (stopBtn) stopBtn.style.display = isCapturing ? 'inline-block' : 'none';
+  }
+
+  function updateWatcherControls(isWatching) {
+    const startWatcherBtn = document.getElementById('start-watcher-btn');
+    const stopWatcherBtn = document.getElementById('stop-watcher-btn');
+
+    if (startWatcherBtn) startWatcherBtn.disabled = !!isWatching;
+    if (stopWatcherBtn) stopWatcherBtn.disabled = !isWatching;
+  }
+
+  function checkExtensionStatus() {
+    updateStatusIndicator('checking', '...', 'Checking');
+
+    chrome.runtime.sendMessage({ action: 'PING_CONTENT_SCRIPT' }, (response) => {
+      if (response && response.available) {
+        updateStatusIndicator('ready', 'OK', 'Ready');
+      } else {
+        updateStatusIndicator('not-ready', 'ERR', 'Not Ready');
+      }
+    });
+  }
+
+  function updateStatusIndicator(statusClass, indicator, text) {
+    const statusDiv = document.getElementById('extension-status');
+    const indicatorSpan = document.getElementById('status-indicator');
+    const textSpan = document.getElementById('status-text');
+
+    if (statusDiv) {
+      statusDiv.classList.remove('ready', 'not-ready', 'checking');
+      statusDiv.classList.add(statusClass);
+    }
+
+    if (indicatorSpan) indicatorSpan.textContent = indicator;
+    if (textSpan) textSpan.textContent = text;
+  }
+
+  function getItemId(item) {
+    return item.id || `${item.elementName || 'el'}|${item.xpath || ''}`;
+  }
+
+  function scoreClass(score) {
+    if (score >= 80) return 'score-high';
+    if (score >= 60) return 'score-mid';
+    return 'score-low';
+  }
+
+  function updateScoreChip(chip, score) {
+    chip.textContent = `Score ${score}`;
+    chip.classList.remove('score-low', 'score-mid', 'score-high');
+    chip.classList.add(scoreClass(score));
+  }
+
+  function buildCsvFromScrape(payload) {
+    const rows = [['block_type', 'block_id', 'row_index', 'col_index', 'key', 'value']];
+
+    const tables = payload.tables || [];
+    tables.forEach((table) => {
+      (table.headers || []).forEach((header, i) => {
+        rows.push(['table_header', table.id, '', i, '', header]);
+      });
+
+      (table.rows || []).forEach((row, rowIndex) => {
+        row.forEach((value, colIndex) => {
+          rows.push(['table_row', table.id, rowIndex, colIndex, '', value]);
+        });
+      });
+    });
+
+    const lists = payload.lists || [];
+    lists.forEach((list) => {
+      (list.items || []).forEach((item, idx) => {
+        rows.push(['list_item', list.id, idx, '', 'text', item.text || '']);
+        (item.links || []).forEach((link, linkIndex) => {
+          rows.push(['list_link', list.id, idx, linkIndex, link.text || '', link.href || '']);
+        });
+      });
+    });
+
+    return rows.map(cols => cols.map(csvEscape).join(',')).join('\n');
+  }
+
+  function csvEscape(value) {
+    const text = String(value ?? '');
+    if (/[",\n]/.test(text)) {
+      return `"${text.replace(/"/g, '""')}"`;
+    }
+    return text;
+  }
+
+  function downloadFile(name, content, mime) {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  function todayStamp() {
+    return new Date().toISOString().split('T')[0];
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function showNotification(message, type) {
+    const notification = document.createElement('div');
+    notification.className = `xpath-notification ${type === 'error' ? 'error' : 'success'}`;
+    notification.textContent = message;
+    document.body.appendChild(notification);
+
+    setTimeout(() => {
+      notification.remove();
+    }, 2800);
+  }
 })();

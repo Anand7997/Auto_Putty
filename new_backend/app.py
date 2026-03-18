@@ -2124,7 +2124,8 @@ def ensure_extension_xpaths_table(conn) -> bool:
                 xpath NVARCHAR(MAX) NOT NULL,
                 page_name NVARCHAR(255) NULL,
                 created_at DATETIME DEFAULT GETDATE(),
-                session_id NVARCHAR(255) NULL
+                session_id NVARCHAR(255) NULL,
+                user_email NVARCHAR(255) NULL
             )
         """)
     cursor.execute("""
@@ -2145,6 +2146,17 @@ def ensure_extension_xpaths_table(conn) -> bool:
     """)
 
     cursor.execute("""
+        IF COL_LENGTH('dbo.ExtensionXpaths', 'user_email') IS NULL
+            ALTER TABLE [dbo].[ExtensionXpaths] ADD user_email NVARCHAR(255) NULL
+    """)
+
+    cursor.execute("""
+        UPDATE [dbo].[ExtensionXpaths]
+        SET user_email = 'extension_user'
+        WHERE user_email IS NULL OR LTRIM(RTRIM(user_email)) = ''
+    """)
+
+    cursor.execute("""
         IF NOT EXISTS (
             SELECT 1
             FROM sys.indexes
@@ -2162,6 +2174,16 @@ def ensure_extension_xpaths_table(conn) -> bool:
               AND object_id = OBJECT_ID(N'[dbo].[ExtensionXpaths]')
         )
             CREATE INDEX IX_ExtensionXpaths_SessionId_CreatedAt ON [dbo].[ExtensionXpaths](session_id, created_at DESC)
+    """)
+
+    cursor.execute("""
+        IF NOT EXISTS (
+            SELECT 1
+            FROM sys.indexes
+            WHERE name = 'IX_ExtensionXpaths_UserEmail_CreatedAt'
+              AND object_id = OBJECT_ID(N'[dbo].[ExtensionXpaths]')
+        )
+            CREATE INDEX IX_ExtensionXpaths_UserEmail_CreatedAt ON [dbo].[ExtensionXpaths](user_email, created_at DESC)
     """)
 
     conn.commit()
@@ -2223,7 +2245,11 @@ def store_extension_xpaths():
                 print(f"[DEBUG] Created xpaths_data from single xpath: {xpaths_data}")
 
         session_id = data.get('session_id')
+        user_email = (request.headers.get('X-User-Email') or data.get('user_email') or data.get('created_by') or 'extension_user').strip()
+        if not user_email:
+            user_email = 'extension_user'
         print(f"[DEBUG] session_id: {session_id}")
+        print(f"[DEBUG] user_email: {user_email}")
 
         if not xpaths_data:
             print("[WARNING] No xpaths provided in request after processing")
@@ -2269,10 +2295,10 @@ def store_extension_xpaths():
                     # ⚡ Use OUTPUT clause to get inserted data in one query
                     cursor.execute("""
                         DECLARE @NewId INT;
-                        INSERT INTO [dbo].[ExtensionXpaths] (element_name, xpath, page_name, page_url, page_domain, session_id)
-                        OUTPUT inserted.id, inserted.element_name, inserted.xpath, inserted.page_name, inserted.page_url, inserted.page_domain, inserted.created_at, inserted.session_id
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    """, (element_name, xpath, page_name, page_url, page_domain, session_id))
+                        INSERT INTO [dbo].[ExtensionXpaths] (element_name, xpath, page_name, page_url, page_domain, session_id, user_email)
+                        OUTPUT inserted.id, inserted.element_name, inserted.xpath, inserted.page_name, inserted.page_url, inserted.page_domain, inserted.created_at, inserted.session_id, inserted.user_email
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (element_name, xpath, page_name, page_url, page_domain, session_id, user_email))
                     
                     row = cursor.fetchone()
                     if row:
@@ -2284,7 +2310,8 @@ def store_extension_xpaths():
                             'page_url': row[4],
                             'page_domain': row[5],
                             'created_at': format_timestamp(row[6]) if row[6] else None,
-                            'session_id': row[7]
+                            'session_id': row[7],
+                            'user_email': row[8]
                         })
                         print(f"[SUCCESS] Stored XPath with ID {row[0]}")
                     else:
@@ -2303,7 +2330,8 @@ def store_extension_xpaths():
             'message': f'Successfully stored {len(stored_xpaths)} xpaths',
             'stored_count': len(stored_xpaths),
             'stored_xpaths': stored_xpaths,
-            'session_id': session_id
+            'session_id': session_id,
+            'user_email': user_email
         }), 201
 
     except Exception as e:
@@ -2417,28 +2445,32 @@ def get_extension_xpaths():
     """Get extension xpaths from database without deleting anything - with session_id filtering"""
     try:
         session_id = request.args.get('session_id')
+        user_email = (request.headers.get('X-User-Email') or 'extension_user').strip()
+        if not user_email:
+            user_email = 'extension_user'
         conn = get_db_connection()
         cursor = conn.cursor()
         ensure_extension_xpaths_table(conn)
 
-        # Build query with proper session_id filtering (uses index for fast lookup)
+        # Always isolate by user, optionally narrow by session_id.
         if session_id:
-            print(f"[DEBUG] Fetching XPaths for session_id: {session_id}")
+            print(f"[DEBUG] Fetching XPaths for user_email: {user_email}, session_id: {session_id}")
             query = """
-                SELECT id, element_name, xpath, page_name, page_url, page_domain, created_at, session_id
+                SELECT id, element_name, xpath, page_name, page_url, page_domain, created_at, session_id, user_email
                 FROM [dbo].[ExtensionXpaths]
-                WHERE session_id = ?
+                WHERE user_email = ? AND session_id = ?
                 ORDER BY created_at ASC
             """
-            params = [session_id]
+            params = [user_email, session_id]
         else:
-            print(f"[DEBUG] Fetching all XPaths (no session_id filter)")
+            print(f"[DEBUG] Fetching all XPaths for user_email: {user_email}")
             query = """
-                SELECT id, element_name, xpath, page_name, page_url, page_domain, created_at, session_id
+                SELECT id, element_name, xpath, page_name, page_url, page_domain, created_at, session_id, user_email
                 FROM [dbo].[ExtensionXpaths]
+                WHERE user_email = ?
                 ORDER BY created_at DESC
             """
-            params = []
+            params = [user_email]
 
         cursor.execute(query, params)
         rows = cursor.fetchall()
@@ -2453,7 +2485,8 @@ def get_extension_xpaths():
                 'page_url': row[4],
                 'page_domain': row[5],
                 'created_at': format_timestamp(row[6]) if row[6] else None,
-                'session_id': row[7]
+                'session_id': row[7],
+                'user_email': row[8]
             })
 
         conn.close()
@@ -2462,7 +2495,8 @@ def get_extension_xpaths():
 
         return jsonify({
             'xpaths': xpaths,
-            'total_count': len(xpaths)
+            'total_count': len(xpaths),
+            'user_email': user_email
         }), 200
 
     except Exception as e:
@@ -2477,14 +2511,17 @@ def reset_extension_xpaths():
     try:
         data = request.get_json() if request.method == 'POST' else {}
         session_id = data.get('session_id') if data else request.args.get('session_id')
+        user_email = (request.headers.get('X-User-Email') or (data.get('user_email') if data else None) or 'extension_user').strip()
+        if not user_email:
+            user_email = 'extension_user'
 
         conn = get_db_connection()
         cursor = conn.cursor()
         ensure_extension_xpaths_table(conn)
 
-        # Delete xpaths based on session_id
-        delete_query = "DELETE FROM [dbo].[ExtensionXpaths] WHERE 1=1"
-        params = []
+        # Delete xpaths for current user, optionally narrowed by session_id
+        delete_query = "DELETE FROM [dbo].[ExtensionXpaths] WHERE user_email = ?"
+        params = [user_email]
 
         
         if session_id:
@@ -2496,8 +2533,8 @@ def reset_extension_xpaths():
         conn.commit()
         conn.close()
 
-        print(f"[INFO] Reset: Deleted {deleted_count} xpaths" + 
-              (f" for session {session_id}" if session_id else ""))
+        print(f"[INFO] Reset: Deleted {deleted_count} xpaths for user {user_email}" +
+              (f" and session {session_id}" if session_id else ""))
 
         return jsonify({
             'success': True,
@@ -2514,20 +2551,23 @@ def reset_extension_xpaths():
 def get_extension_xpaths_by_session(session_id: str):
     """Get extension xpaths for a specific session from database"""
     try:
-        print(f"[INFO] Getting XPaths for session: {session_id}")
+        user_email = (request.headers.get('X-User-Email') or 'extension_user').strip()
+        if not user_email:
+            user_email = 'extension_user'
+        print(f"[INFO] Getting XPaths for user: {user_email}, session: {session_id}")
         
         conn = get_db_connection()
         cursor = conn.cursor()
         ensure_extension_xpaths_table(conn)
 
         query = """
-            SELECT id, element_name, xpath, page_name, created_at, session_id
+            SELECT id, element_name, xpath, page_name, created_at, session_id, user_email
             FROM [dbo].[ExtensionXpaths]
-            WHERE session_id = ?
+            WHERE session_id = ? AND user_email = ?
             ORDER BY created_at DESC
         """
 
-        cursor.execute(query, (session_id,))
+        cursor.execute(query, (session_id, user_email))
 
         xpaths = []
         for row in cursor.fetchall():
@@ -2537,7 +2577,8 @@ def get_extension_xpaths_by_session(session_id: str):
                 'xpath': row[2],
                 'page_name': row[3],
                 'created_at': format_timestamp(row[4]) if row[4] else None,
-                'session_id': row[5]
+                'session_id': row[5],
+                'user_email': row[6]
             })
 
         conn.close()
@@ -2560,18 +2601,21 @@ def clear_extension_xpaths():
     """Clear extension xpaths from database"""
     try:
         session_id = request.args.get('session_id')
+        user_email = (request.headers.get('X-User-Email') or 'extension_user').strip()
+        if not user_email:
+            user_email = 'extension_user'
 
         conn = get_db_connection()
         cursor = conn.cursor()
         ensure_extension_xpaths_table(conn)
 
-        query = "DELETE FROM [dbo].[ExtensionXpaths]"
-        params = []
+        query = "DELETE FROM [dbo].[ExtensionXpaths] WHERE user_email = ?"
+        params = [user_email]
 
 
         
         if session_id:
-            query += " WHERE session_id = ?"
+            query += " AND session_id = ?"
             params.append(session_id)
 
         
@@ -2902,12 +2946,12 @@ def bulk_insert_page_objects():
                             if count_result and count_result[0] > 0:
                                 steps_count = count_result[0]
 
-                                # Update XPath for all matching steps
+                                # Update XPath + element_name for all matching steps
                                 cursor.execute(f"""
                                     UPDATE [{table_name}]
-                                    SET xpath = ?
+                                    SET xpath = ?, element_name = ?
                                     WHERE element_name = ?
-                                """, (new_xpath, object_name))
+                                """, (new_xpath, object_name, object_name))
 
                                 total_updated_steps += steps_count
                                 affected_testcases.append({
@@ -3021,13 +3065,14 @@ def update_page_object(object_id):
                     if count_result and count_result[0] > 0:
                         steps_count = count_result[0]
 
-                        # Update XPath for all matching steps
+                        # Update XPath + element_name for all matching steps.
+                        # element_name update is required when object names are edited.
                         ensure_xpath_column_max(cursor, table_name, nullable=True)
                         cursor.execute(f"""
                             UPDATE [{table_name}]
-                            SET xpath = ?
+                            SET xpath = ?, element_name = ?
                             WHERE element_name = ?
-                        """, (xpath, old_object_name))
+                        """, (xpath, object_name, old_object_name))
 
                         updated_steps_count += steps_count
                         updated_testcases.append({

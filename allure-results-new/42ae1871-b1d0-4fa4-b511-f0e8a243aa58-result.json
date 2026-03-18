@@ -1,0 +1,560 @@
+{
+  "uuid": "42ae1871-b1d0-4fa4-b511-f0e8a243aa58",
+  "historyId": "42ae1871-b1d0-4fa4-b511-f0e8a243aa58",
+  "name": "[Ixigo_Flights_SearchingFL_TC001] SearchingFL",
+  "fullName": "Ixigo .Flights.Regression.SearchingFL",
+  "status": "broken",
+  "stage": "finished",
+  "start": 1773822473584,
+  "stop": 1773822585146,
+  "description": "Execution Time: 0:01:51 | Test Run ID: Testing_SearchingFL_TR047 | Result ID: TC001_TR047",
+  "labels": [
+    {
+      "name": "epic",
+      "value": "Ixigo "
+    },
+    {
+      "name": "feature",
+      "value": "Flights Module"
+    },
+    {
+      "name": "story",
+      "value": "Testing Suite"
+    },
+    {
+      "name": "suite",
+      "value": "Testing Tests"
+    },
+    {
+      "name": "testClass",
+      "value": "Flights_Testing"
+    },
+    {
+      "name": "testMethod",
+      "value": "SearchingFL"
+    },
+    {
+      "name": "parentSuite",
+      "value": "[ROCKET] Ixigo "
+    },
+    {
+      "name": "subSuite",
+      "value": "[PACKAGE] Flights -> Testing"
+    },
+    {
+      "name": "severity",
+      "value": "normal"
+    },
+    {
+      "name": "owner",
+      "value": "QA Team"
+    },
+    {
+      "name": "tag",
+      "value": "module:flights"
+    },
+    {
+      "name": "tag",
+      "value": "suite:Testing"
+    },
+    {
+      "name": "testCaseId",
+      "value": "Ixigo_Flights_SearchingFL_TC001"
+    },
+    {
+      "name": "testRunId",
+      "value": "Testing_SearchingFL_TR047"
+    },
+    {
+      "name": "resultId",
+      "value": "TC001_TR047"
+    },
+    {
+      "name": "executionTime",
+      "value": "0:01:51"
+    }
+  ],
+  "parameters": [
+    {
+      "name": "Test Case ID",
+      "value": "Ixigo_Flights_SearchingFL_TC001"
+    },
+    {
+      "name": "Test Run ID",
+      "value": "Testing_SearchingFL_TR047"
+    },
+    {
+      "name": "Result ID",
+      "value": "TC001_TR047"
+    },
+    {
+      "name": "Suite Type",
+      "value": "Regression"
+    },
+    {
+      "name": "Module",
+      "value": "Flights"
+    },
+    {
+      "name": "Project",
+      "value": "Ixigo "
+    },
+    {
+      "name": "Execution Time",
+      "value": "0:01:51"
+    },
+    {
+      "name": "Total Steps",
+      "value": "12"
+    },
+    {
+      "name": "[OK] Passed Steps",
+      "value": "11"
+    },
+    {
+      "name": "[X] Failed Steps",
+      "value": "1"
+    }
+  ],
+  "steps": [
+    {
+      "name": "[OK] Step 1: Open Browser and Navigate to Ixigo",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773822473584,
+      "stop": 1773822474584,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "OPEN_BROWSER"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Browser"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "N/A"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "https://www.ixigo.com/flights"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:03"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 2: Enter departure city",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773822474584,
+      "stop": 1773822475584,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "From"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//*[contains(text(), 'From')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "New Delhi"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:03"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 3: Click To City input",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773822475584,
+      "stop": 1773822476584,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "To"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//label[contains(text(),'To')]/following::input[1]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "Hyderabad"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:34"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 4: Click and Select on departure date",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773822476584,
+      "stop": 1773822477584,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Departure"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//*[contains(@data-testid, 'departure')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "Wed, 25  Mar"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:04"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 5: Enter Return date",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773822477584,
+      "stop": 1773822478584,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Return"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//*[contains(text(), 'Return')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "Sun, 28 Mar"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:04"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 6: Click on travellers and class section",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773822478584,
+      "stop": 1773822479584,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "TravellersSection"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(), 'Travellers & Class')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "Na"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:00"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 7: Select number of adults",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773822479584,
+      "stop": 1773822480584,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "SELECT_COUNT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "AdultCount"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(), 'Adults')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "3"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:01"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 8: Select number of children",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773822480584,
+      "stop": 1773822481584,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "SELECT_COUNT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "ChildCount"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(), 'Children')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "2"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:02"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 9: Select number of infants",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773822481584,
+      "stop": 1773822482584,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "SELECT_COUNT"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "InfantCount"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(), 'Infants')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "1"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:02"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 10: Select travel class",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773822482584,
+      "stop": 1773822483584,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "TravelClass"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[@class='body-lg text-primary mb-10 font-normal' and text()='Class']"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "Business"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:00"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "[X] Step 11: Click Done to close travellers popup",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1773822483584,
+      "stop": 1773822484584,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 11 (Element Highlighted)",
+          "source": "42ae1871-b1d0-4fa4-b511-f0e8a243aa58-20260318_135941_180_After_Step_11_TIMEOUT.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Done"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//button[normalize-space()='Done']"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "Na"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:46"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "timeout"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: Step timed out after 45 seconds",
+        "trace": "Step timed out after 45 seconds"
+      }
+    },
+    {
+      "name": "[OK] Step 12: Click Search button to search flights",
+      "status": "passed",
+      "stage": "finished",
+      "start": 1773822484584,
+      "stop": 1773822485584,
+      "steps": [],
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "SearchButton"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//button[contains(text(), 'Search')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "Na"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:02"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": ""
+        }
+      ]
+    }
+  ],
+  "attachments": [
+    {
+      "name": "After_Step_11_TIMEOUT",
+      "source": "42ae1871-b1d0-4fa4-b511-f0e8a243aa58-20260318_135941_180_After_Step_11_TIMEOUT.png",
+      "type": "image/png",
+      "size": 147190
+    }
+  ]
+}

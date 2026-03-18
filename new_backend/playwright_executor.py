@@ -1,4 +1,4 @@
-from playwright.sync_api import sync_playwright, Playwright, Browser, BrowserContext, Page, Locator, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright, Playwright, Browser, BrowserContext, Page, Locator, Frame, TimeoutError as PlaywrightTimeoutError
 import time
 import uuid
 from datetime import datetime
@@ -18,6 +18,7 @@ class PlaywrightTestExecutor:
         self.browser: Browser = None
         self.context: BrowserContext = None
         self.page: Page = None
+        self.active_frame: Frame = None
 
         self.setup_allure_results_directory()
         self.current_test_attachments = []
@@ -35,10 +36,17 @@ class PlaywrightTestExecutor:
         # Window/Tab management
         self.initial_page = None
         self.window_switch_timeout = 10  # seconds
+        # Runtime tuning knobs for cross-site stability
+        self.default_wait_timeout = int(os.getenv("PLAYWRIGHT_WAIT_TIMEOUT_SECONDS", "15"))
+        self.default_step_timeout = int(os.getenv("PLAYWRIGHT_STEP_TIMEOUT_SECONDS", "45"))
+        self._last_count_action_state = None
+        self._last_drag_drop_state = None
 
         print(f"[INIT] Playwright Test Executor initialized with isolation mode: {'ENABLED' if enable_isolation else 'DISABLED'}")
         print(f"[INIT] Safe field interaction mode: {'ENABLED' if safe_field_interaction else 'DISABLED'}")
         print(f"[INIT] VNC session: {'AVAILABLE' if vnc_session else 'NONE'}")
+        print(f"[INIT] Default wait timeout: {self.default_wait_timeout}s")
+        print(f"[INIT] Default step timeout: {self.default_step_timeout}s")
 
     def clean_xpath(self, xpath):
         """Clean XPath to fix common syntax issues"""
@@ -73,12 +81,9 @@ class PlaywrightTestExecutor:
                 print(f"[XPATH_CLEAN] Fixed simple concatenated XPath, using: {cleaned}")
                 return cleaned
 
-            # Fix other common issues
-            # Remove double slashes except at the beginning
-            cleaned = re.sub(r'(?<!^)//', '/', cleaned)
-
-            # Ensure it starts with // or /
-            if not cleaned.startswith(('/', './/')):
+            # Keep valid internal '//' axes untouched to avoid corrupting XPath semantics.
+            # Ensure it starts with //, /, .//, or a parenthesized XPath group.
+            if not cleaned.startswith(('/', './/', '(')):
                 cleaned = '//' + cleaned
 
             return cleaned
@@ -131,6 +136,14 @@ class PlaywrightTestExecutor:
 
         # Otherwise, assume it's a CSS selector
         return selector
+
+    def _active_scope(self):
+        """Return the active locator scope (iframe if selected, otherwise current page)."""
+        return self.active_frame if self.active_frame else self.page
+
+    def _locator(self, selector):
+        """Resolve locators against the active scope."""
+        return self._active_scope().locator(selector)
 
     def setup_allure_results_directory(self):
         """Setup Allure results directory and environment"""
@@ -272,6 +285,8 @@ class PlaywrightTestExecutor:
             
             print("[PAGE] Creating new page...")
             self.page = self.context.new_page()
+            self.page.set_default_timeout(self.default_wait_timeout * 1000)
+            self.page.set_default_navigation_timeout(self.default_step_timeout * 1000)
             self.initial_page = self.page
 
             print("[SUCCESS] Playwright browser launched successfully!")
@@ -300,6 +315,7 @@ class PlaywrightTestExecutor:
             self.browser = None
             self.context = None
             self.page = None
+            self.active_frame = None
             self.playwright = None
 
     def save_screenshot(self, name, step_number=None, status="info"):
@@ -436,6 +452,38 @@ class PlaywrightTestExecutor:
                 
         return result
 
+    def _resolve_step_timeout_seconds(self, step):
+        """Resolve per-step timeout with a safe default."""
+        try:
+            raw_timeout = step.get("timeout_seconds", step.get("timeout", self.default_step_timeout))
+            timeout_value = int(raw_timeout)
+            return max(timeout_value, 1)
+        except Exception:
+            return self.default_step_timeout
+
+    def _parse_drag_drop_target_locator(self, test_data):
+        """Extract target locator for drag/drop from raw step values."""
+        raw = str(test_data or "").strip()
+        if not raw:
+            return None
+
+        try:
+            payload = json.loads(raw)
+            if isinstance(payload, dict):
+                for key in ["target_locator", "target_xpath", "target_selector", "target", "to"]:
+                    value = payload.get(key)
+                    if value and str(value).strip():
+                        return str(value).strip()
+        except Exception:
+            pass
+
+        kv_match = re.search(r"(?:target_locator|target_xpath|target_selector|target|to)\s*[:=]\s*(.+)$", raw, re.IGNORECASE)
+        if kv_match:
+            value = kv_match.group(1).strip().strip("'\"")
+            return value or None
+
+        return raw
+
     def execute_step(self, step, step_number):
         """Execute a single test step using Playwright."""
         normalized_action_type = self.normalize_action_type(step.get('action_type', ''))
@@ -474,11 +522,22 @@ class PlaywrightTestExecutor:
                 xpath = step.get('xpath', '')
                 element_name = step.get('element_name', '')
                 test_data = step.get('values', '')
+                timeout_seconds = self._resolve_step_timeout_seconds(step)
+
+                pre_validation = self.pre_validate_action(action_type, test_data, xpath, element_name)
+                if not pre_validation.get('success', False):
+                    raise Exception(pre_validation.get('message', 'Pre-validation failed'))
+
+                self.page.set_default_timeout(timeout_seconds * 1000)
+                self.page.set_default_navigation_timeout(timeout_seconds * 1000)
 
                 self.execute_action(action_type, test_data, xpath, element_name)
-                
-                step_result['status'] = 'PASS'
-                print(f"[SUCCESS] Step {step_number} completed successfully")
+                validation = self.validate_action_result(action_type, test_data, xpath, element_name)
+                if validation.get('success', False):
+                    step_result['status'] = 'PASS'
+                    print(f"[SUCCESS] Step {step_number} completed successfully")
+                else:
+                    raise Exception(validation.get('message', 'Action post-validation failed'))
 
             except Exception as e:
                 step_result['status'] = 'FAIL'
@@ -498,6 +557,11 @@ class PlaywrightTestExecutor:
                     name="Error Trace",
                     attachment_type=allure.attachment_type.TEXT
                 )
+            finally:
+                # Reset to baseline defaults for subsequent steps.
+                if self.page:
+                    self.page.set_default_timeout(self.default_wait_timeout * 1000)
+                    self.page.set_default_navigation_timeout(self.default_step_timeout * 1000)
 
         step_end_time = datetime.now(pytz.timezone('Asia/Kolkata'))
         step_duration = step_end_time - step_start_time
@@ -508,6 +572,8 @@ class PlaywrightTestExecutor:
     def execute_action(self, action_type, test_data, xpath, element_name):
         """Execute a specific action using Playwright."""
         action_type = self.normalize_action_type(action_type)
+        element_name = element_name or ""
+        test_data_text = str(test_data or "")
         print(f"[ACTION] Executing: {action_type} on '{element_name}' with data: '{test_data}'")
 
         self.switch_to_latest_page()
@@ -521,22 +587,39 @@ class PlaywrightTestExecutor:
                 print(f"[WARN] Could not press Escape key, might not be an issue: {e}")
 
         if action_type == "OPEN_BROWSER":
+            self.active_frame = None
             self.page.goto(test_data, wait_until="domcontentloaded", timeout=60000)
             self.page.wait_for_load_state("networkidle")
 
         elif action_type == "CLICK_AND_SELECT":
-            self.handle_unified_click_and_select(test_data, xpath, element_name)
+            try:
+                self.handle_unified_click_and_select(test_data, xpath, element_name)
+            except Exception as unified_error:
+                print(f"[ACTION] Unified click/select failed, using generic fallback: {unified_error}")
+                target = self.find_element_with_advanced_wait(xpath)
+                self.perform_robust_click(target)
+                if test_data_text.strip():
+                    self.robust_fill_input(target, test_data_text, element_name)
 
         elif action_type == "CLICK_AND_SELECT_DATE":
             self.handle_date_selection(test_data, xpath, element_name)
 
         elif action_type == "CLICK_AND_TYPE":
             try:
-                self.handle_click_and_type(test_data, xpath, element_name)
+                try:
+                    self.handle_click_and_type(test_data, xpath, element_name)
+                except Exception as typed_error:
+                    print(f"[ACTION] Specialized click-and-type failed, using generic fallback: {typed_error}")
+                    target = self.find_element_with_advanced_wait(xpath)
+                    self.perform_robust_click(target)
+                    self.robust_fill_input(target, str(test_data), element_name)
                 print(f"[INFO] Click and type successful for {element_name}")
             except Exception as e:
                 print(f"[ERROR] Click and type failed for {element_name}: {str(e)}")
                 raise e
+
+        elif action_type == "CLEAR_AND_TYPE":
+            self.handle_clear_and_type(test_data, xpath, element_name)
 
         elif action_type == "CLICK_QUICK_DATE":
             self.handle_quick_date_selection(test_data, element_name)
@@ -548,27 +631,52 @@ class PlaywrightTestExecutor:
             try:
                 if element_name.upper() == "TRAVELCLASS":
                     self.handle_travel_class_selection(test_data, xpath, element_name)
-                elif element_name.upper() == "DONEBUTTON":
+                elif element_name.upper() in ["DONEBUTTON", "DONE"]:
                     self.close_travellers_popup(xpath, element_name)
-                elif test_data.upper() == "TODAY":
+                elif test_data_text.upper() == "TODAY":
                     self.handle_today_selection(element_name)
-                elif test_data.upper() == "TOMORROW" and "bus" in element_name.lower():
+                elif test_data_text.upper() == "TOMORROW" and "bus" in element_name.lower():
                     self.handle_bus_quick_date_selection("tomorrow", element_name)
-                elif test_data.upper() == "TOMORROW":
+                elif test_data_text.upper() == "TOMORROW":
                     self.handle_quick_date_selection("tomorrow", element_name)
-                elif "day after" in test_data.lower() or test_data.upper() == "DAY-AFTER-TOMORROW":
+                elif "day after" in test_data_text.lower() or test_data_text.upper() == "DAY-AFTER-TOMORROW":
                     self.handle_quick_date_selection("day after", element_name)
                 else:
                     normalized_xpath = self.normalize_selector(xpath)
                     # Use .first to handle cases where xpath matches multiple elements
-                    self.page.locator(normalized_xpath).first.click(timeout=10000)
+                    self._locator(normalized_xpath).first.click(timeout=10000)
+                    try:
+                        self.page.wait_for_load_state("domcontentloaded", timeout=2000)
+                    except Exception:
+                        pass
                 print(f"[INFO] Click action successful for {element_name}")
             except Exception as e:
                 print(f"[ERROR] Click action failed for {element_name}: {str(e)}")
                 raise e
 
+        elif action_type == "DOUBLE_CLICK":
+            self.handle_double_click(xpath, element_name)
+
+        elif action_type == "RIGHT_CLICK":
+            self.handle_right_click(xpath, element_name)
+
+        elif action_type == "MOUSE_OVER":
+            self.handle_mouse_over(xpath, element_name)
+
+        elif action_type == "RADIO_BUTTON":
+            self.handle_radio_button_action(test_data, xpath, element_name)
+
+        elif action_type == "DRAG_AND_DROP":
+            self.handle_drag_and_drop(xpath, test_data, element_name)
+
         elif action_type == "SELECT_COUNT":
             self.handle_count_selection(test_data, xpath, element_name)
+
+        elif action_type == "INCREMENT":
+            self.handle_increment_action(test_data, xpath, element_name)
+
+        elif action_type == "DECREMENT":
+            self.handle_decrement_action(test_data, xpath, element_name)
 
         elif action_type == "CLICK_AND_SELECT_AGE":
             child_number = re.sub(r'[^0-9]', '', element_name)
@@ -592,16 +700,27 @@ class PlaywrightTestExecutor:
         elif action_type == "CLOSE_EXTRA_WINDOWS":
             self.close_extra_pages()
 
+        elif action_type == "SWITCH_TO_IFRAME":
+            frame_reference = xpath if str(xpath or "").strip() else test_data
+            self.switch_to_iframe(frame_reference)
+
+        elif action_type == "SWITCH_TO_DEFAULT_CONTENT":
+            self.switch_to_default_content()
+
         elif action_type == "NAVIGATE_TO_URL":
+            self.active_frame = None
             self.page.goto(test_data, wait_until="domcontentloaded")
 
         elif action_type == "REFRESH_PAGE":
+            self.active_frame = None
             self.page.reload(wait_until="domcontentloaded")
 
         elif action_type == "GO_BACK":
+            self.active_frame = None
             self.page.go_back(wait_until="domcontentloaded")
 
         elif action_type == "GO_FORWARD":
+            self.active_frame = None
             self.page.go_forward(wait_until="domcontentloaded")
 
         else:
@@ -620,7 +739,16 @@ class PlaywrightTestExecutor:
         }
         if normalized in legacy_select_actions:
             return "CLICK_AND_SELECT"
-        return normalized
+        alias_map = {
+            "SWITCH_FRAME": "SWITCH_TO_IFRAME",
+            "SWITCH_TO_FRAME": "SWITCH_TO_IFRAME",
+            "SWITCH_TO_IFRAME": "SWITCH_TO_IFRAME",
+            "SWITCH_IFRAME": "SWITCH_TO_IFRAME",
+            "SWITCH_TO_DEFAULT_FRAME": "SWITCH_TO_DEFAULT_CONTENT",
+            "SWITCH_TO_MAIN_CONTENT": "SWITCH_TO_DEFAULT_CONTENT",
+            "SWITCH_DEFAULT_CONTENT": "SWITCH_TO_DEFAULT_CONTENT",
+        }
+        return alias_map.get(normalized, normalized)
 
     def resolve_count_element_type(self, element_name):
         """Map varied element labels to a canonical count type."""
@@ -640,7 +768,7 @@ class PlaywrightTestExecutor:
     def handle_click_and_type(self, test_data, xpath, element_name):
         """Handles clicking an element and then typing text into it."""
         normalized_xpath = self.normalize_selector(xpath)
-        locator = self.page.locator(normalized_xpath)
+        locator = self._locator(normalized_xpath)
         
         # Use the safe field interaction method first
         if self.safe_field_interaction_method(locator, test_data, element_name):
@@ -662,6 +790,60 @@ class PlaywrightTestExecutor:
         # Fill the field with the test data
         locator.fill(test_data)
         self.page.wait_for_timeout(300)
+
+    def handle_clear_and_type(self, test_data, xpath, element_name):
+        """Clear a field and type the provided value."""
+        normalized_xpath = self.normalize_selector(xpath)
+        locator = self._locator(normalized_xpath).first
+        locator.wait_for(state="visible", timeout=self.default_wait_timeout * 1000)
+        locator.click(timeout=self.default_wait_timeout * 1000)
+        self.clear_prefilled_input(locator, element_name)
+        locator.fill(str(test_data or ""))
+        self.page.wait_for_timeout(200)
+
+    def handle_double_click(self, xpath, element_name):
+        locator = self.find_element_with_advanced_wait(xpath)
+        locator.wait_for(state="visible", timeout=self.default_wait_timeout * 1000)
+        locator.dblclick(timeout=self.default_wait_timeout * 1000)
+        print(f"[ACTION] Double click successful for {element_name}")
+
+    def handle_right_click(self, xpath, element_name):
+        locator = self.find_element_with_advanced_wait(xpath)
+        locator.wait_for(state="visible", timeout=self.default_wait_timeout * 1000)
+        locator.click(button="right", timeout=self.default_wait_timeout * 1000)
+        print(f"[ACTION] Right click successful for {element_name}")
+
+    def handle_mouse_over(self, xpath, element_name):
+        locator = self.find_element_with_advanced_wait(xpath)
+        locator.wait_for(state="visible", timeout=self.default_wait_timeout * 1000)
+        locator.hover(timeout=self.default_wait_timeout * 1000)
+        print(f"[ACTION] Mouse over successful for {element_name}")
+
+    def handle_radio_button_action(self, test_data, xpath, element_name):
+        locator = self.find_element_with_advanced_wait(xpath)
+        locator.wait_for(state="visible", timeout=self.default_wait_timeout * 1000)
+        desired = str(test_data or "").strip().lower() in ["", "true", "1", "yes", "on", "select", "selected"]
+        if desired and not locator.is_checked():
+            locator.check(force=True)
+        elif (not desired) and locator.is_checked():
+            locator.uncheck(force=True)
+        print(f"[ACTION] Radio button action successful for {element_name}")
+
+    def handle_drag_and_drop(self, source_locator, test_data, element_name):
+        target_locator = self._parse_drag_drop_target_locator(test_data)
+        if not target_locator:
+            raise Exception("DRAG_AND_DROP requires target locator in values")
+        source = self.find_element_with_advanced_wait(source_locator)
+        target = self.find_element_with_advanced_wait(target_locator)
+        source.wait_for(state="visible", timeout=self.default_wait_timeout * 1000)
+        target.wait_for(state="visible", timeout=self.default_wait_timeout * 1000)
+        source.drag_to(target, timeout=self.default_step_timeout * 1000)
+        self._last_drag_drop_state = {
+            "source_locator": source_locator,
+            "target_locator": target_locator,
+            "element_name": element_name,
+        }
+        print(f"[ACTION] Drag and drop successful for {element_name}")
 
     def clear_prefilled_input(self, locator, element_name):
         """Aggressively clear input field so click-and-type never appends to default values."""
@@ -1013,7 +1195,7 @@ class PlaywrightTestExecutor:
             
             for selector in suggestion_containers:
                 try:
-                    suggestions = self.page.locator(selector)
+                    suggestions = self._locator(selector)
                     if suggestions.count() > 0 and suggestions.first.is_visible(timeout=1000):
                         print(f"[SUGGESTIONS] Found suggestions using selector: {selector}")
                         return True
@@ -1137,9 +1319,9 @@ class PlaywrightTestExecutor:
                     for position in ['first', 'last']:
                         try:
                             if position == 'first':
-                                input_locator = self.page.locator(input_selector).first
+                                input_locator = self._locator(input_selector).first
                             else:
-                                input_locator = self.page.locator(input_selector).last
+                                input_locator = self._locator(input_selector).last
                             
                             if input_locator.is_visible(timeout=1000):
                                 # Additional validation: check if it's actually a text input
@@ -1239,7 +1421,7 @@ class PlaywrightTestExecutor:
             
             for selector in fallback_selectors:
                 try:
-                    inputs = self.page.locator(selector)
+                    inputs = self._locator(selector)
                     count = inputs.count()
                     
                     for i in range(count):
@@ -1313,7 +1495,7 @@ class PlaywrightTestExecutor:
             
             for close_selector in close_selectors:
                 try:
-                    close_btn = self.page.locator(close_selector).first
+                    close_btn = self._locator(close_selector).first
                     if close_btn.is_visible(timeout=1000):
                         close_btn.click(timeout=2000)
                         print(f"[POPUP_DISMISS] Closed overlay/modal using: {close_selector}")
@@ -1333,7 +1515,7 @@ class PlaywrightTestExecutor:
                 
                 for backdrop_selector in backdrop_selectors:
                     try:
-                        backdrop = self.page.locator(backdrop_selector).first
+                        backdrop = self._locator(backdrop_selector).first
                         if backdrop.is_visible(timeout=1000):
                             backdrop.click(timeout=2000)
                             print(f"[POPUP_DISMISS] Clicked backdrop to dismiss modal: {backdrop_selector}")
@@ -1373,7 +1555,7 @@ class PlaywrightTestExecutor:
             
             for selector in exact_match_selectors:
                 try:
-                    suggestion_locator = self.page.locator(selector).first
+                    suggestion_locator = self._locator(selector).first
                     if suggestion_locator.is_visible(timeout=2000):
                         suggestion_locator.click(timeout=5000)
                         print(f"[SUCCESS] Clicked exact match suggestion using: {selector}")
@@ -1393,7 +1575,7 @@ class PlaywrightTestExecutor:
             
             for selector in partial_match_selectors:
                 try:
-                    suggestion_locator = self.page.locator(selector).first
+                    suggestion_locator = self._locator(selector).first
                     if suggestion_locator.is_visible(timeout=2000):
                         suggestion_locator.click(timeout=5000)
                         print(f"[SUCCESS] Clicked partial match suggestion using: {selector}")
@@ -1425,7 +1607,7 @@ class PlaywrightTestExecutor:
                 
                 for selector in generic_suggestion_selectors:
                     try:
-                        first_suggestion = self.page.locator(selector).first
+                        first_suggestion = self._locator(selector).first
                         if first_suggestion.is_visible(timeout=1000):
                             first_suggestion.click(timeout=3000)
                             print(f"[SUCCESS] Clicked first suggestion using: {selector}")
@@ -1515,7 +1697,7 @@ class PlaywrightTestExecutor:
         # Try each selector until one works
         for selector in selectors:
             try:
-                clickable_locator = self.page.locator(selector).first
+                clickable_locator = self._locator(selector).first
                 # Test if the element is visible and clickable
                 if clickable_locator.is_visible(timeout=2000):
                     # Additional validation: ensure we're not clicking on a checkbox
@@ -1539,7 +1721,7 @@ class PlaywrightTestExecutor:
             print(f"[DEBUG] Current page URL: {self.page.url}")
             
             # Try to find any input elements on the page for debugging
-            all_inputs = self.page.locator('xpath=//input').all()
+            all_inputs = self._locator('xpath=//input').all()
             print(f"[DEBUG] Found {len(all_inputs)} input elements on the page")
             for i, input_elem in enumerate(all_inputs[:5]):  # Show first 5 inputs
                 try:
@@ -1806,15 +1988,15 @@ class PlaywrightTestExecutor:
         try:
             normalized_xpath = self.normalize_selector(xpath)
             # Try with standard wait first
-            return self.page.locator(normalized_xpath).first
+            return self._locator(normalized_xpath).first
         except Exception:
             try:
                 # Try with presence_of_element_located equivalent
-                self.page.locator(normalized_xpath).wait_for(state="attached", timeout=10000)
-                return self.page.locator(normalized_xpath).first
+                self._locator(normalized_xpath).wait_for(state="attached", timeout=10000)
+                return self._locator(normalized_xpath).first
             except Exception:
                 # Last resort - direct locator
-                return self.page.locator(normalized_xpath).first
+                return self._locator(normalized_xpath).first
 
     def perform_robust_click(self, element):
         """Perform robust click with multiple fallback strategies - Playwright version"""
@@ -1839,7 +2021,7 @@ class PlaywrightTestExecutor:
 
             # Click on date field to open calendar
             normalized_xpath = self.normalize_selector(xpath)
-            date_field = self.page.locator(normalized_xpath)
+            date_field = self._locator(normalized_xpath)
             date_field.click()
             self.page.wait_for_timeout(1000)  # Wait for calendar to appear
 
@@ -1899,7 +2081,7 @@ class PlaywrightTestExecutor:
             for selector in date_selectors:
                 try:
                     print(f"[SEARCH] Trying selector: {selector}")
-                    date_elements = self.page.locator(f"xpath={selector}").all()
+                    date_elements = self._locator(f"xpath={selector}").all()
                     print(f"[COUNT] Found {len(date_elements)} elements with selector")
 
                     if not date_elements:
@@ -1946,7 +2128,7 @@ class PlaywrightTestExecutor:
         """Simplified calendar check - only what's needed"""
         try:
             self.page.wait_for_timeout(500)
-            calendar_elements = self.page.locator("xpath=//div[contains(@class, 'calendar')]//abbr | //abbr[@aria-label]").all()
+            calendar_elements = self._locator("xpath=//div[contains(@class, 'calendar')]//abbr | //abbr[@aria-label]").all()
             return not calendar_elements or not calendar_elements[0].is_visible()
         except Exception:
             return True  # Assume closed if we can't find calendar elements
@@ -1965,7 +2147,7 @@ class PlaywrightTestExecutor:
 
             for selector in tomorrow_selectors:
                 try:
-                    tomorrow_button = self.page.locator(f"xpath={selector}")
+                    tomorrow_button = self._locator(f"xpath={selector}")
 
                     if tomorrow_button.is_visible() and tomorrow_button.is_enabled():
                         # Scroll to element before clicking
@@ -1999,7 +2181,7 @@ class PlaywrightTestExecutor:
 
             for selector in day_after_selectors:
                 try:
-                    day_after_button = self.page.locator(f"xpath={selector}")
+                    day_after_button = self._locator(f"xpath={selector}")
 
                     if day_after_button.is_visible() and day_after_button.is_enabled():
                         # Scroll to element before clicking
@@ -2127,7 +2309,7 @@ class PlaywrightTestExecutor:
 
             for selector in today_selectors:
                 try:
-                    today_button = self.page.locator(f"xpath={selector}")
+                    today_button = self._locator(f"xpath={selector}")
 
                     if today_button.is_visible() and today_button.is_enabled():
                         # Skip disabled elements
@@ -2162,7 +2344,7 @@ class PlaywrightTestExecutor:
 
             for selector in tomorrow_selectors:
                 try:
-                    tomorrow_button = self.page.locator(f"xpath={selector}")
+                    tomorrow_button = self._locator(f"xpath={selector}")
                     if tomorrow_button.is_visible():
                         # Check if element is not disabled
                         class_name = tomorrow_button.get_attribute("class") or ""
@@ -2219,14 +2401,14 @@ class PlaywrightTestExecutor:
         if "bus" in element_name.lower():
             self.handle_bus_quick_date_selection("today", element_name)
         else:
-            self.page.locator("xpath=//p[contains(text(),'Today')]" ).first.click()
+            self._locator("xpath=//p[contains(text(),'Today')]" ).first.click()
 
     def handle_quick_date_selection(self, quick_date_option, element_name):
         normalized_option = quick_date_option.lower().strip()
         if "tomorrow" in normalized_option:
-            self.page.locator("xpath=//p[contains(text(),'Tomorrow')]" ).first.click()
+            self._locator("xpath=//p[contains(text(),'Tomorrow')]" ).first.click()
         elif "day after" in normalized_option:
-            self.page.locator("xpath=//p[contains(text(),'Day After')]" ).first.click()
+            self._locator("xpath=//p[contains(text(),'Day After')]" ).first.click()
         else:
             raise ValueError(f"Unsupported quick date option: {quick_date_option}")
 
@@ -2237,9 +2419,9 @@ class PlaywrightTestExecutor:
             return
 
         if "today" in element_name.lower() or option_str == "today":
-              self.page.locator("//button[normalize-space(text())='Today']").first.click()
+              self._locator("//button[normalize-space(text())='Today']").first.click()
         elif "tomorrow" in element_name.lower() or option_str == "tomorrow":
-              self.page.locator("//button[normalize-space(text())='Tomorrow']").first.click()
+              self._locator("//button[normalize-space(text())='Tomorrow']").first.click()
         else:
             raise ValueError(f"Unsupported bus quick date option: {quick_date_option}")
 
@@ -2251,32 +2433,77 @@ class PlaywrightTestExecutor:
         actual_class_name = mapping.get(class_name.lower().strip(), class_name)
 
         normalized_xpath = self.normalize_selector(xpath)
-        self.page.locator(normalized_xpath).first.click()
-        self.page.locator(f"//span[contains(@class,'px-5px') and text()='{actual_class_name}']").first.click()
+
+        # Open class selector with fallback locators for cross-site/responsive UI variants.
+        open_candidates = [
+            normalized_xpath,
+            "xpath=//p[contains(text(), 'Travellers & Class')]",
+            "xpath=//*[contains(text(), 'Class')]",
+        ]
+        opened = False
+        for candidate in open_candidates:
+            try:
+                trigger = self._locator(candidate).first
+                trigger.wait_for(state="visible", timeout=3000)
+                trigger.click(timeout=3000)
+                opened = True
+                break
+            except Exception:
+                continue
+        if not opened:
+            raise Exception(f"Could not open travel class selector for {element_name}")
+
+        # Choose class option with flexible locator patterns.
+        class_candidates = [
+            f"xpath=//span[contains(@class,'px-5px') and normalize-space(text())='{actual_class_name}']",
+            f"xpath=//*[normalize-space(text())='{actual_class_name}']",
+        ]
+        selected = False
+        for candidate in class_candidates:
+            try:
+                option = self._locator(candidate).first
+                option.wait_for(state="visible", timeout=3000)
+                option.click(timeout=3000)
+                selected = True
+                break
+            except Exception:
+                continue
+        if not selected:
+            raise Exception(f"Could not select travel class option: {actual_class_name}")
+
         self.close_travellers_popup(xpath, element_name)
 
     def close_travellers_popup(self, xpath, element_name):
         try:
-            self.page.locator("//button[contains(text(),'Done')]" ).first.click(timeout=2000)
+            self._locator("//button[contains(text(),'Done')]" ).first.click(timeout=2000)
         except PlaywrightTimeoutError:
             self.page.keyboard.press("Escape")
 
     def handle_count_selection(self, count_str, xpath, element_name):
         target_count = int(count_str.strip())
+        before = None
+        after = None
+        element_type = None
 
         # Special handling for specific element names - use increment logic like Selenium
         if element_name.upper() == "ROOMSCOUNT":
+            element_type = "room"
+            before = self.get_current_count(element_type)
             self.set_count_by_increment("room", target_count)
         elif element_name.upper() == "ADULTSCOUNT":
+            element_type = "adult"
+            before = self.get_current_count(element_type)
             self.set_count_by_increment("adult", target_count)
         elif element_name.upper() == "CHILDRENCOUNT":
+            element_type = "children"
+            before = self.get_current_count(element_type)
             self.set_count_by_increment("children", target_count)
             # Wait for age dropdowns to appear after setting children count
             if target_count > 0:
                 self.wait_for_child_age_dropdowns(target_count)
         else:
             # Fallback to original logic for other element names
-            self.page.locator(xpath).first.click()
+            self._locator(xpath).first.click()
             self.page.wait_for_timeout(500)
 
             section_text = ""
@@ -2284,12 +2511,26 @@ class PlaywrightTestExecutor:
             elif "child" in element_name.lower(): section_text = "Children"
             elif "infant" in element_name.lower(): section_text = "Infants"
 
-            self.page.locator(f"//p[contains(text(),'{section_text}')]/parent::*/following-sibling::*//button[@data-testid='{target_count}']").first.click()
+            self._locator(f"//p[contains(text(),'{section_text}')]/parent::*/following-sibling::*//button[@data-testid='{target_count}']").first.click()
+
+        if element_type:
+            after = self.get_current_count(element_type)
+
+        self._last_count_action_state = {
+            "mode": "select_count",
+            "element_name": element_name,
+            "element_type": element_type,
+            "step_count": None,
+            "before_count": before,
+            "expected_after": target_count,
+            "after_count": after,
+            "locator": xpath,
+        }
 
     def select_child_age(self, child_index, age):
         # Use normalized selector for consistency and XPath cleaning
         normalized_selector = self.normalize_selector("//select[@data-testid='child-age-selector']")
-        age_selectors = self.page.locator(normalized_selector)
+        age_selectors = self._locator(normalized_selector)
         age_selectors.nth(child_index).select_option(str(age))
 
     def set_count_by_increment(self, element_type, desired_count):
@@ -2319,14 +2560,14 @@ class PlaywrightTestExecutor:
 
             if difference > 0:
                 # Need to increment
-                increment_button = self.page.locator(increment_xpath).first
+                increment_button = self._locator(increment_xpath).first
                 increment_button.wait_for(state="visible", timeout=5000)
                 for i in range(difference):
                     increment_button.click(timeout=3000)
                     self.page.wait_for_timeout(300)
             elif difference < 0:
                 # Need to decrement
-                decrement_button = self.page.locator(decrement_xpath).first
+                decrement_button = self._locator(decrement_xpath).first
                 decrement_button.wait_for(state="visible", timeout=5000)
                 for i in range(abs(difference)):
                     decrement_button.click(timeout=3000)
@@ -2338,18 +2579,121 @@ class PlaywrightTestExecutor:
             print(f"Error in set_count_by_increment for {element_type}: {str(e)}")
             raise e
 
+    def _get_count_control_xpaths(self, element_type):
+        element_type = (element_type or "").lower()
+        if element_type == "room":
+            return (
+                "//p[contains(@data-testid,'room-increment')]//*[name()='svg']//*[name()='path' and contains(@fill-rule,'evenodd')]",
+                "//p[@data-testid='room-decrement']//*[name()='svg']"
+            )
+        if element_type == "adult":
+            return (
+                "//p[@data-testid='adult-increment']//*[name()='svg']",
+                "//p[contains(@data-testid,'adult-decrement')]//*[name()='svg']"
+            )
+        if element_type == "children":
+            return (
+                "//p[@data-testid='counter-increment-children']//*[name()='svg']",
+                "//p[@data-testid='counter-decrement-children']//*[name()='svg']"
+            )
+        if element_type == "infant":
+            return (
+                "//p[@data-testid='counter-increment-infant']//*[name()='svg'] | //p[contains(@data-testid,'infant-increment')]//*[name()='svg']",
+                "//p[@data-testid='counter-decrement-infant']//*[name()='svg'] | //p[contains(@data-testid,'infant-decrement')]//*[name()='svg']"
+            )
+        return (None, None)
+
+    def handle_increment_action(self, test_data, xpath, element_name):
+        element_type = self.resolve_count_element_type(element_name)
+        target_or_steps = int(str(test_data).strip() or "1")
+        if target_or_steps < 0:
+            raise ValueError("INCREMENT requires non-negative value")
+        before = self.get_current_count(element_type) if element_type else None
+        steps = target_or_steps
+        if before is not None:
+            steps = max(target_or_steps - before, 0)
+            print(f"[COUNT_INCREMENT] Target mode for {element_name}: current={before}, target={target_or_steps}, steps={steps}")
+
+        if element_type:
+            inc_xpath, _ = self._get_count_control_xpaths(element_type)
+            if not inc_xpath:
+                raise ValueError(f"Unsupported count element for INCREMENT: {element_name}")
+            button = self._locator(self.normalize_selector(inc_xpath)).first
+            button.wait_for(state="visible", timeout=self.default_wait_timeout * 1000)
+            for _ in range(steps):
+                button.click(timeout=self.default_wait_timeout * 1000)
+                self.page.wait_for_timeout(200)
+            after = self.get_current_count(element_type)
+        else:
+            locator = self.find_element_with_advanced_wait(xpath)
+            for _ in range(steps):
+                self.perform_robust_click(locator)
+                self.page.wait_for_timeout(200)
+            after = None
+
+        self._last_count_action_state = {
+            "mode": "increment",
+            "element_name": element_name,
+            "element_type": element_type,
+            "step_count": steps,
+            "before_count": before,
+            "expected_after": (before + steps) if before is not None else None,
+            "after_count": after,
+            "locator": xpath,
+        }
+
+    def handle_decrement_action(self, test_data, xpath, element_name):
+        element_type = self.resolve_count_element_type(element_name)
+        target_or_steps = int(str(test_data).strip() or "1")
+        if target_or_steps < 0:
+            raise ValueError("DECREMENT requires non-negative value")
+        before = self.get_current_count(element_type) if element_type else None
+        steps = target_or_steps
+        if before is not None:
+            steps = max(before - target_or_steps, 0)
+            print(f"[COUNT_DECREMENT] Target mode for {element_name}: current={before}, target={target_or_steps}, steps={steps}")
+
+        if element_type:
+            _, dec_xpath = self._get_count_control_xpaths(element_type)
+            if not dec_xpath:
+                raise ValueError(f"Unsupported count element for DECREMENT: {element_name}")
+            button = self._locator(self.normalize_selector(dec_xpath)).first
+            button.wait_for(state="visible", timeout=self.default_wait_timeout * 1000)
+            for _ in range(steps):
+                button.click(timeout=self.default_wait_timeout * 1000)
+                self.page.wait_for_timeout(200)
+            after = self.get_current_count(element_type)
+        else:
+            locator = self.find_element_with_advanced_wait(xpath)
+            for _ in range(steps):
+                self.perform_robust_click(locator)
+                self.page.wait_for_timeout(200)
+            after = None
+
+        self._last_count_action_state = {
+            "mode": "decrement",
+            "element_name": element_name,
+            "element_type": element_type,
+            "step_count": steps,
+            "before_count": before,
+            "expected_after": (before - steps) if before is not None else None,
+            "after_count": after,
+            "locator": xpath,
+        }
+
     def get_current_count(self, element_type):
         """Get current count from UI using Playwright"""
         try:
             # Get all counter-input elements and use index based on element type
             normalized_selector = self.normalize_selector("//span[@data-testid='counter-input']")
-            all_counter_inputs = self.page.locator(normalized_selector)
+            all_counter_inputs = self._locator(normalized_selector)
 
             # Based on typical order: rooms, adults, children
             index_map = {
                 "room": 0,
                 "adult": 1,
-                "children": 2
+                "children": 2,
+                "infant": 3
             }
 
             index = index_map.get(element_type.lower(), -1)
@@ -2376,7 +2720,7 @@ class PlaywrightTestExecutor:
             normalized_selector = self.normalize_selector("//select[@data-testid='child-age-selector']")
 
             for i in range(attempts):
-                age_selectors = self.page.locator(normalized_selector)
+                age_selectors = self._locator(normalized_selector)
                 count = age_selectors.count()
                 if count >= expected_count:
                     print(f"Found {count} child age dropdowns (expected: {expected_count})")
@@ -2393,7 +2737,7 @@ class PlaywrightTestExecutor:
     def handle_checkbox_action(self, test_data, xpath, element_name):
         should_be_checked = test_data.upper() in ["TRUE", "1", "YES"]
         normalized_xpath = self.normalize_selector(xpath)
-        checkbox = self.page.locator(normalized_xpath)
+        checkbox = self._locator(normalized_xpath)
         current_state = checkbox.is_checked()
 
         # Clear default checked state first for deterministic behavior.
@@ -2417,6 +2761,7 @@ class PlaywrightTestExecutor:
             print("[PAGE] Waiting for a new page to open...")
         new_page = new_page_info.value
         self.page = new_page
+        self.active_frame = None
         print(f"[PAGE] Switched to new page: {new_page.url}")
         return new_page
 
@@ -2425,12 +2770,14 @@ class PlaywrightTestExecutor:
             latest_page = self.context.pages[-1]
             if self.page != latest_page:
                 self.page = latest_page
+                self.active_frame = None
                 self.page.bring_to_front()
                 print(f"[PAGE] Switched to latest page: {self.page.url}")
 
     def switch_to_page_by_index(self, index):
         if self.context and 0 <= index < len(self.context.pages):
             self.page = self.context.pages[index]
+            self.active_frame = None
             self.page.bring_to_front()
             print(f"[PAGE] Switched to page at index {index}: {self.page.url}")
         else:
@@ -2441,6 +2788,7 @@ class PlaywrightTestExecutor:
         for p in self.context.pages:
             if url_pattern.lower() in p.url.lower():
                 self.page = p
+                self.active_frame = None
                 self.page.bring_to_front()
                 print(f"[PAGE] Switched to page with URL pattern '{url_pattern}': {p.url}")
                 return
@@ -2454,7 +2802,60 @@ class PlaywrightTestExecutor:
             if p != self.initial_page:
                 p.close()
         self.page = self.initial_page
+        self.active_frame = None
         print("[PAGE] Closed all extra pages.")
+
+    def switch_to_default_content(self):
+        """Reset active context back to the main page."""
+        self.active_frame = None
+        print("[FRAME] Switched to default content (main page)")
+
+    def switch_to_iframe(self, frame_reference):
+        """Switch active locator scope to an iframe by index/name/url/selector."""
+        if not self.page:
+            raise Exception("No active page available for iframe switching")
+
+        ref = str(frame_reference or "").strip()
+        if not ref:
+            # Empty reference means first iframe.
+            ref = "0"
+
+        ref_lower = ref.lower()
+        if ref_lower in {"default", "main", "top", "parent", "root"}:
+            self.switch_to_default_content()
+            return
+
+        # Numeric references map to iframe index (excluding the main frame).
+        child_frames = [f for f in self.page.frames if f != self.page.main_frame]
+        if ref.isdigit():
+            frame_index = int(ref)
+            if frame_index < 0 or frame_index >= len(child_frames):
+                raise Exception(f"Iframe index out of range: {frame_index}. Available iframes: {len(child_frames)}")
+            self.active_frame = child_frames[frame_index]
+            print(f"[FRAME] Switched to iframe by index {frame_index}: {self.active_frame.url}")
+            return
+
+        # Try direct frame matching by name/url.
+        for frame in child_frames:
+            frame_name = (frame.name or "").strip().lower()
+            frame_url = (frame.url or "").strip().lower()
+            if ref_lower == frame_name or ref_lower in frame_url:
+                self.active_frame = frame
+                print(f"[FRAME] Switched to iframe by name/url match: name='{frame.name}', url='{frame.url}'")
+                return
+
+        # Try selector-based lookup (xpath/css/id etc).
+        normalized_ref = self.normalize_selector(ref)
+        iframe_element = self.page.locator(normalized_ref).first
+        iframe_element.wait_for(state="attached", timeout=10000)
+        handle = iframe_element.element_handle()
+        if not handle:
+            raise Exception(f"Unable to resolve iframe element for selector: {frame_reference}")
+        selected_frame = handle.content_frame()
+        if not selected_frame:
+            raise Exception(f"Selector does not resolve to an iframe element: {frame_reference}")
+        self.active_frame = selected_frame
+        print(f"[FRAME] Switched to iframe via selector: {frame_reference}")
 
     # --- Allure Reporting ---
 
@@ -2589,7 +2990,7 @@ class PlaywrightTestExecutor:
             return None, None
         
         try:
-            locator = self.page.locator(xpath)
+            locator = self._locator(xpath)
             locator.scroll_into_view_if_needed()
             locator.highlight() # Playwright's built-in highlight
             
@@ -2634,15 +3035,145 @@ class PlaywrightTestExecutor:
         """Playwright's model is naturally isolated. This is an alias for the main execute_action."""
         return self.execute_action(action_type, test_data, xpath, element_name)
 
-    # The complex validation methods from the Selenium executor can be simplified
-    # as Playwright's auto-waiting and actionability checks handle most of these cases.
-    # For this conversion, we'll rely on Playwright's built-in checks. If an action
-    # fails, Playwright will raise a detailed exception.
-
     def validate_action_result(self, action_type, test_data, xpath, element_name):
-        """Basic validation stub. Playwright's actionability checks are the primary validation."""
-        print(f"[VALIDATION] Action '{action_type}' on '{element_name}' completed. Relying on Playwright's implicit checks.")
-        return {'success': True, 'message': 'Action completed.'}
+        """Best-effort post-action validation for key interaction types."""
+        action_type = self.normalize_action_type(action_type)
+        element_name = element_name or "unnamed_element"
+        try:
+            if action_type in ["OPEN_BROWSER", "NAVIGATE_TO_URL", "REFRESH_PAGE", "GO_BACK", "GO_FORWARD"]:
+                if self.page and self.page.url:
+                    return {'success': True, 'message': f'{action_type} completed successfully'}
+                return {'success': False, 'message': f'{action_type} failed: page URL unavailable'}
+
+            if action_type in ["CLICK", "DOUBLE_CLICK", "RIGHT_CLICK", "MOUSE_OVER"]:
+                transient_click_targets = {"DONE", "DONEBUTTON", "TRAVELCLASS", "CLASS"}
+                if action_type == "CLICK" and element_name.upper() in transient_click_targets:
+                    # Popup controls often disappear immediately after successful interaction.
+                    _ = self.page.url
+                    return {'success': True, 'message': f'{action_type} completed for transient element "{element_name}"'}
+
+                target = self.find_element_with_advanced_wait(xpath)
+                try:
+                    target.wait_for(state="attached", timeout=min(self.default_wait_timeout, 3) * 1000)
+                except Exception:
+                    # Click can legitimately change the DOM and remove the source element.
+                    _ = self.page.url
+                    return {'success': True, 'message': f'{action_type} completed; source element changed/disappeared for "{element_name}"'}
+                return {'success': True, 'message': f'{action_type} completed for "{element_name}"'}
+
+            if action_type in ["CLICK_AND_TYPE", "CLEAR_AND_TYPE"]:
+                target = self.find_element_with_advanced_wait(xpath)
+                expected = str(test_data or "").strip()
+                actual = (target.input_value(timeout=self.default_wait_timeout * 1000) or "").strip()
+                if actual == expected:
+                    return {'success': True, 'message': f'Input validation passed for "{element_name}"'}
+                return {'success': False, 'message': f'Expected "{expected}" but found "{actual}" for "{element_name}"'}
+
+            if action_type == "HANDLE_CHECKBOX":
+                target = self.find_element_with_advanced_wait(xpath)
+                expected = str(test_data or "").strip().lower() in ["true", "1", "yes", "on", "checked"]
+                actual = target.is_checked()
+                if expected == actual:
+                    return {'success': True, 'message': f'Checkbox validation passed for "{element_name}"'}
+                return {'success': False, 'message': f'Checkbox mismatch for "{element_name}"'}
+
+            if action_type == "RADIO_BUTTON":
+                target = self.find_element_with_advanced_wait(xpath)
+                if target.is_checked():
+                    return {'success': True, 'message': f'Radio button "{element_name}" selected'}
+                return {'success': False, 'message': f'Radio button "{element_name}" is not selected'}
+
+            if action_type == "DRAG_AND_DROP":
+                state = getattr(self, "_last_drag_drop_state", None) or {}
+                source_locator = state.get("source_locator") or xpath
+                target_locator = state.get("target_locator") or self._parse_drag_drop_target_locator(test_data)
+                if not source_locator or not target_locator:
+                    return {'success': False, 'message': 'Drag and drop validation failed: missing source or target'}
+                self.find_element_with_advanced_wait(source_locator).wait_for(state="attached", timeout=self.default_wait_timeout * 1000)
+                self.find_element_with_advanced_wait(target_locator).wait_for(state="attached", timeout=self.default_wait_timeout * 1000)
+                return {'success': True, 'message': f'Drag and drop completed for "{element_name}"'}
+
+            if action_type in ["SELECT_COUNT", "INCREMENT", "DECREMENT"]:
+                state = getattr(self, "_last_count_action_state", None) or {}
+                expected_after = state.get("expected_after")
+                after_count = state.get("after_count")
+                if expected_after is not None and after_count is not None:
+                    if int(after_count) == int(expected_after):
+                        return {'success': True, 'message': f'Count action validated: expected {expected_after}, found {after_count}'}
+                    return {'success': False, 'message': f'Count mismatch: expected {expected_after}, found {after_count}'}
+                return {'success': True, 'message': f'{action_type} completed (no count snapshot available)'}
+
+            return {'success': True, 'message': f'Action {action_type} completed'}
+        except Exception as e:
+            return {'success': False, 'message': f'Validation failed for {action_type}: {e}'}
+
+    def pre_validate_action(self, action_type, test_data, xpath, element_name):
+        """Validate action inputs before execution with generic selector checks."""
+        action_type = self.normalize_action_type(action_type)
+        element_name = (element_name or "").strip() or "unnamed_element"
+        try:
+            if not action_type:
+                return {'success': False, 'message': f'Action type is empty for "{element_name}"'}
+
+            locator_required_actions = [
+                "CLICK_AND_SELECT",
+                "CLICK",
+                "CLICK_AND_TYPE",
+                "CLEAR_AND_TYPE",
+                "DOUBLE_CLICK",
+                "RIGHT_CLICK",
+                "MOUSE_OVER",
+                "RADIO_BUTTON",
+                "DRAG_AND_DROP",
+                "HANDLE_CHECKBOX",
+                "INCREMENT",
+                "DECREMENT",
+            ]
+
+            if action_type in locator_required_actions:
+                missing_locator = (not xpath or not str(xpath).strip() or str(xpath).strip().upper() == "NA")
+                if missing_locator:
+                    if action_type in ["INCREMENT", "DECREMENT"] and self.resolve_count_element_type(element_name):
+                        missing_locator = False
+                    else:
+                        return {'success': False, 'message': f'Missing locator for "{element_name}" ({action_type})'}
+
+                if not missing_locator:
+                    selector = self.normalize_selector(xpath)
+                    locator = self._locator(selector).first
+                    if action_type == "CLICK" and element_name.upper() in ["DONE", "DONEBUTTON", "TRAVELCLASS", "CLASS"]:
+                        # Popup controls can be absent depending on UI state.
+                        if locator.count() == 0:
+                            return {'success': True, 'message': f'{element_name} is optional in current state'}
+                    else:
+                        locator.wait_for(state="attached", timeout=self.default_wait_timeout * 1000)
+
+            if action_type in ["CLICK_AND_SELECT", "CLICK_AND_TYPE", "CLEAR_AND_TYPE", "SELECT_COUNT"] and test_data in [None, ""]:
+                return {'success': False, 'message': f'{action_type} requires a value for "{element_name}"'}
+
+            if action_type == "DRAG_AND_DROP":
+                target_locator = self._parse_drag_drop_target_locator(test_data)
+                if not target_locator:
+                    return {'success': False, 'message': f'DRAG_AND_DROP requires target locator in values for "{element_name}"'}
+                target = self.find_element_with_advanced_wait(target_locator)
+                target.wait_for(state="attached", timeout=self.default_wait_timeout * 1000)
+
+            if action_type == "SELECT_COUNT":
+                int(str(test_data).strip())
+
+            if action_type in ["INCREMENT", "DECREMENT"] and test_data not in [None, ""]:
+                parsed_steps = int(str(test_data).strip())
+                if parsed_steps < 0:
+                    return {'success': False, 'message': f'{action_type} requires non-negative value; got "{test_data}"'}
+
+            if action_type == "RADIO_BUTTON":
+                valid_radio_values = ['', 'true', '1', 'yes', 'on', 'select', 'selected']
+                if str(test_data or '').strip().lower() not in valid_radio_values:
+                    return {'success': False, 'message': f'Invalid RADIO_BUTTON value "{test_data}"'}
+
+            return {'success': True, 'message': f'Pre-validation passed for {action_type}'}
+        except Exception as e:
+            return {'success': False, 'message': f'Pre-validation failed for {action_type} on "{element_name}": {e}'}
 
 
 if __name__ == '__main__':
@@ -2671,3 +3202,4 @@ if __name__ == '__main__':
         print("-------------------")
         
         
+

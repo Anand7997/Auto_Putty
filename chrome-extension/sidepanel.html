@@ -1,73 +1,83 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QFast XPath Capture</title>
-    <link rel="stylesheet" href="xpath-side-panel.css">
-    <link rel="stylesheet" href="content.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QFast Advanced Selector Studio</title>
+  <link rel="stylesheet" href="xpath-side-panel.css">
 </head>
 <body>
-    <div id="xpath-side-panel">
-        <div class="xpath-panel-header">
-            <h2 class="xpath-panel-title">
-                🚀 QFast XPath Capture
-            </h2>
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <div id="extension-status" class="extension-status" title="Extension status on current page">
-                    <span id="status-indicator">⏳</span>
-                    <span id="status-text">Checking...</span>
-                </div>
-                <button class="xpath-panel-close">
-                    ×
-                </button>
-            </div>
+  <div id="xpath-side-panel">
+    <header class="panel-header">
+      <div>
+        <h1 class="panel-title">QFast Selector Studio</h1>
+        <p class="panel-subtitle">XPath + CSS + Playwright with Auto-Heal</p>
+      </div>
+      <div class="status-group">
+        <div id="extension-status" class="extension-status checking" title="Extension status on current page">
+          <span id="status-indicator">...</span>
+          <span id="status-text">Checking</span>
         </div>
+      </div>
+    </header>
 
-        <div class="xpath-panel-content">
-            <!-- 🟦 SECTION A — Capture Area -->
-            <div class="section-a-container">
-                <div class="section-a-header">
-                    🟦 SECTION A — Capture Area
-                </div>
-
-                <div class="capture-controls">
-                    <button class="capture-btn start-capture-btn" id="start-capture-btn">
-                        🎯 Start Capture
-                    </button>
-                    <button class="capture-btn stop-capture-btn" id="stop-capture-btn" style="display: none;">
-                        🛑 Stop Capture
-                    </button>
-                </div>
-
-                <div class="section-a-content" id="section-a-content">
-                    <!-- Instructions removed as requested -->
-                </div>
-            </div>
-
-            <!-- 🟩 SECTION B — Panel / Selected XPaths -->
-            <div class="section-b-container">
-                <div class="section-b-header">
-                    🟩 SECTION B — Panel / Selected XPaths
-                    <span id="selected-count" class="score-badge">0</span>
-                </div>
-
-                <div class="section-b-content">
-                    <ul class="selected-xpaths-list" id="selected-xpaths-list">
-                        <li class="empty-section-b">No XPaths selected yet</li>
-                    </ul>
-                </div>
-
-                <!-- Action Buttons -->
-                <div class="xpath-actions">
-                    <button class="add-to-teststeps-btn" id="add-to-teststeps-btn" disabled>
-                        📌 Add to TestSteps
-                    </button>
-                </div>
-            </div>
+    <main class="panel-content">
+      <section class="card controls-card">
+        <div class="card-title-row">
+          <h2>Capture Controls</h2>
+          <span id="selected-count" class="count-chip">0</span>
         </div>
-    </div>
+        <div class="control-grid">
+          <button class="btn btn-primary" id="start-capture-btn">Start Capture</button>
+          <button class="btn btn-danger" id="stop-capture-btn" style="display:none;">Stop Capture</button>
+          <button class="btn btn-soft" id="bulk-validate-btn">Bulk Validate</button>
+          <button class="btn btn-soft" id="start-watcher-btn">Start Watcher</button>
+          <button class="btn btn-soft" id="stop-watcher-btn" disabled>Stop Watcher</button>
+          <button class="btn btn-soft" id="scrape-btn">Run Scrape</button>
+          <button class="btn btn-soft" id="reset-panel-btn">Reset</button>
+          <button class="btn btn-soft" id="export-json-btn">Export JSON</button>
+          <button class="btn btn-soft" id="export-csv-btn">Export CSV</button>
+        </div>
+        <div class="summary-strip" id="validation-summary">
+          <span>Total: 0</span>
+          <span>Pass: 0</span>
+          <span>Fail: 0</span>
+          <span>Pass Rate: 0%</span>
+        </div>
+      </section>
 
-    <script src="sidepanel.js"></script>
+      <section class="card strategy-card" id="strategy-panel">
+        <div class="card-title-row">
+          <h2>Selector Strategy Panel</h2>
+          <span id="reliability-chip" class="score-chip score-low">Score 0</span>
+        </div>
+        <div id="strategy-content" class="strategy-content empty">
+          Capture an element to see XPath, CSS, Playwright selectors and reliability scoring.
+        </div>
+      </section>
+
+      <section class="card list-card">
+        <div class="card-title-row">
+          <h2>Captured Elements</h2>
+        </div>
+        <ul id="selected-xpaths-list" class="selector-list">
+          <li class="empty-state">No selectors captured yet.</li>
+        </ul>
+      </section>
+
+      <section class="card scrape-card">
+        <div class="card-title-row">
+          <h2>Scraping Output</h2>
+        </div>
+        <pre id="scrape-output" class="scrape-output">Run scrape mode to extract list/table patterns as JSON.</pre>
+      </section>
+
+      <section class="card save-card">
+        <button class="btn btn-primary block" id="add-to-teststeps-btn" disabled>Add to TestSteps</button>
+      </section>
+    </main>
+  </div>
+
+  <script src="sidepanel.js"></script>
 </body>
 </html>

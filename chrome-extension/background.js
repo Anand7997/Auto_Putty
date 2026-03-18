@@ -268,6 +268,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // SAVE_XPATHS_TO_BACKEND
     if (request.action === 'SAVE_XPATHS_TO_BACKEND') {
       console.log('Saving XPaths to backend API:', request.xpaths);
+      const userEmail = (request.user_email || request.userEmail || 'extension_user').toString().trim() || 'extension_user';
 
       // Ensure page information is included in XPath data
       const enrichedXpaths = request.xpaths.map(xpath => ({
@@ -282,14 +283,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       const apiUrl = 'http://10.30.3.85:5000/api/extension-xpaths';
       const requestData = {
         xpaths: enrichedXpaths,
-        session_id: request.session_id
+        session_id: request.session_id,
+        user_email: userEmail
       };
 
       fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Email': 'extension_user'
+          'X-User-Email': userEmail
         },
         body: JSON.stringify(requestData)
       })
@@ -313,6 +315,125 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
 
       return true; // Keep message channel open for async response
+    }
+
+    // BULK_VALIDATE_SELECTORS
+    if (request.action === 'BULK_VALIDATE_SELECTORS') {
+      chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+        const tab = tabs && tabs[0];
+        if (!tab || !tab.id) {
+          if (sendResponse) sendResponse({ success: false, error: 'No active tab' });
+          return;
+        }
+
+        const ready = await ensureContentScriptReady(tab);
+        if (!ready.success) {
+          if (sendResponse) sendResponse({ success: false, error: ready.error });
+          return;
+        }
+
+        chrome.tabs.sendMessage(tab.id, {
+          action: 'BULK_VALIDATE_SELECTORS',
+          items: request.items || []
+        }).then((response) => {
+          if (sendResponse) sendResponse(response || { success: false, error: 'No response from content script' });
+        }).catch((error) => {
+          if (sendResponse) sendResponse({ success: false, error: error.message });
+        });
+      });
+      return true;
+    }
+
+    // START_DOM_WATCHER
+    if (request.action === 'START_DOM_WATCHER') {
+      chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+        const tab = tabs && tabs[0];
+        if (!tab || !tab.id) {
+          if (sendResponse) sendResponse({ success: false, error: 'No active tab' });
+          return;
+        }
+
+        const ready = await ensureContentScriptReady(tab);
+        if (!ready.success) {
+          if (sendResponse) sendResponse({ success: false, error: ready.error });
+          return;
+        }
+
+        chrome.tabs.sendMessage(tab.id, {
+          action: 'START_DOM_WATCHER',
+          items: request.items || []
+        }).then((response) => {
+          if (sendResponse) sendResponse(response || { success: true });
+        }).catch((error) => {
+          if (sendResponse) sendResponse({ success: false, error: error.message });
+        });
+      });
+      return true;
+    }
+
+    // STOP_DOM_WATCHER
+    if (request.action === 'STOP_DOM_WATCHER') {
+      chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+        const tab = tabs && tabs[0];
+        if (!tab || !tab.id) {
+          if (sendResponse) sendResponse({ success: false, error: 'No active tab' });
+          return;
+        }
+
+        const ready = await ensureContentScriptReady(tab);
+        if (!ready.success) {
+          if (sendResponse) sendResponse({ success: false, error: ready.error });
+          return;
+        }
+
+        chrome.tabs.sendMessage(tab.id, { action: 'STOP_DOM_WATCHER' })
+          .then((response) => {
+            if (sendResponse) sendResponse(response || { success: true });
+          })
+          .catch((error) => {
+            if (sendResponse) sendResponse({ success: false, error: error.message });
+          });
+      });
+      return true;
+    }
+
+    // SCRAPE_PATTERNS
+    if (request.action === 'SCRAPE_PATTERNS') {
+      chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+        const tab = tabs && tabs[0];
+        if (!tab || !tab.id) {
+          if (sendResponse) sendResponse({ success: false, error: 'No active tab' });
+          return;
+        }
+
+        const ready = await ensureContentScriptReady(tab);
+        if (!ready.success) {
+          if (sendResponse) sendResponse({ success: false, error: ready.error });
+          return;
+        }
+
+        chrome.tabs.sendMessage(tab.id, { action: 'SCRAPE_PATTERNS' })
+          .then((response) => {
+            if (sendResponse) sendResponse(response || { success: false, error: 'No response from content script' });
+          })
+          .catch((error) => {
+            if (sendResponse) sendResponse({ success: false, error: error.message });
+          });
+      });
+      return true;
+    }
+
+    // DOM_WATCH_ALERT - forward to sidepanel
+    if (request.action === 'DOM_WATCH_ALERT') {
+      chrome.runtime.sendMessage({
+        action: 'DOM_WATCH_ALERT',
+        payload: request.payload
+      }).catch(() => {
+        // side panel may not be open
+      });
+
+      if (sendResponse) sendResponse({ success: true });
+      return;
     }
 
   } catch (error) {
