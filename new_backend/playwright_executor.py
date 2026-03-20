@@ -268,7 +268,7 @@ class PlaywrightTestExecutor:
                     "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 ])
             else:
-                launch_args.append("--start-maximized")
+                launch_args.append("--window-size=1280,720")
 
             self.browser = self.playwright.chromium.launch(
                 headless=headless_mode,
@@ -278,7 +278,7 @@ class PlaywrightTestExecutor:
             
             print("[CONTEXT] Creating new browser context...")
             self.context = self.browser.new_context(
-                no_viewport=True, # Use the browser's full window size
+                viewport={"width": 1280, "height": 720},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",  # Pretend to be a regular Chrome browser
                 ignore_https_errors=True  # Don't fail on SSL certificate issues
             )
