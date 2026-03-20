@@ -212,7 +212,7 @@ export default defineConfig({{
             os.makedirs(support_dir)
 
             # Create support file with xpath plugin and custom commands
-            support_content = """
+            support_content = r"""
 try {
   require('cypress-xpath')
   console.log('cypress-xpath loaded successfully')
@@ -283,6 +283,202 @@ Cypress.Commands.add('xpathOrCSS', (selector, isXPath = true) => {
   } else {
     return cy.get(selector)
   }
+})
+
+const qfastVisible = ($elements) => Cypress.$($elements).filter((_, el) => {
+  const $el = Cypress.$(el)
+  if (!$el.is(':visible')) {
+    return false
+  }
+  const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null
+  return !rect || (rect.width > 0 && rect.height > 0)
+})
+
+Cypress.Commands.add('resolveAnchoredInput', { prevSubject: true }, (subject) => {
+  const $subject = Cypress.$(subject).first()
+  if (!$subject.length) {
+    throw new Error('resolveAnchoredInput requires a subject')
+  }
+
+  if ($subject.is('input, textarea')) {
+    return cy.wrap($subject)
+  }
+
+  const subjectEl = $subject[0]
+  const byVisibility = ($els) => qfastVisible($els).first()
+  const selector = 'input:visible, textarea:visible'
+
+  const candidates = []
+
+  const ariaControls = subjectEl.getAttribute && subjectEl.getAttribute('aria-controls')
+  if (ariaControls) {
+    candidates.push(Cypress.$(`#${ariaControls}`).find(selector))
+  }
+
+  const forId = subjectEl.getAttribute && subjectEl.getAttribute('for')
+  if (forId) {
+    candidates.push(Cypress.$(`#${forId}`))
+  }
+
+  const $closestLabel = $subject.closest('label')
+  if ($closestLabel.length) {
+    candidates.push($closestLabel.find(selector))
+  }
+
+  const $closestField = $subject.closest('[role="group"], [role="combobox"], label, form, section, article, div')
+  if ($closestField.length) {
+    candidates.push($closestField.find(selector))
+    candidates.push($closestField.siblings().find(selector))
+  }
+
+  candidates.push($subject.parent().find(selector))
+  candidates.push($subject.nextAll().find(selector))
+  candidates.push($subject.prevAll().find(selector))
+
+  for (const group of candidates) {
+    const $match = byVisibility(group)
+    if ($match.length) {
+      return cy.wrap($match)
+    }
+  }
+
+  return cy.focused().then(($focused) => {
+    if ($focused.is('input, textarea')) {
+      return cy.wrap($focused)
+    }
+    const $fallback = byVisibility(Cypress.$(selector))
+    if ($fallback.length) {
+      return cy.wrap($fallback)
+    }
+    throw new Error('Unable to resolve a visible input for the current trigger')
+  })
+})
+
+Cypress.Commands.add('findActiveLayerRoot', { prevSubject: 'optional' }, (subject, kind = 'generic') => {
+  const $subject = subject ? Cypress.$(subject).first() : Cypress.$()
+  const layerSelector = [
+    '[role="dialog"]',
+    '[role="listbox"]',
+    '[role="menu"]',
+    '[role="presentation"]',
+    '[data-testid*="calendar"]',
+    '[data-testid*="popover"]',
+    '[data-testid*="dropdown"]',
+    '[data-testid*="modal"]',
+    '[class*="calendar"]',
+    '[class*="Calendar"]',
+    '[class*="datepicker"]',
+    '[class*="DatePicker"]',
+    '[class*="popover"]',
+    '[class*="Popover"]',
+    '[class*="dropdown"]',
+    '[class*="Dropdown"]',
+    '[class*="modal"]',
+    '[class*="Modal"]'
+  ].join(', ')
+
+  const detectorByKind = {
+    calendar: 'abbr[aria-label], button[aria-label], [data-testid*="calendar"], [class*="calendar"], [class*="DatePicker"], [class*="datepicker"]',
+    popup: 'button, [role="button"], [role="option"], li, p, span',
+    generic: 'button, input, textarea, abbr, [role="button"], [role="option"]'
+  }
+
+  const detector = detectorByKind[kind] || detectorByKind.generic
+
+  const score = (el) => {
+    const $el = Cypress.$(el)
+    const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 0, height: 0, top: 0, left: 0 }
+    const zIndex = Number.parseInt(($el.css('z-index') || '0').toString(), 10) || 0
+    let proximity = 0
+    if ($subject.length && $subject[0].getBoundingClientRect) {
+      const sRect = $subject[0].getBoundingClientRect()
+      const dx = Math.abs((rect.left + rect.width / 2) - (sRect.left + sRect.width / 2))
+      const dy = Math.abs((rect.top + rect.height / 2) - (sRect.top + sRect.height / 2))
+      proximity = Math.max(0, 5000 - dx - dy)
+    }
+    return proximity + zIndex + rect.width + rect.height
+  }
+
+  return cy.getActiveFrameBody().then(($body) => {
+    const pools = []
+
+    if ($subject.length) {
+      pools.push($subject.closest(layerSelector))
+      pools.push($subject.parents().filter(layerSelector))
+      pools.push($subject.siblings(layerSelector))
+    }
+
+    pools.push(Cypress.$(layerSelector, $body))
+    pools.push(Cypress.$('body > div, body > section, body > aside', $body))
+
+    const candidates = []
+    for (const pool of pools) {
+      qfastVisible(pool).each((_, el) => {
+        const $el = Cypress.$(el)
+        if ($el.find(detector).length || $el.is(detector)) {
+          candidates.push(el)
+        }
+      })
+    }
+
+    const uniqueCandidates = [...new Set(candidates)]
+    if (!uniqueCandidates.length) {
+      return cy.wrap($body)
+    }
+
+    uniqueCandidates.sort((a, b) => score(b) - score(a))
+    return cy.wrap(uniqueCandidates[0])
+  })
+})
+
+Cypress.Commands.add('selectAutocompleteOption', { prevSubject: 'optional' }, (subject, targetText) => {
+  const normalizedTarget = (targetText || '').replace(/\s+/g, ' ').trim().toLowerCase()
+
+  const scoreSuggestion = (el) => {
+    const $el = Cypress.$(el)
+    const text = ($el.text() || '').replace(/\s+/g, ' ').trim().toLowerCase()
+    const clickable = $el.is('button, a, li, [role="option"], [role="button"]')
+      ? $el
+      : $el.closest('button, a, li, [role="option"], [role="button"], [data-testid], [tabindex]')
+    const clickableText = (clickable.text() || text || '').replace(/\s+/g, ' ').trim().toLowerCase()
+    const combined = clickableText || text
+
+    if (!combined || !normalizedTarget || !combined.includes(normalizedTarget)) {
+      return null
+    }
+
+    let score = 0
+    if (combined === normalizedTarget) score += 100
+    if (combined.startsWith(normalizedTarget)) score += 60
+    if (combined.includes(` ${normalizedTarget}`)) score += 20
+    if (clickable.length && clickable[0] !== el) score += 10
+    if ($el.attr('role') === 'option' || clickable.attr('role') === 'option') score += 30
+    if ($el.is('li') || clickable.is('li')) score += 20
+    if ((clickable.attr('class') || '').toLowerCase().includes('disabled')) score -= 200
+    score -= Math.max(0, combined.length - normalizedTarget.length)
+
+    return {
+      element: clickable.length ? clickable[0] : el,
+      score
+    }
+  }
+
+  return cy.findActiveLayerRoot(subject, 'popup').then(($popupRoot) => {
+    const $root = Cypress.$($popupRoot)
+    const candidates = $root
+      .find('[role="option"], li, button, a, [role="button"], [data-testid], div, span, p')
+      .filter(':visible')
+      .toArray()
+      .map(scoreSuggestion)
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score)
+
+    if (!candidates.length) {
+      return cy.wrap(null, { log: false })
+    }
+
+    return cy.wrap(Cypress.$(candidates[0].element), { log: false })
+  })
 })
 
 Cypress.Commands.add('visitStealth', (url, options = {}) => {
@@ -474,6 +670,48 @@ describe('{testcase_name}', () => {{
         text = text.replace('"', '\\"')
         return text
 
+    def clean_xpath(self, xpath):
+        """Clean XPath to fix common syntax issues before emitting Cypress selectors."""
+        try:
+            if not xpath:
+                return xpath
+
+            cleaned = str(xpath).strip()
+
+            # Fix concatenated XPath values like:
+            # //select[@id='child-age'] (//select[@data-testid='child-age-selector'])[1]
+            # by keeping the actual indexed selector.
+            concatenated_with_index = r"^//[^(\s]+\s+\((//[^)]+)\)\[(\d+)\]$"
+            match = re.match(concatenated_with_index, cleaned)
+            if match:
+                inner_xpath = match.group(1)
+                index = match.group(2)
+                cleaned = f"({inner_xpath})[{index}]"
+                print(f"[XPATH_CLEAN] Fixed concatenated XPath, using: {cleaned}")
+                return cleaned
+
+            concatenated_simple = r"^//[^(\s]+\s+\((//[^)]+)\)$"
+            match = re.match(concatenated_simple, cleaned)
+            if match:
+                cleaned = match.group(1)
+                print(f"[XPATH_CLEAN] Fixed simple concatenated XPath, using: {cleaned}")
+                return cleaned
+
+            if not cleaned.startswith(("/", ".//", "(")):
+                cleaned = "//" + cleaned
+
+            return cleaned
+        except Exception as e:
+            print(f"[XPATH_CLEAN] Failed to clean XPath '{xpath}': {str(e)}")
+            return xpath
+
+    def _safe_log_preview(self, text, limit=500):
+        """Return an ASCII-safe preview string for console logging."""
+        preview = ascii((text or "")[:limit])
+        if text and len(text) > limit:
+            preview += "..."
+        return preview
+
     def normalize_action_type(self, action_type):
         """Normalize legacy action names to current supported action set."""
         normalized = (action_type or "").upper().strip()
@@ -532,7 +770,7 @@ describe('{testcase_name}', () => {{
 
         lowered = raw.lower()
         if lowered.startswith("xpath="):
-            selector = self.escape_string_for_js(raw[6:])
+            selector = self.escape_string_for_js(self.clean_xpath(raw[6:]))
             return f"cy.xpathOrCSS('{selector}', true)"
         if lowered.startswith("css="):
             selector = self.escape_string_for_js(raw[4:])
@@ -545,13 +783,13 @@ describe('{testcase_name}', () => {{
             return f"cy.get('[name=\"{selector}\"]')"
 
         if raw.startswith(("/", "(", ".//")):
-            selector = self.escape_string_for_js(raw)
+            selector = self.escape_string_for_js(self.clean_xpath(raw))
             return f"cy.xpathOrCSS('{selector}', true)"
         if raw.startswith(("#", ".", "[")) or any(token in raw for token in [" ", ">", "~", ":", "*"]):
             selector = self.escape_string_for_js(raw)
             return f"cy.get('{selector}')"
 
-        selector = self.escape_string_for_js(raw)
+        selector = self.escape_string_for_js(self.clean_xpath(raw))
         return f"cy.xpathOrCSS('{selector}', true)"
 
     def generate_cypress_command(self, action_type, xpath, element_name, test_data, step_number, timeout_seconds=None):
@@ -584,7 +822,7 @@ describe('{testcase_name}', () => {{
                 elif selection_type == "COUNT_SELECTION":
                     return self.generate_count_selection_command(test_data_escaped, xpath, element_name)
                 else:
-                    return f"{selector_cmd}.scrollIntoView().click({{ force: true, timeout: {timeout_ms} }})"
+                    return self.generate_generic_click_and_select_command(xpath, element_name, test_data, timeout_ms)
 
             elif action_type == "CLICK_AND_TYPE":
                 return f"{selector_cmd}.scrollIntoView().clear({{ force: true }}).type('{test_data_escaped}', {{ force: true, timeout: {timeout_ms} }})"
@@ -596,7 +834,20 @@ describe('{testcase_name}', () => {{
                 if element_name.upper() == "TRAVELCLASS":
                     return self.generate_travel_class_command(test_data_escaped, xpath, element_name)
                 elif element_name.upper() in ["DONEBUTTON", "DONE"]:
-                    return "cy.contains('Done').first().click({ force: true })"
+                    return """
+    cy.findActiveLayerRoot('popup').then(($popupRoot) => {
+      const _root = Cypress.$($popupRoot)
+      const _match = _root.find('button, [role="button"], p, span').filter((_, el) => {
+        const text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase()
+        return text === 'done'
+      }).first()
+
+      if (_match.length) {
+        cy.wrap(_match).scrollIntoView().click({ force: true })
+      } else {
+        cy.contains('Done').first().click({ force: true })
+      }
+    })"""
                 elif test_data_text.upper() == "TODAY":
                     return f"cy.contains('Today').scrollIntoView().click({{ force: true }})"
                 elif test_data_text.upper() == "TOMORROW":
@@ -677,6 +928,77 @@ describe('{testcase_name}', () => {{
         except Exception as e:
             print(f"[ERROR] Failed to generate Cypress command for {action_type}: {str(e)}")
             return f"// Error generating command for {action_type}"
+
+    def generate_generic_click_and_select_command(self, xpath, element_name, test_data, timeout_ms):
+        """Generate control-aware CLICK_AND_SELECT command similar to Selenium fallback strategy."""
+        selector_cmd = self._selector_command(xpath)
+        value_text = str(test_data or "").strip()
+        has_value = bool(value_text)
+        desired_checked = value_text.lower() in ["true", "1", "yes", "on", "checked"]
+        value_escaped = self.escape_string_for_js(value_text)
+        element_name_escaped = self.escape_string_for_js(str(element_name or "").strip())
+
+        return f"""{selector_cmd}.first().then(($target) => {{
+      const _el = $target && $target.length ? $target[0] : null
+      if (!_el) {{
+        throw new Error('CLICK_AND_SELECT target element not found for {element_name_escaped}')
+      }}
+
+      const _tag = (_el.tagName || '').toLowerCase()
+      const _type = ((_el.getAttribute && _el.getAttribute('type')) || '').toLowerCase()
+      const _value = '{value_escaped}'
+      const _hasValue = {str(has_value).lower()}
+
+      if (_tag === 'select') {{
+        if (!_hasValue) {{
+          throw new Error('No selection value provided for select element')
+        }}
+
+        const _trimmed = _value.trim()
+        const _normalized = _trimmed.toLowerCase()
+        const _options = Array.from(_el.options || [])
+        const _byText = _options.find((opt) => ((opt.text || '').trim().toLowerCase() === _normalized))
+        const _byValue = _options.find((opt) => ((opt.value || '').trim().toLowerCase() === _normalized))
+        const _byIndex = /^\\d+$/.test(_trimmed) ? _options[Number.parseInt(_trimmed, 10)] : null
+        const _selectedOption = _byText || _byValue || _byIndex || null
+
+        if (!_selectedOption) {{
+          throw new Error(`Could not select '${{_value}}' from dropdown`)
+        }}
+
+        cy.wrap($target).scrollIntoView().select(_selectedOption.value, {{ force: true, timeout: {timeout_ms} }})
+        return
+      }}
+
+      if (_type === 'checkbox' || _type === 'radio') {{
+        const _desired = {str(desired_checked).lower()}
+        const _current = Cypress.$(_el).prop('checked') === true
+        if (_desired !== _current) {{
+          cy.wrap($target).scrollIntoView().click({{ force: true, timeout: {timeout_ms} }})
+        }}
+        return
+      }}
+
+      if (_hasValue) {{
+        cy.wrap($target)
+          .scrollIntoView()
+          .click({{ force: true, timeout: {timeout_ms} }})
+          .resolveAnchoredInput()
+          .then(($input) => {{
+            cy.wrap($input).scrollIntoView().clear({{ force: true }}).type(_value, {{ force: true, delay: 35, timeout: {timeout_ms} }})
+            cy.wrap($input).selectAutocompleteOption(_value).then(($suggestion) => {{
+              if ($suggestion && $suggestion.length) {{
+                cy.wrap($suggestion).scrollIntoView().click({{ force: true }})
+              }} else {{
+                cy.wrap($input).type('{{downarrow}}{{enter}}', {{ force: true }})
+              }}
+            }})
+          }})
+        return
+      }}
+
+      cy.wrap($target).scrollIntoView().click({{ force: true, timeout: {timeout_ms} }})
+    }})"""
 
     def determine_selection_type(self, element_name, test_data):
         """Determine the type of selection based on element name and test data"""
@@ -759,22 +1081,163 @@ describe('{testcase_name}', () => {{
             return False
 
     def generate_city_selection_command(self, xpath, element_name, city_name):
-        """Generate Cypress command for city selection"""
+        """Generate Cypress command for city selection.
+
+        Use a direct input flow when the locator already targets an input.
+        Otherwise click the trigger first, then type into the visible input.
+        """
         selector_cmd = self._selector_command(xpath)
+        locator_text = str(xpath or "").lower()
+        targets_input_directly = "input" in locator_text or "textarea" in locator_text
+
+        if targets_input_directly:
+            return f"""
+    {selector_cmd}.filter(':visible').first().scrollIntoView().click({{ force: true }})
+    {selector_cmd}.filter(':visible').first().clear({{ force: true }}).type('{city_name}', {{ force: true, delay: 100 }})
+    cy.wait(800)
+    {selector_cmd}.filter(':visible').first().selectAutocompleteOption('{city_name}').then(($suggestion) => {{
+      if ($suggestion && $suggestion.length) {{
+        cy.wrap($suggestion).scrollIntoView().click({{ force: true }})
+      }} else {{
+        {selector_cmd}.filter(':visible').first().type('{{downarrow}}{{enter}}', {{ force: true }})
+      }}
+    }})
+    cy.wait(2000)"""
+
         return f"""
-    {selector_cmd}.scrollIntoView().click({{ force: true }})
-    {selector_cmd}.clear().type('{city_name}')
-    cy.wait(1000)
-    cy.get('body').type('{{downarrow}}{{enter}}')
+    {selector_cmd}.filter(':visible').first().scrollIntoView().click({{ force: true }})
+    cy.wait(500)
+    cy.focused().then(($el) => {{
+      if ($el.is('input, textarea')) {{
+        cy.wrap($el)
+          .click({{ force: true }})
+          .clear({{ force: true }})
+          .type('{city_name}', {{ force: true, delay: 100 }})
+          .selectAutocompleteOption('{city_name}').then(($suggestion) => {{
+            if ($suggestion && $suggestion.length) {{
+              cy.wrap($suggestion).scrollIntoView().click({{ force: true }})
+            }} else {{
+              cy.wrap($el).type('{{downarrow}}{{enter}}', {{ force: true }})
+            }}
+          }})
+      }} else {{
+        {selector_cmd}.filter(':visible').first()
+          .resolveAnchoredInput()
+          .then(($input) => {{
+            cy.wrap($input)
+              .click({{ force: true }})
+              .clear({{ force: true }})
+              .type('{city_name}', {{ force: true, delay: 100 }})
+              .selectAutocompleteOption('{city_name}').then(($suggestion) => {{
+                if ($suggestion && $suggestion.length) {{
+                  cy.wrap($suggestion).scrollIntoView().click({{ force: true }})
+                }} else {{
+                  cy.wrap($input).type('{{downarrow}}{{enter}}', {{ force: true }})
+                }}
+              }})
+          }})
+      }}
+    }})
     cy.wait(2000)"""
 
     def generate_date_selection_command(self, xpath, element_name, date_string):
-        """Generate Cypress command for date selection"""
+        """Generate Cypress command for date selection."""
         selector_cmd = self._selector_command(xpath)
+        normalized_date = re.sub(r"\s+", " ", str(date_string or "").strip())
+        current_year = datetime.now().year
+        parse_candidates = [
+            ("%Y-%m-%d", True),
+            ("%d/%m/%Y", True),
+            ("%Y/%m/%d", True),
+            ("%a, %d %b %Y", True),
+            ("%a, %d %b", False),
+            ("%d %b %Y", True),
+            ("%d %b", False),
+        ]
+        target_date = None
+        for fmt, has_year in parse_candidates:
+            try:
+                parsed_date = datetime.strptime(normalized_date, fmt)
+                target_date = parsed_date if has_year else parsed_date.replace(year=current_year)
+                break
+            except ValueError:
+                continue
+
+        day_match = re.search(r"(\d{1,2})", normalized_date)
+        day_number = day_match.group(1).lstrip("0") if day_match else ""
+        full_date_label = target_date.strftime("%B %d, %Y") if target_date else ""
+        normalized_date_escaped = self.escape_string_for_js(normalized_date)
+        day_number_escaped = self.escape_string_for_js(day_number)
+        full_date_label_escaped = self.escape_string_for_js(full_date_label)
+        exact_date_selector = f'button[aria-label="{full_date_label_escaped}"]' if full_date_label_escaped else ""
+        exact_date_selector_escaped = self.escape_string_for_js(exact_date_selector)
+        locator_text = str(xpath or "").lower()
+        should_click_parent = any(token in locator_text for token in ["contains(text()", "normalize-space("])
+        open_calendar_cmd = (
+            f"{selector_cmd}.first().parent().scrollIntoView().click({{ force: true }})"
+            if should_click_parent
+            else f"{selector_cmd}.first().scrollIntoView().click({{ force: true }})"
+        )
         return f"""
-    {selector_cmd}.scrollIntoView().click({{ force: true }})
-    cy.wait(1000)
-    cy.contains('{date_string}').scrollIntoView().click({{ force: true }})
+    {open_calendar_cmd}
+    cy.wait(800)
+    {selector_cmd}.first().findActiveLayerRoot('calendar').then(($calendarRoot) => {{
+      const _targetDate = '{normalized_date_escaped}'.toLowerCase()
+      const _targetDay = '{day_number_escaped}'
+      const _fullDateLabel = '{full_date_label_escaped}'.toLowerCase()
+      const _exactDateSelector = '{exact_date_selector_escaped}'
+      const _root = Cypress.$($calendarRoot)
+
+      if (_exactDateSelector) {{
+        const _exact = _root.find(_exactDateSelector).filter(':visible:not(:disabled)').first()
+        if (_exact.length) {{
+          cy.wrap(_exact).scrollIntoView().click({{ force: true }})
+          return
+        }}
+      }}
+
+      const _calendarSelectors = [
+        'button[aria-label]',
+        'abbr[aria-label]',
+        'abbr',
+        'button',
+        'td',
+        'div',
+        'span'
+      ]
+      const _calendarCandidates = _root.find(_calendarSelectors.join(',')).filter(':visible')
+      const _match = _calendarCandidates.filter((_, el) => {{
+        const text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase()
+        const aria = ((el.getAttribute && el.getAttribute('aria-label')) || '').replace(/\\s+/g, ' ').trim().toLowerCase()
+        const cls = ((el.className || '') + ' ' + (el.getAttribute && el.getAttribute('data-testid') || '')).toLowerCase()
+
+        if (!text && !aria) {{
+          return false
+        }}
+        if (cls.includes('disabled') || cls.includes('inactive') || cls.includes('blocked')) {{
+          return false
+        }}
+        if (_fullDateLabel && aria === _fullDateLabel) {{
+          return true
+        }}
+        if (_targetDate && (aria.includes(_targetDate) || text === _targetDate)) {{
+          return true
+        }}
+        if (_targetDay && text === _targetDay) {{
+          return true
+        }}
+        return false
+      }}).first()
+
+      if (_match.length) {{
+        cy.wrap(_match).scrollIntoView().click({{ force: true }})
+      }} else {{
+        cy.wrap(_root)
+          .contains('{normalized_date_escaped}', {{ matchCase: false, timeout: 2000 }})
+          .scrollIntoView()
+          .click({{ force: true }})
+      }}
+    }})
     cy.wait(1000)"""
 
     def generate_quick_date_command(self, element_name, quick_date_option):
@@ -811,9 +1274,20 @@ describe('{testcase_name}', () => {{
         return f"""
     {selector_cmd}.scrollIntoView().click({{ force: true }})
     cy.wait(500)
-    cy.contains('{actual_class_name}').scrollIntoView().click({{ force: true }})
-    cy.wait(500)
-    cy.contains('Done').scrollIntoView().click({{ force: true }})"""
+    {selector_cmd}.findActiveLayerRoot('popup').then(($popupRoot) => {{
+      const _root = Cypress.$($popupRoot)
+      const _match = _root.find('button, [role=\"button\"], li, p, span').filter((_, el) => {{
+        const text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase()
+        return text === '{self.escape_string_for_js(actual_class_name.lower().strip())}'
+      }}).first()
+
+      if (_match.length) {{
+        cy.wrap(_match).scrollIntoView().click({{ force: true }})
+      }} else {{
+        cy.wrap(_root).contains('{actual_class_name}', {{ matchCase: false }}).scrollIntoView().click({{ force: true }})
+      }}
+    }})
+    cy.wait(500)"""
 
     def generate_count_selection_command(self, count_str, xpath, element_name):
         """Generate Cypress command for count selection"""
@@ -821,9 +1295,7 @@ describe('{testcase_name}', () => {{
             target_count = int(count_str.strip())
             element_type = self.resolve_count_element_type(element_name)
             if element_type:
-                return f"""
-    {self.generate_increment_decrement_command("SELECT_COUNT", str(target_count), xpath, element_name)}
-    cy.contains('Done').scrollIntoView().click({{ force: true }})"""
+                return self.generate_increment_decrement_command("SELECT_COUNT", str(target_count), xpath, element_name)
             selector_cmd = self._selector_command(xpath)
             return f"{selector_cmd}.scrollIntoView().click({{ force: true }})"
 
@@ -849,23 +1321,23 @@ describe('{testcase_name}', () => {{
         element_type = (element_type or "").lower()
         if element_type == "room":
             return (
-                "//p[contains(@data-testid,'room-increment')]//*[name()='svg']//*[name()='path' and contains(@fill-rule,'evenodd')]",
-                "//p[@data-testid='room-decrement']//*[name()='svg']"
+                "//p[contains(@data-testid,'room-increment')]",
+                "//p[@data-testid='room-decrement']"
             )
         if element_type == "adult":
             return (
-                "//p[@data-testid='adult-increment']//*[name()='svg']",
-                "//p[contains(@data-testid,'adult-decrement')]//*[name()='svg']"
+                "//p[@data-testid='adult-increment']",
+                "//p[contains(@data-testid,'adult-decrement')]"
             )
         if element_type == "children":
             return (
-                "//p[@data-testid='counter-increment-children']//*[name()='svg']",
-                "//p[@data-testid='counter-decrement-children']//*[name()='svg']"
+                "//p[@data-testid='counter-increment-children']",
+                "//p[@data-testid='counter-decrement-children']"
             )
         if element_type == "infant":
             return (
-                "//p[@data-testid='counter-increment-infant']//*[name()='svg'] | //p[contains(@data-testid,'infant-increment')]//*[name()='svg']",
-                "//p[@data-testid='counter-decrement-infant']//*[name()='svg'] | //p[contains(@data-testid,'infant-decrement')]//*[name()='svg']"
+                "//p[@data-testid='counter-increment-infant'] | //p[contains(@data-testid,'infant-increment')]",
+                "//p[@data-testid='counter-decrement-infant'] | //p[contains(@data-testid,'infant-decrement')]"
             )
         return (None, None)
 
@@ -878,68 +1350,312 @@ describe('{testcase_name}', () => {{
         }
         return index_map.get((element_type or "").lower(), None)
 
+    def _get_default_count_value(self, element_type):
+        default_map = {
+            "room": 1,
+            "adult": 2,
+            "children": 0,
+            "infant": 0,
+        }
+        return default_map.get((element_type or "").lower(), None)
+
+    def _parse_step_count(self, test_data, default_value=1):
+        """Parse requested click count with a safe fallback."""
+        try:
+            parsed = int(str(test_data).strip())
+            return max(parsed, 1)
+        except Exception:
+            return default_value
+
+    def _has_usable_locator(self, locator):
+        text = str(locator or "").strip()
+        return bool(text and text.upper() != "NA")
+
+    def _locator_matches_count_direction(self, locator, direction):
+        locator_text = str(locator or "").strip().lower()
+        if not locator_text:
+            return False
+        if direction == "increment":
+            return "increment" in locator_text
+        if direction == "decrement":
+            return "decrement" in locator_text
+        return False
+
     def generate_increment_decrement_command(self, action_type, count_str, xpath, element_name):
         """Generate Cypress command for INCREMENT/DECREMENT/SELECT_COUNT."""
         try:
-            parsed_count = int(str(count_str).strip() or "1")
-            if parsed_count < 0:
-                parsed_count = 0
+            parsed_target = None
+            try:
+                parsed_target = int(str(count_str).strip())
+            except Exception:
+                parsed_target = None
+            if parsed_target is not None and parsed_target < 0:
+                parsed_target = 0
+
+            fallback_clicks = self._parse_step_count(count_str, default_value=1)
 
             element_type = self.resolve_count_element_type(element_name)
+            locator_text = str(xpath or "").strip()
+            has_locator = self._has_usable_locator(locator_text)
+            selector_cmd = self._selector_command(xpath) if has_locator else None
+
             if element_type:
                 inc_xpath, dec_xpath = self._get_count_control_xpaths(element_type)
                 inc_cmd = self._selector_command(f"xpath={inc_xpath}") if inc_xpath else None
                 dec_cmd = self._selector_command(f"xpath={dec_xpath}") if dec_xpath else None
                 count_index = self._get_count_input_index(element_type)
+                default_current = self._get_default_count_value(element_type)
+                default_current_js = "null" if default_current is None else str(default_current)
+
+                increment_click_cmd = selector_cmd or inc_cmd
+                if inc_cmd and (not has_locator or not self._locator_matches_count_direction(locator_text, "increment")):
+                    increment_click_cmd = inc_cmd
+
+                decrement_click_cmd = selector_cmd or dec_cmd
+                if dec_cmd and (not has_locator or not self._locator_matches_count_direction(locator_text, "decrement")):
+                    decrement_click_cmd = dec_cmd
 
                 if count_index is not None:
-                    if action_type == "INCREMENT" and inc_cmd:
-                        return f"""cy.get('body').then(() => {{
-      const _target = {parsed_count};
-      const _currentText = (Cypress.$("span[data-testid='counter-input']").eq({count_index}).text() || '').trim();
-      const _current = Number.parseInt(_currentText, 10) || 0;
-      const _steps = Math.max(_target - _current, 0);
-      for (let i = 0; i < _steps; i += 1) {{ {inc_cmd}.click({{ force: true }}); cy.wait(200); }}
+                    if action_type == "INCREMENT" and increment_click_cmd:
+                        target_for_runtime = parsed_target if parsed_target is not None else fallback_clicks
+                        return f"""{increment_click_cmd}.filter(':visible').first().should('exist')
+    cy.findActiveLayerRoot('popup').then(($popupRoot) => {{
+      const _root = Cypress.$($popupRoot);
+      const _readCurrent = () => {{
+        const _scopes = [_root, Cypress.$(document.body)];
+        const _selectors = [
+          "span[data-testid='counter-input']",
+          "[data-testid='counter-input']",
+          "input[data-testid='counter-input']",
+          "[data-testid*='counter-input']"
+        ];
+        for (const _scope of _scopes) {{
+          if (!_scope || !_scope.length) continue;
+          for (const _sel of _selectors) {{
+            const _visible = _scope.find(_sel).filter(':visible');
+            if (_visible.length > {count_index}) {{
+              const _node = _visible.eq({count_index});
+              const _raw = ((_node.text && _node.text()) || (_node.val && _node.val()) || (_node.attr && _node.attr('value')) || '').toString().trim();
+              const _num = Number.parseInt(_raw.replace(/[^0-9-]/g, ''), 10);
+              if (Number.isFinite(_num)) return _num;
+            }}
+
+            const _all = _scope.find(_sel);
+            if (_all.length > {count_index}) {{
+              const _node = _all.eq({count_index});
+              const _raw = ((_node.text && _node.text()) || (_node.val && _node.val()) || (_node.attr && _node.attr('value')) || '').toString().trim();
+              const _num = Number.parseInt(_raw.replace(/[^0-9-]/g, ''), 10);
+              if (Number.isFinite(_num)) return _num;
+            }}
+          }}
+        }}
+        return null;
+      }};
+      const _target = {target_for_runtime};
+      const _hasNumericTarget = {str(parsed_target is not None).lower()};
+      const _fallbackSteps = {fallback_clicks};
+      const _current = _readCurrent();
+      const _defaultCurrent = {default_current_js};
+      const _effectiveCurrent = _current !== null ? _current : _defaultCurrent;
+      const _steps = (_hasNumericTarget && _effectiveCurrent !== null)
+        ? Math.max(_target - _effectiveCurrent, 0)
+        : (_hasNumericTarget ? 0 : _fallbackSteps);
+      if (_hasNumericTarget && _current === null) {{
+        console.warn('INCREMENT target mode used default current count:', _defaultCurrent);
+      }}
+      for (let i = 0; i < _steps; i += 1) {{ {increment_click_cmd}.filter(':visible').first().click({{ force: true }}); cy.wait(200); }}
     }})"""
-                    if action_type == "DECREMENT" and dec_cmd:
-                        return f"""cy.get('body').then(() => {{
-      const _target = {parsed_count};
-      const _currentText = (Cypress.$("span[data-testid='counter-input']").eq({count_index}).text() || '').trim();
-      const _current = Number.parseInt(_currentText, 10) || 0;
-      const _steps = Math.max(_current - _target, 0);
-      for (let i = 0; i < _steps; i += 1) {{ {dec_cmd}.click({{ force: true }}); cy.wait(200); }}
+                    if action_type == "DECREMENT" and decrement_click_cmd:
+                        target_for_runtime = parsed_target if parsed_target is not None else fallback_clicks
+                        return f"""{decrement_click_cmd}.filter(':visible').first().should('exist')
+    cy.findActiveLayerRoot('popup').then(($popupRoot) => {{
+      const _root = Cypress.$($popupRoot);
+      const _readCurrent = () => {{
+        const _scopes = [_root, Cypress.$(document.body)];
+        const _selectors = [
+          "span[data-testid='counter-input']",
+          "[data-testid='counter-input']",
+          "input[data-testid='counter-input']",
+          "[data-testid*='counter-input']"
+        ];
+        for (const _scope of _scopes) {{
+          if (!_scope || !_scope.length) continue;
+          for (const _sel of _selectors) {{
+            const _visible = _scope.find(_sel).filter(':visible');
+            if (_visible.length > {count_index}) {{
+              const _node = _visible.eq({count_index});
+              const _raw = ((_node.text && _node.text()) || (_node.val && _node.val()) || (_node.attr && _node.attr('value')) || '').toString().trim();
+              const _num = Number.parseInt(_raw.replace(/[^0-9-]/g, ''), 10);
+              if (Number.isFinite(_num)) return _num;
+            }}
+
+            const _all = _scope.find(_sel);
+            if (_all.length > {count_index}) {{
+              const _node = _all.eq({count_index});
+              const _raw = ((_node.text && _node.text()) || (_node.val && _node.val()) || (_node.attr && _node.attr('value')) || '').toString().trim();
+              const _num = Number.parseInt(_raw.replace(/[^0-9-]/g, ''), 10);
+              if (Number.isFinite(_num)) return _num;
+            }}
+          }}
+        }}
+        return null;
+      }};
+      const _target = {target_for_runtime};
+      const _hasNumericTarget = {str(parsed_target is not None).lower()};
+      const _fallbackSteps = {fallback_clicks};
+      const _current = _readCurrent();
+      const _defaultCurrent = {default_current_js};
+      const _effectiveCurrent = _current !== null ? _current : _defaultCurrent;
+      const _steps = (_hasNumericTarget && _effectiveCurrent !== null)
+        ? Math.max(_effectiveCurrent - _target, 0)
+        : (_hasNumericTarget ? 0 : _fallbackSteps);
+      if (_hasNumericTarget && _current === null) {{
+        console.warn('DECREMENT target mode used default current count:', _defaultCurrent);
+      }}
+      for (let i = 0; i < _steps; i += 1) {{ {decrement_click_cmd}.filter(':visible').first().click({{ force: true }}); cy.wait(200); }}
     }})"""
                     if action_type == "SELECT_COUNT" and (inc_cmd or dec_cmd):
+                        target_for_runtime = parsed_target if parsed_target is not None else fallback_clicks
                         if inc_cmd and dec_cmd:
-                            return f"""cy.get('body').then(() => {{
-      const _target = {parsed_count};
-      const _currentText = (Cypress.$("span[data-testid='counter-input']").eq({count_index}).text() || '').trim();
-      const _current = Number.parseInt(_currentText, 10) || 0;
-      if (_target > _current) {{
-        for (let i = 0; i < (_target - _current); i += 1) {{ {inc_cmd}.click({{ force: true }}); cy.wait(200); }}
-      }} else if (_target < _current) {{
-        for (let i = 0; i < (_current - _target); i += 1) {{ {dec_cmd}.click({{ force: true }}); cy.wait(200); }}
+                            probe_cmd = inc_cmd
+                            return f"""{probe_cmd}.filter(':visible').first().should('exist')
+    cy.findActiveLayerRoot('popup').then(($popupRoot) => {{
+      const _root = Cypress.$($popupRoot);
+      const _readCurrent = () => {{
+        const _scopes = [_root, Cypress.$(document.body)];
+        const _selectors = [
+          "span[data-testid='counter-input']",
+          "[data-testid='counter-input']",
+          "input[data-testid='counter-input']",
+          "[data-testid*='counter-input']"
+        ];
+        for (const _scope of _scopes) {{
+          if (!_scope || !_scope.length) continue;
+          for (const _sel of _selectors) {{
+            const _visible = _scope.find(_sel).filter(':visible');
+            if (_visible.length > {count_index}) {{
+              const _node = _visible.eq({count_index});
+              const _raw = ((_node.text && _node.text()) || (_node.val && _node.val()) || (_node.attr && _node.attr('value')) || '').toString().trim();
+              const _num = Number.parseInt(_raw.replace(/[^0-9-]/g, ''), 10);
+              if (Number.isFinite(_num)) return _num;
+            }}
+            const _all = _scope.find(_sel);
+            if (_all.length > {count_index}) {{
+              const _node = _all.eq({count_index});
+              const _raw = ((_node.text && _node.text()) || (_node.val && _node.val()) || (_node.attr && _node.attr('value')) || '').toString().trim();
+              const _num = Number.parseInt(_raw.replace(/[^0-9-]/g, ''), 10);
+              if (Number.isFinite(_num)) return _num;
+            }}
+          }}
+        }}
+        return null;
+      }};
+      const _target = {target_for_runtime};
+      const _current = _readCurrent();
+      const _defaultCurrent = {default_current_js};
+      const _effectiveCurrent = _current !== null ? _current : _defaultCurrent;
+      if (_current === null) {{
+        console.warn('SELECT_COUNT target mode used default current count:', _defaultCurrent);
+      }}
+      if (_effectiveCurrent === null) {{
+        return;
+      }}
+      if (_target > _effectiveCurrent) {{
+        for (let i = 0; i < (_target - _effectiveCurrent); i += 1) {{ {inc_cmd}.filter(':visible').first().click({{ force: true }}); cy.wait(200); }}
+      }} else if (_target < _effectiveCurrent) {{
+        for (let i = 0; i < (_effectiveCurrent - _target); i += 1) {{ {dec_cmd}.filter(':visible').first().click({{ force: true }}); cy.wait(200); }}
       }}
     }})"""
                         if inc_cmd:
-                            return f"""cy.get('body').then(() => {{
-      const _target = {parsed_count};
-      const _currentText = (Cypress.$("span[data-testid='counter-input']").eq({count_index}).text() || '').trim();
-      const _current = Number.parseInt(_currentText, 10) || 0;
-      const _steps = Math.max(_target - _current, 0);
-      for (let i = 0; i < _steps; i += 1) {{ {inc_cmd}.click({{ force: true }}); cy.wait(200); }}
+                            return f"""{inc_cmd}.filter(':visible').first().should('exist')
+    cy.findActiveLayerRoot('popup').then(($popupRoot) => {{
+      const _root = Cypress.$($popupRoot);
+      const _readCurrent = () => {{
+        const _scopes = [_root, Cypress.$(document.body)];
+        const _selectors = [
+          "span[data-testid='counter-input']",
+          "[data-testid='counter-input']",
+          "input[data-testid='counter-input']",
+          "[data-testid*='counter-input']"
+        ];
+        for (const _scope of _scopes) {{
+          if (!_scope || !_scope.length) continue;
+          for (const _sel of _selectors) {{
+            const _visible = _scope.find(_sel).filter(':visible');
+            if (_visible.length > {count_index}) {{
+              const _node = _visible.eq({count_index});
+              const _raw = ((_node.text && _node.text()) || (_node.val && _node.val()) || (_node.attr && _node.attr('value')) || '').toString().trim();
+              const _num = Number.parseInt(_raw.replace(/[^0-9-]/g, ''), 10);
+              if (Number.isFinite(_num)) return _num;
+            }}
+            const _all = _scope.find(_sel);
+            if (_all.length > {count_index}) {{
+              const _node = _all.eq({count_index});
+              const _raw = ((_node.text && _node.text()) || (_node.val && _node.val()) || (_node.attr && _node.attr('value')) || '').toString().trim();
+              const _num = Number.parseInt(_raw.replace(/[^0-9-]/g, ''), 10);
+              if (Number.isFinite(_num)) return _num;
+            }}
+          }}
+        }}
+        return null;
+      }};
+      const _target = {target_for_runtime};
+      const _current = _readCurrent();
+      const _defaultCurrent = {default_current_js};
+      const _effectiveCurrent = _current !== null ? _current : _defaultCurrent;
+      const _steps = (_effectiveCurrent === null) ? 0 : Math.max(_target - _effectiveCurrent, 0);
+      if (_current === null) {{
+        console.warn('SELECT_COUNT increment-only mode used default current count:', _defaultCurrent);
+      }}
+      for (let i = 0; i < _steps; i += 1) {{ {inc_cmd}.filter(':visible').first().click({{ force: true }}); cy.wait(200); }}
     }})"""
                         if dec_cmd:
-                            return f"""cy.get('body').then(() => {{
-      const _target = {parsed_count};
-      const _currentText = (Cypress.$("span[data-testid='counter-input']").eq({count_index}).text() || '').trim();
-      const _current = Number.parseInt(_currentText, 10) || 0;
-      const _steps = Math.max(_current - _target, 0);
-      for (let i = 0; i < _steps; i += 1) {{ {dec_cmd}.click({{ force: true }}); cy.wait(200); }}
+                            return f"""{dec_cmd}.filter(':visible').first().should('exist')
+    cy.findActiveLayerRoot('popup').then(($popupRoot) => {{
+      const _root = Cypress.$($popupRoot);
+      const _readCurrent = () => {{
+        const _scopes = [_root, Cypress.$(document.body)];
+        const _selectors = [
+          "span[data-testid='counter-input']",
+          "[data-testid='counter-input']",
+          "input[data-testid='counter-input']",
+          "[data-testid*='counter-input']"
+        ];
+        for (const _scope of _scopes) {{
+          if (!_scope || !_scope.length) continue;
+          for (const _sel of _selectors) {{
+            const _visible = _scope.find(_sel).filter(':visible');
+            if (_visible.length > {count_index}) {{
+              const _node = _visible.eq({count_index});
+              const _raw = ((_node.text && _node.text()) || (_node.val && _node.val()) || (_node.attr && _node.attr('value')) || '').toString().trim();
+              const _num = Number.parseInt(_raw.replace(/[^0-9-]/g, ''), 10);
+              if (Number.isFinite(_num)) return _num;
+            }}
+            const _all = _scope.find(_sel);
+            if (_all.length > {count_index}) {{
+              const _node = _all.eq({count_index});
+              const _raw = ((_node.text && _node.text()) || (_node.val && _node.val()) || (_node.attr && _node.attr('value')) || '').toString().trim();
+              const _num = Number.parseInt(_raw.replace(/[^0-9-]/g, ''), 10);
+              if (Number.isFinite(_num)) return _num;
+            }}
+          }}
+        }}
+        return null;
+      }};
+      const _target = {target_for_runtime};
+      const _current = _readCurrent();
+      const _defaultCurrent = {default_current_js};
+      const _effectiveCurrent = _current !== null ? _current : _defaultCurrent;
+      const _steps = (_effectiveCurrent === null) ? 0 : Math.max(_effectiveCurrent - _target, 0);
+      if (_current === null) {{
+        console.warn('SELECT_COUNT decrement-only mode used default current count:', _defaultCurrent);
+      }}
+      for (let i = 0; i < _steps; i += 1) {{ {dec_cmd}.filter(':visible').first().click({{ force: true }}); cy.wait(200); }}
     }})"""
 
-            selector_cmd = self._selector_command(xpath)
-            return f"for (let i = 0; i < {parsed_count}; i += 1) {{ {selector_cmd}.click({{ force: true }}); cy.wait(200); }}"
+            if selector_cmd:
+                return f"for (let i = 0; i < {fallback_clicks}; i += 1) {{ {selector_cmd}.click({{ force: true }}); cy.wait(200); }}"
+            return f"// {action_type} skipped: missing locator"
         except Exception as e:
             print(f"[ERROR] Failed to generate {action_type} command: {str(e)}")
             return "// Failed to generate increment/decrement command"
@@ -1165,8 +1881,8 @@ describe('{testcase_name}', () => {{
             
             # Log raw output for debugging with proper encoding
             try:
-                stdout_preview = repr(stdout[:500])
-                stderr_preview = repr(stderr[:500])
+                stdout_preview = self._safe_log_preview(stdout)
+                stderr_preview = self._safe_log_preview(stderr)
                 print(f"[PARSE] Raw STDOUT: {stdout_preview}")
                 print(f"[PARSE] Raw STDERR: {stderr_preview}")
             except Exception as e:

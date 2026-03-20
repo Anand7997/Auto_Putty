@@ -1,0 +1,392 @@
+{
+  "uuid": "2f25a911-1090-42a2-8d8e-cb57ae4edc4c",
+  "historyId": "2f25a911-1090-42a2-8d8e-cb57ae4edc4c",
+  "name": "[IxigoAutomation_Hotels_SearchingHL_TC001] SearchingHL",
+  "fullName": "Ixigo .Hotels.Regression.SearchingHL",
+  "status": "passed",
+  "stage": "finished",
+  "start": 1773918892946,
+  "stop": 1773918944655,
+  "description": "Execution Time: 0:00:51 | Test Run ID: Testing_SearchingHL_TR049 | Result ID: TC001_TR049",
+  "labels": [
+    {
+      "name": "epic",
+      "value": "Ixigo "
+    },
+    {
+      "name": "feature",
+      "value": "Hotels Module"
+    },
+    {
+      "name": "story",
+      "value": "Testing Suite"
+    },
+    {
+      "name": "suite",
+      "value": "Testing Tests"
+    },
+    {
+      "name": "testClass",
+      "value": "Hotels_Testing"
+    },
+    {
+      "name": "testMethod",
+      "value": "SearchingHL"
+    },
+    {
+      "name": "parentSuite",
+      "value": "[ROCKET] Ixigo "
+    },
+    {
+      "name": "subSuite",
+      "value": "[PACKAGE] Hotels -> Testing"
+    },
+    {
+      "name": "severity",
+      "value": "normal"
+    },
+    {
+      "name": "owner",
+      "value": "QA Team"
+    },
+    {
+      "name": "tag",
+      "value": "module:hotels"
+    },
+    {
+      "name": "tag",
+      "value": "suite:Testing"
+    },
+    {
+      "name": "testCaseId",
+      "value": "IxigoAutomation_Hotels_SearchingHL_TC001"
+    },
+    {
+      "name": "testRunId",
+      "value": "Testing_SearchingHL_TR049"
+    },
+    {
+      "name": "resultId",
+      "value": "TC001_TR049"
+    },
+    {
+      "name": "executionTime",
+      "value": "0:00:51"
+    },
+    {
+      "name": "user",
+      "value": "N/A"
+    },
+    {
+      "name": "role",
+      "value": "Admin"
+    }
+  ],
+  "parameters": [
+    {
+      "name": "Test Case ID",
+      "value": "IxigoAutomation_Hotels_SearchingHL_TC001"
+    },
+    {
+      "name": "Suite Type",
+      "value": "Regression"
+    },
+    {
+      "name": "Module",
+      "value": "Hotels"
+    },
+    {
+      "name": "Project",
+      "value": "Ixigo "
+    }
+  ],
+  "steps": [
+    {
+      "name": "[OK] Step 1: Open Browser and Navigate to Ixigo",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773918892946,
+      "stop": 1773918893946,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "OPEN_BROWSER"
+        },
+        {
+          "name": "Element",
+          "value": "Browser"
+        },
+        {
+          "name": "XPath",
+          "value": "N/A"
+        },
+        {
+          "name": "Data",
+          "value": "https://www.ixigo.com/hotels"
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 2: Enter Destination",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773918893946,
+      "stop": 1773918894946,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "Element",
+          "value": "Destination"
+        },
+        {
+          "name": "XPath",
+          "value": "//p[contains(text(), 'Destination')]/following::input[1]"
+        },
+        {
+          "name": "Data",
+          "value": "Hyderabad"
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 3: Click and Select on Checkin date",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773918894946,
+      "stop": 1773918895946,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "Element",
+          "value": "Check in"
+        },
+        {
+          "name": "XPath",
+          "value": "//p[contains(text(),'Check-in')]"
+        },
+        {
+          "name": "Data",
+          "value": "Wed, 25 Mar"
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 4: Click and Select on Checkout date field",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773918895946,
+      "stop": 1773918896946,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "Element",
+          "value": "Check out"
+        },
+        {
+          "name": "XPath",
+          "value": "//p[contains(text(),'Check-out')]"
+        },
+        {
+          "name": "Data",
+          "value": "Mon, 30 Mar"
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 5: Click on Rooms and Guests section",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773918896946,
+      "stop": 1773918897946,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "CLICK"
+        },
+        {
+          "name": "Element",
+          "value": "Rooms&Guests"
+        },
+        {
+          "name": "XPath",
+          "value": "//p[@class='body-xs text-secondary'][contains(text(),'Rooms & Guests')] | //input[@placeholder='Rooms & Guests']"
+        },
+        {
+          "name": "Data",
+          "value": "Na"
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 6: Select number of Rooms",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773918897946,
+      "stop": 1773918898946,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "INCREMENT"
+        },
+        {
+          "name": "Element",
+          "value": "RoomsCount"
+        },
+        {
+          "name": "XPath",
+          "value": "//p[contains(text(),'Rooms')]"
+        },
+        {
+          "name": "Data",
+          "value": "2"
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 7: Select number of adults",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773918898946,
+      "stop": 1773918899946,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "INCREMENT"
+        },
+        {
+          "name": "Element",
+          "value": "AdultsCount"
+        },
+        {
+          "name": "XPath",
+          "value": "//p[contains(text(),'Adults')]"
+        },
+        {
+          "name": "Data",
+          "value": "4"
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 8: Select number of Children",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773918899946,
+      "stop": 1773918900946,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "INCREMENT"
+        },
+        {
+          "name": "Element",
+          "value": "ChildrenCount"
+        },
+        {
+          "name": "XPath",
+          "value": "//p[contains(text(),'Children')]"
+        },
+        {
+          "name": "Data",
+          "value": "2"
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 9: Select age of Child 1",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773918900946,
+      "stop": 1773918901946,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "Element",
+          "value": "Child 1"
+        },
+        {
+          "name": "XPath",
+          "value": "//select[@id='child-age'] (//select[@data-testid='child-age-selector'])[1]"
+        },
+        {
+          "name": "Data",
+          "value": "6"
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 10: Select age of Child 2",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773918901946,
+      "stop": 1773918902946,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "CLICK_AND_SELECT"
+        },
+        {
+          "name": "Element",
+          "value": "Child 2"
+        },
+        {
+          "name": "XPath",
+          "value": "(//select[@data-testid='child-age-selector'])[2]"
+        },
+        {
+          "name": "Data",
+          "value": "9"
+        }
+      ]
+    },
+    {
+      "name": "[OK] Step 11: Click Search button to search Rooms",
+      "status": "pass",
+      "stage": "finished",
+      "start": 1773918902946,
+      "stop": 1773918903946,
+      "attachments": [],
+      "parameters": [
+        {
+          "name": "Action",
+          "value": "CLICK"
+        },
+        {
+          "name": "Element",
+          "value": "SearchButton"
+        },
+        {
+          "name": "XPath",
+          "value": "/html/body/main/div[4]/div[2]/div/button"
+        },
+        {
+          "name": "Data",
+          "value": "Na"
+        }
+      ]
+    }
+  ],
+  "attachments": []
+}
