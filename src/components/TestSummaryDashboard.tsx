@@ -57,6 +57,9 @@ const TestSummaryDashboard: React.FC<TestSummaryDashboardProps> = ({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          id: selectedTestCase.id,
+          project_name: selectedTestCase.project_name || selectedTestCase.project,
+          module_name: selectedTestCase.module_name || selectedTestCase.module,
           steps: testSteps.map(step => ({
             tc_id: step.tc_id || 'TC001',
             step_no: step.step_no,

@@ -482,6 +482,42 @@ class ServerExecutionManager:
         )
         return pyodbc.connect(conn_str)
 
+    def _resolve_testcase_metadata(self, cursor, test_case):
+        name = test_case.get("name")
+        testcase_db_id = test_case.get("id") or test_case.get("testcase_db_id") or test_case.get("testcaseId")
+        project_name = test_case.get("project_name") or test_case.get("project")
+        module_name = test_case.get("module_name") or test_case.get("module")
+
+        base_query = """
+            SELECT tc.id,
+                   COALESCE(p1.name, p2.name, 'Unknown') as project_name,
+                   COALESCE(m.module_name, 'Unknown') as module_name
+            FROM TestCases tc
+            LEFT JOIN Modules m ON tc.module_id = m.id
+            LEFT JOIN Projects p1 ON tc.project_id = p1.id
+            LEFT JOIN Projects p2 ON m.project_id = p2.id
+        """
+
+        if testcase_db_id not in (None, ""):
+            cursor.execute(base_query + " WHERE tc.id = ?", (testcase_db_id,))
+            return cursor.fetchone()
+
+        params = [name]
+        query = base_query + " WHERE tc.name = ?"
+        if project_name and module_name:
+            query += " AND COALESCE(p1.name, p2.name, 'Unknown') = ? AND COALESCE(m.module_name, 'Unknown') = ?"
+            params.extend([project_name, module_name])
+        query += " ORDER BY tc.id"
+
+        cursor.execute(query, tuple(params))
+        rows = cursor.fetchall()
+        if not rows:
+            return None
+
+        if len(rows) > 1 and not (project_name and module_name):
+            print(f"[SERVER_EXEC] Multiple testcase rows found for '{name}', using first match")
+        return rows[0]
+
     def _get_test_steps(self, test_case):
         conn = self._get_db_connection()
         cursor = conn.cursor()
@@ -490,19 +526,13 @@ class ServerExecutionManager:
         table = None
 
         try:
-            # Resolve table using testcase metadata from DB (same strategy as local execution).
-            cursor.execute("""
-                SELECT COALESCE(p1.name, p2.name, 'Unknown') as project_name,
-                       COALESCE(m.module_name, 'Unknown') as module_name
-                FROM TestCases tc
-                LEFT JOIN Modules m ON tc.module_id = m.id
-                LEFT JOIN Projects p1 ON tc.project_id = p1.id
-                LEFT JOIN Projects p2 ON m.project_id = p2.id
-                WHERE tc.name = ?
-            """, (name,))
-            metadata = cursor.fetchone()
+            metadata = self._resolve_testcase_metadata(cursor, test_case)
             if metadata:
-                table = self._generate_unique_table_name(metadata[0], metadata[1], name)
+                table = self._generate_unique_table_name(metadata[1], metadata[2], name)
+                print(
+                    f"[SERVER_EXEC] Resolved steps table for '{name}' using "
+                    f"tc.id={metadata[0]}, project='{metadata[1]}', module='{metadata[2]}'"
+                )
         except Exception as e:
             print(f"[SERVER_EXEC] Table resolution by metadata failed for '{name}': {e}")
 

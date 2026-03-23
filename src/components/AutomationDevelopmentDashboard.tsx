@@ -888,6 +888,7 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          id: selectedTestCase.id,
           clear_existing: true, // Clear existing and recreate with updated XPaths
           project_name: selectedProject.name || selectedProject.project_name,
           module_name: selectedModule.name || selectedModule.module_name,
@@ -1280,6 +1281,7 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          id: selectedTestCase?.id,
           clear_existing: true,
           project_name: selectedProject?.name || selectedProject?.project_name,
           module_name: selectedModule?.name || selectedModule?.module_name,

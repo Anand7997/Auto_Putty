@@ -26,6 +26,10 @@ interface TestCase {
     description: string;
     project_id: number;
     module_id: number;
+    project_name?: string;
+    module_name?: string;
+    project?: string;
+    module?: string;
     created_date: string;
     status: string;
     priority: string;
@@ -237,7 +241,10 @@ const TestCaseDashboard: React.FC<TestCaseDashboardProps> = ({
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
+                    id: viewingTestCase.id,
                     clear_existing: true, // overwrite existing steps
+                    project_name: viewingTestCase.project_name || viewingTestCase.project,
+                    module_name: viewingTestCase.module_name || viewingTestCase.module,
                     steps: testSteps.map((step, idx) => ({
                         // ensure consistent shape for backend
                         tc_id: viewingTestCase.name,
@@ -753,7 +760,10 @@ const TestCaseDashboard: React.FC<TestCaseDashboardProps> = ({
                                             'Content-Type': 'application/json',
                                         },
                                         body: JSON.stringify({
+                                            id: viewingTestCase.id,
                                             clear_existing: true,
+                                            project_name: viewingTestCase.project_name || viewingTestCase.project,
+                                            module_name: viewingTestCase.module_name || viewingTestCase.module,
                                             steps: steps.map((step, idx) => ({
                                                 tc_id: viewingTestCase.name,
                                                 step_no: idx + 1,
@@ -797,7 +807,10 @@ const TestCaseDashboard: React.FC<TestCaseDashboardProps> = ({
                                         'Content-Type': 'application/json',
                                     },
                                     body: JSON.stringify({
+                                        id: viewingTestCase.id,
                                         clear_existing: true,
+                                        project_name: viewingTestCase.project_name || viewingTestCase.project,
+                                        module_name: viewingTestCase.module_name || viewingTestCase.module,
                                         steps: stepsToBeSaved.map((step, idx) => ({
                                             tc_id: viewingTestCase.name,
                                             step_no: idx + 1,
@@ -1410,7 +1423,5 @@ const TestCaseDashboard: React.FC<TestCaseDashboardProps> = ({
 };
 
 export default TestCaseDashboard;
-
-
 
 

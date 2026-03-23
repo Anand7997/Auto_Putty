@@ -237,6 +237,42 @@ def generate_unique_table_name(project_name: str, module_name: str, testcase_nam
 
     return table_name
 
+def resolve_testcase_record(cursor, testcase_name: str, project_name: str = None, module_name: str = None, testcase_db_id=None):
+    """Resolve a testcase row using id first, then name plus optional project/module context."""
+    base_query = """
+        SELECT tc.id,
+               COALESCE(p1.name, p2.name, 'Unknown') as project_name,
+               COALESCE(m.module_name, 'Unknown') as module_name,
+               tc.testcase_id
+        FROM TestCases tc
+        LEFT JOIN Modules m ON tc.module_id = m.id
+        LEFT JOIN Projects p1 ON tc.project_id = p1.id
+        LEFT JOIN Projects p2 ON m.project_id = p2.id
+    """
+
+    if testcase_db_id not in (None, ""):
+        cursor.execute(base_query + " WHERE tc.id = ?", (testcase_db_id,))
+        return cursor.fetchone()
+
+    params = [testcase_name]
+    query = base_query + " WHERE tc.name = ?"
+    if project_name and module_name:
+        query += " AND COALESCE(p1.name, p2.name, 'Unknown') = ? AND COALESCE(m.module_name, 'Unknown') = ?"
+        params.extend([project_name, module_name])
+    query += " ORDER BY tc.id"
+
+    cursor.execute(query, tuple(params))
+    rows = cursor.fetchall()
+    if not rows:
+        return None
+
+    if len(rows) > 1 and not (project_name and module_name):
+        raise ValueError(
+            f'Multiple test cases found with name "{testcase_name}". Please provide project_name and module_name.'
+        )
+
+    return rows[0]
+
 def sanitize_id_component(name: str) -> str:
     """Sanitize name components for ID generation"""
     sanitized = re.sub(r'[^a-zA-Z0-9]', '', name)
@@ -4979,53 +5015,32 @@ def create_teststeps_bulk(testcase_name):
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Get project and module info for the testcase to generate correct table name
-        # First try to find by exact testcase name (may return multiple if duplicates exist)
-        cursor.execute("""
-            SELECT tc.id, COALESCE(p1.name, p2.name, 'Unknown') as project_name,
-                   COALESCE(m.module_name, 'Unknown') as module_name
-            FROM TestCases tc
-            LEFT JOIN Modules m ON tc.module_id = m.id
-            LEFT JOIN Projects p1 ON tc.project_id = p1.id
-            LEFT JOIN Projects p2 ON m.project_id = p2.id
-            WHERE tc.name = ?
-            ORDER BY tc.id
-        """, (testcase_name,))
+        project_name = data.get('project_name')
+        module_name = data.get('module_name')
+        testcase_db_id = data.get('id') or data.get('testcase_db_id') or data.get('testcaseId')
 
-        testcase_records = cursor.fetchall()
+        try:
+            testcase_record = resolve_testcase_record(
+                cursor,
+                testcase_name,
+                project_name=project_name,
+                module_name=module_name,
+                testcase_db_id=testcase_db_id,
+            )
+        except ValueError as ambiguity_error:
+            conn.close()
+            return jsonify({'error': str(ambiguity_error)}), 400
 
-        if not testcase_records:
-            return jsonify({'error': f'Test case "{testcase_name}" not found'}), 404
-
-        if len(testcase_records) > 1:
-            # Multiple testcases with same name - need project/module context from request
-            project_name = data.get('project_name')
-            module_name = data.get('module_name')
-
-            if not project_name or not module_name:
-                return jsonify({
-                    'error': f'Multiple test cases found with name "{testcase_name}". Please provide project_name and module_name in the request.'
-                }), 400
-
-            # Find the matching record
-            matching_record = None
-            for record in testcase_records:
-                if record[1] == project_name and record[2] == module_name:
-                    matching_record = record
-                    break
-
-            if not matching_record:
+        if not testcase_record:
+            conn.close()
+            if project_name and module_name:
                 return jsonify({
                     'error': f'Test case "{testcase_name}" not found in project "{project_name}" and module "{module_name}"'
                 }), 404
+            return jsonify({'error': f'Test case "{testcase_name}" not found'}), 404
 
-            table_name = generate_unique_table_name(project_name, module_name, testcase_name)
-        else:
-            # Single testcase found
-            record = testcase_records[0]
-            project_name = record[1]
-            module_name = record[2]
-            table_name = generate_unique_table_name(project_name, module_name, testcase_name)
+        testcase_db_id, project_name, module_name, proper_testcase_id = testcase_record
+        table_name = generate_unique_table_name(project_name, module_name, testcase_name)
 
         # Ensure table exists - create it if it doesn't
         cursor.execute(f"""
@@ -5079,10 +5094,7 @@ def create_teststeps_bulk(testcase_name):
             ensure_page_column_exists(cursor, table_name)
         ensure_test_steps_columns_unlimited(cursor, table_name)
 
-        # Get the proper testcase_id from TestCases table
-        cursor.execute("SELECT testcase_id FROM TestCases WHERE name = ?", (testcase_name,))
-        testcase_result = cursor.fetchone()
-        proper_testcase_id = testcase_result[0] if testcase_result else testcase_name
+        # Use the resolved testcase row so duplicate testcase names do not mix identifiers.
         print(f"Using testcase_id: {proper_testcase_id} for test case: {testcase_name}")
 
         # Clear existing steps if requested
