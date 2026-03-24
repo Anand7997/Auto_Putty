@@ -306,6 +306,9 @@ const CreatePageSectionBlock: React.FC<{
         console.log('ðŸŽ¯ XPath validation passed:', xpath);
         setLastReceivedXPath(xpath);
 
+        // Auto-open the object row so the captured XPath is visible immediately.
+        setIsAddingNewObject(true);
+
         // Auto-populate the new object fields
         setNewObjectData(prev => ({
           ...prev,
@@ -565,7 +568,8 @@ const CreatePageSectionBlock: React.FC<{
               <p className="text-gray-600 text-sm mb-4">Use the Chrome Extension to capture XPaths from elements on your page, then implement them as objects.</p>
               <MapExtensionController
                 onXPathAdd={(xpath) => {
-                  // Auto-populate xpath in new object form
+                  // Auto-open and populate the new object form when an XPath arrives.
+                  setIsAddingNewObject(true);
                   setNewObjectData(prev => ({
                     ...prev,
                     xpath: xpath
