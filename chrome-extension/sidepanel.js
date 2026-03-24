@@ -4,6 +4,7 @@
   let capturedItems = [];
   let latestCaptured = null;
   let lastScrapePayload = null;
+  let isCaptureMode = false;
   const DEFAULT_SCRAPE_MESSAGE = 'Run scrape mode to extract list/table patterns as JSON.';
 
   if (document.readyState === 'loading') {
@@ -14,13 +15,66 @@
 
   function initialize() {
     bindEvents();
-    checkExtensionStatus();
-    renderAll();
+    loadInitialState().finally(() => {
+      checkExtensionStatus();
+      renderAll();
+    });
+  }
+
+  function persistPanelState() {
+    chrome.runtime.sendMessage({
+      type: 'saveState',
+      data: {
+        selectedXPaths: capturedItems,
+        captureMode: isCaptureMode
+      }
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.warn('Failed to persist sidepanel state:', chrome.runtime.lastError.message);
+      }
+    });
+  }
+
+  function loadInitialState() {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'getState' }, (state) => {
+        if (chrome.runtime.lastError) {
+          console.warn('Failed to restore sidepanel state:', chrome.runtime.lastError.message);
+          resolve(null);
+          return;
+        }
+
+        capturedItems = Array.isArray(state?.selectedXPaths) ? state.selectedXPaths : [];
+        latestCaptured = capturedItems[0] || null;
+        updateCaptureControls(!!state?.captureMode);
+        resolve(state || null);
+      });
+    });
+  }
+
+  function buildPersistableXpaths(items) {
+    return (items || [])
+      .map((item) => ({
+        element_name: item.element_name || item.elementName || 'Captured Element',
+        xpath: item.xpath || '',
+        page_name: item.page_name || 'Unknown Page',
+        page_url: item.page_url || 'Unknown URL',
+        page_domain: item.page_domain || 'Unknown Domain'
+      }))
+      .filter((item) => item.element_name && item.xpath);
   }
 
   function bindEvents() {
     const startCaptureBtn = document.getElementById('start-capture-btn');
     const stopCaptureBtn = document.getElementById('stop-capture-btn');
+    const minimizeBtn = document.getElementById('minimize-panel-btn');
+
+    if (minimizeBtn) {
+      minimizeBtn.addEventListener('click', () => {
+        persistPanelState();
+        window.close();
+      });
+    }
 
     if (startCaptureBtn) {
       startCaptureBtn.addEventListener('click', () => {
@@ -31,6 +85,7 @@
               startCaptureBtn.disabled = false;
               if (response && response.success) {
                 updateCaptureControls(true);
+                persistPanelState();
                 showNotification('Capture mode enabled', 'success');
               } else {
                 showNotification(response?.error || 'Failed to start capture', 'error');
@@ -49,6 +104,7 @@
         chrome.runtime.sendMessage({ action: 'STOP_CAPTURE' }, (response) => {
           if (response && response.success) {
             updateCaptureControls(false);
+            persistPanelState();
             showNotification('Capture mode stopped', 'success');
           } else {
             showNotification(response?.error || 'Failed to stop capture', 'error');
@@ -61,14 +117,23 @@
     if (addToTestStepsBtn) {
       addToTestStepsBtn.addEventListener('click', async () => {
         if (!capturedItems.length) return;
+        const persistableXpaths = buildPersistableXpaths(capturedItems);
+        if (!persistableXpaths.length) {
+          showNotification('No valid captured elements to save', 'error');
+          return;
+        }
         const userEmail = await getCurrentUserEmailFromActiveTab();
         chrome.runtime.sendMessage({
           action: 'SAVE_XPATHS_TO_BACKEND',
-          xpaths: capturedItems,
+          xpaths: persistableXpaths,
           session_id: `sidepanel_session_${Date.now()}`,
           user_email: userEmail
         }, (response) => {
           if (response && response.success) {
+            capturedItems = [];
+            latestCaptured = null;
+            renderAll();
+            persistPanelState();
             showNotification('Saved selectors to backend', 'success');
           } else {
             showNotification(response?.error || 'Failed to save selectors', 'error');
@@ -158,30 +223,72 @@
   }
 
   async function getCurrentUserEmailFromActiveTab() {
+    async function cacheUserEmail(email) {
+      if (!email || email === 'extension_user') return;
+      try {
+        await chrome.storage.local.set({ qfastUserEmail: email });
+      } catch (error) {
+        console.warn('Failed to cache qfast user email:', error);
+      }
+    }
+
+    async function readUserEmailFromTab(tabId) {
+      try {
+        const result = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            try {
+              const raw = window.localStorage.getItem('qfast_user');
+              if (!raw) return 'extension_user';
+              const parsed = JSON.parse(raw);
+              return parsed?.email || 'extension_user';
+            } catch (e) {
+              return 'extension_user';
+            }
+          }
+        });
+
+        return (result && result[0] ? result[0].result : 'extension_user').toString();
+      } catch (error) {
+        return 'extension_user';
+      }
+    }
+
     try {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       const activeTab = tabs && tabs[0];
-      if (!activeTab || !activeTab.id) return 'extension_user';
-
-      const result = await chrome.scripting.executeScript({
-        target: { tabId: activeTab.id },
-        func: () => {
-          try {
-            const raw = window.localStorage.getItem('qfast_user');
-            if (!raw) return 'extension_user';
-            const parsed = JSON.parse(raw);
-            return parsed?.email || 'extension_user';
-          } catch (e) {
-            return 'extension_user';
-          }
+      if (activeTab && activeTab.id) {
+        const activeEmail = await readUserEmailFromTab(activeTab.id);
+        if (activeEmail && activeEmail !== 'extension_user') {
+          await cacheUserEmail(activeEmail);
+          return activeEmail;
         }
-      });
+      }
 
-      const value = result && result[0] ? result[0].result : 'extension_user';
-      return (value || 'extension_user').toString();
+      const allTabs = await chrome.tabs.query({});
+      for (const tab of allTabs) {
+        if (!tab.id || !tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
+          continue;
+        }
+
+        const email = await readUserEmailFromTab(tab.id);
+        if (email && email !== 'extension_user') {
+          await cacheUserEmail(email);
+          return email;
+        }
+      }
+
+      const cached = await chrome.storage.local.get(['qfastUserEmail']);
+      const cachedEmail = (cached.qfastUserEmail || 'extension_user').toString();
+      return cachedEmail || 'extension_user';
     } catch (error) {
       console.warn('Failed to read qfast_user from active tab localStorage:', error);
-      return 'extension_user';
+      try {
+        const cached = await chrome.storage.local.get(['qfastUserEmail']);
+        return (cached.qfastUserEmail || 'extension_user').toString();
+      } catch (_) {
+        return 'extension_user';
+      }
     }
   }
 
@@ -238,6 +345,7 @@
 
     renderAll();
     checkExtensionStatus();
+    persistPanelState();
   }
 
   function handleWatchAlert(payload) {
@@ -269,6 +377,7 @@
     });
 
     renderList();
+    persistPanelState();
   }
 
   function updateValidationSummary(summary) {
@@ -297,6 +406,7 @@
     capturedItems.unshift(item);
     latestCaptured = item;
     renderAll();
+    persistPanelState();
   }
 
   function removeCapturedItem(itemId) {
@@ -305,6 +415,7 @@
       latestCaptured = capturedItems[0] || null;
     }
     renderAll();
+    persistPanelState();
   }
 
   function renderAll() {
@@ -430,6 +541,7 @@
   }
 
   function updateCaptureControls(isCapturing) {
+    isCaptureMode = !!isCapturing;
     const startBtn = document.getElementById('start-capture-btn');
     const stopBtn = document.getElementById('stop-capture-btn');
 

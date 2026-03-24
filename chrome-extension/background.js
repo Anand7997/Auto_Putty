@@ -239,6 +239,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'ELEMENT_CAPTURED') {
       console.log('Element captured, forwarding to side panel');
 
+      if (request.xpathData && request.xpathData.xpath) {
+        const captureId = request.xpathData.id || `${request.xpathData.elementName || request.xpathData.element_name || 'Captured Element'}|${request.xpathData.xpath}`;
+        const exists = panelState.selectedXPaths.some((item) => {
+          const itemId = item.id || `${item.elementName || item.element_name || 'Captured Element'}|${item.xpath || ''}`;
+          return itemId === captureId;
+        });
+
+        if (!exists) {
+          panelState.selectedXPaths = [request.xpathData, ...panelState.selectedXPaths];
+        }
+      }
+
       // Send to side panel via runtime message
       chrome.runtime.sendMessage({
         action: 'ELEMENT_CAPTURED',
@@ -270,15 +282,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       console.log('Saving XPaths to backend API:', request.xpaths);
       const userEmail = (request.user_email || request.userEmail || 'extension_user').toString().trim() || 'extension_user';
 
-      // Ensure page information is included in XPath data
-      const enrichedXpaths = request.xpaths.map(xpath => ({
-        ...xpath,
-        element_name: xpath.element_name || xpath.elementName || xpath.object_name || 'Captured Element',
-        elementName: xpath.elementName || xpath.element_name || xpath.object_name || 'Captured Element',
-        page_name: xpath.page_name || 'Unknown Page',
-        page_url: xpath.page_url || 'Unknown URL',
-        page_domain: xpath.page_domain || 'Unknown Domain'
-      }));
+      const enrichedXpaths = (request.xpaths || [])
+        .map((xpath) => ({
+          element_name: xpath.element_name || xpath.elementName || xpath.object_name || 'Captured Element',
+          xpath: xpath.xpath || '',
+          page_name: xpath.page_name || 'Unknown Page',
+          page_url: xpath.page_url || 'Unknown URL',
+          page_domain: xpath.page_domain || 'Unknown Domain'
+        }))
+        .filter((xpath) => xpath.element_name && xpath.xpath);
 
       const apiUrl = 'http://10.30.3.85:5000/api/extension-xpaths';
       const requestData = {
@@ -300,7 +312,36 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (response.ok) {
           return response.json().then(result => {
             console.log('XPaths saved successfully:', result);
-            if (sendResponse) sendResponse({ success: true, session_id: request.session_id });
+
+            chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+              const activeTab = tabs && tabs[0];
+              if (activeTab && activeTab.id) {
+                const ready = await ensureContentScriptReady(activeTab);
+                if (ready.success) {
+                  chrome.tabs.sendMessage(activeTab.id, {
+                    action: 'XPATH_BATCH_SAVED_TO_DATABASE',
+                    session_id: result.session_id || request.session_id,
+                    count: result.stored_count || enrichedXpaths.length,
+                    stored_xpaths: result.stored_xpaths || [],
+                    user_email: result.user_email || userEmail,
+                    timestamp: new Date().toISOString()
+                  }).catch((relayError) => {
+                    console.warn('Failed to relay saved XPaths to page:', relayError);
+                  });
+                } else {
+                  console.warn('Skipping page relay because content script is unavailable:', ready.error);
+                }
+              }
+            });
+
+            if (sendResponse) {
+              sendResponse({
+                success: true,
+                session_id: result.session_id || request.session_id,
+                stored_count: result.stored_count || enrichedXpaths.length,
+                stored_xpaths: result.stored_xpaths || []
+              });
+            }
           });
         } else {
           return response.text().then(errorText => {

@@ -2244,21 +2244,11 @@ def store_extension_xpaths():
     try:
         print("[DEBUG] /api/extension-xpaths POST endpoint called")
         print(f"[DEBUG] Request method: {request.method}")
-        print(f"[DEBUG] Request headers: {dict(request.headers)}")
-        print(f"[DEBUG] Request data: {request.data}")
-        print(f"[DEBUG] Request data type: {type(request.data)}")
         print(f"[DEBUG] Request data length: {len(request.data) if request.data else 0}")
 
         data = request.get_json()
-        print(f"[DEBUG] Parsed JSON data: {data}")
         print(f"[DEBUG] Data type: {type(data)}")
         print(f"[DEBUG] Data keys: {list(data.keys()) if data and isinstance(data, dict) else 'Not a dict'}")
-
-        # Add more detailed logging
-        print(f"[DEBUG] Data keys: {list(data.keys()) if data else 'None'}")
-        if data:
-            for key, value in data.items():
-                print(f"[DEBUG] {key}: {value}")
 
         if not data:
             print("[ERROR] No data provided in request")
@@ -2266,19 +2256,18 @@ def store_extension_xpaths():
 
         # Handle both 'xpath' and 'xpaths' keys for flexibility
         xpaths_data = data.get('xpaths', [])
-        print(f"[DEBUG] xpaths_data from 'xpaths' key: {xpaths_data}")
 
         if not xpaths_data and 'xpath' in data:
             # Single XPath case
             single_xpath = data.get('xpath', '')
-            print(f"[DEBUG] Single xpath found: {single_xpath}")
             if single_xpath:
                 xpaths_data = [{
                     'element_name': data.get('element_name') or data.get('elementName') or data.get('object_name') or 'Captured Element',
                     'xpath': single_xpath,
-                    'page_name': data.get('page_name', 'Unknown Page')
+                    'page_name': data.get('page_name', 'Unknown Page'),
+                    'page_url': data.get('page_url', 'Unknown URL'),
+                    'page_domain': data.get('page_domain', 'Unknown Domain')
                 }]
-                print(f"[DEBUG] Created xpaths_data from single xpath: {xpaths_data}")
 
         session_id = data.get('session_id')
         user_email = (request.headers.get('X-User-Email') or data.get('user_email') or data.get('created_by') or 'extension_user').strip()
@@ -2291,6 +2280,33 @@ def store_extension_xpaths():
             print("[WARNING] No xpaths provided in request after processing")
             return jsonify({'error': 'No xpaths provided'}), 400
 
+        normalized_xpaths = []
+        for xpath_item in xpaths_data:
+            if isinstance(xpath_item, str):
+                element_name = 'Captured Element'
+                xpath = xpath_item.strip()
+                page_name = 'Unknown Page'
+                page_url = 'Unknown URL'
+                page_domain = 'Unknown Domain'
+            else:
+                element_name = (xpath_item.get('element_name') or xpath_item.get('elementName') or xpath_item.get('object_name') or 'Captured Element').strip()
+                xpath = (xpath_item.get('xpath') or '').strip()
+                page_name = (xpath_item.get('page_name') or 'Unknown Page').strip()
+                page_url = (xpath_item.get('page_url') or 'Unknown URL').strip()
+                page_domain = (xpath_item.get('page_domain') or 'Unknown Domain').strip()
+
+            if element_name and xpath:
+                normalized_xpaths.append({
+                    'element_name': element_name,
+                    'xpath': xpath,
+                    'page_name': page_name or 'Unknown Page',
+                    'page_url': page_url or 'Unknown URL',
+                    'page_domain': page_domain or 'Unknown Domain'
+                })
+
+        xpaths_data = normalized_xpaths
+        print(f"[DEBUG] Normalized xpath payload count: {len(xpaths_data)}")
+
         print(f"[INFO] Storing {len(xpaths_data)} XPaths to database for session {session_id}")
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -2298,19 +2314,11 @@ def store_extension_xpaths():
 
         stored_xpaths = []
         for xpath_item in xpaths_data:
-            # Handle both dict and string formats
-            if isinstance(xpath_item, str):
-                element_name = 'Captured Element'
-                xpath = xpath_item
-                page_name = 'Unknown Page'
-                page_url = 'Unknown URL'
-                page_domain = 'Unknown Domain'
-            else:
-                element_name = xpath_item.get('element_name') or xpath_item.get('elementName') or xpath_item.get('object_name') or 'Captured Element'
-                xpath = xpath_item.get('xpath', '')
-                page_name = xpath_item.get('page_name', 'Unknown Page')
-                page_url = xpath_item.get('page_url', 'Unknown URL')
-                page_domain = xpath_item.get('page_domain', 'Unknown Domain')
+            element_name = xpath_item.get('element_name', 'Captured Element')
+            xpath = xpath_item.get('xpath', '')
+            page_name = xpath_item.get('page_name', 'Unknown Page')
+            page_url = xpath_item.get('page_url', 'Unknown URL')
+            page_domain = xpath_item.get('page_domain', 'Unknown Domain')
 
             # Extract element name from xpath if it's a text-based selector
             if xpath and xpath.strip():

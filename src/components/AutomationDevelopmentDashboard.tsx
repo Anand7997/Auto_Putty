@@ -258,19 +258,31 @@ const CreatePageSectionBlock: React.FC<{
       setIsLoadingExtensionXPaths(true);
       console.log('ðŸ“– Loading unimplemented XPaths from database (sorted by created_at)...');
 
-      const response = await fetch(buildApiUrl('/api/extension-xpaths'), {
-        headers: {
-          'X-User-Email': getCurrentUserEmail()
-        }
-      });
+      const fetchForUser = async (userEmail: string) => {
+        const response = await fetch(buildApiUrl('/api/extension-xpaths'), {
+          headers: {
+            'X-User-Email': userEmail
+          }
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to load extension XPaths from database');
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to load extension XPaths from database');
+        }
+
+        return response.json();
+      };
+
+      const currentUserEmail = getCurrentUserEmail();
+      let data = await fetchForUser(currentUserEmail);
+      let allXPaths = Array.isArray(data) ? data : (data.xpaths || []);
+
+      if (allXPaths.length === 0 && currentUserEmail !== 'extension_user') {
+        console.log('ðŸ” No XPaths for logged-in user, retrying with extension_user');
+        data = await fetchForUser('extension_user');
+        allXPaths = Array.isArray(data) ? data : (data.xpaths || []);
       }
 
-      const data = await response.json();
-      let allXPaths = Array.isArray(data) ? data : (data.xpaths || []);
       console.log('âœ… Unimplemented XPaths loaded from database:', allXPaths.length);
 
       if (allXPaths.length > 0) {
@@ -372,7 +384,6 @@ const CreatePageSectionBlock: React.FC<{
       return;
     }
 
-    // Convert XPaths to objects and add to the current objects list
     const newObjects = xpaths.map((xpathData) => ({
       object_name: xpathData.element_name,
       xpath: xpathData.xpath
@@ -380,12 +391,30 @@ const CreatePageSectionBlock: React.FC<{
 
     console.log('âœ… Created new objects from XPaths:', newObjects);
 
-    // Add to existing objects in the grid (prepend to beginning)
-    setObjects(prev => [...newObjects, ...prev]);
+    // Implement directly into the inline grid and close the standalone add-object row.
+    setIsAddingNewObject(false);
+    setNewObjectData({ object_name: '', xpath: '' });
+
+    setObjects(prev => {
+      const updatedRows = prev.map((row) => ({ ...row }));
+      const remainingObjects: Array<{ object_name: string; xpath: string }> = [];
+
+      newObjects.forEach((newObject) => {
+        const emptyIndex = updatedRows.findIndex((row) => !row.object_name.trim() && !row.xpath.trim());
+
+        if (emptyIndex >= 0) {
+          updatedRows[emptyIndex] = newObject;
+        } else {
+          remainingObjects.push(newObject);
+        }
+      });
+
+      return [...updatedRows, ...remainingObjects];
+    });
 
     toast({
       title: "âœ… XPaths Implemented Successfully",
-      description: `Added ${xpaths.length} XPath(s) to objects`,
+      description: `Loaded ${xpaths.length} XPath(s) into object rows`,
     });
   };
 

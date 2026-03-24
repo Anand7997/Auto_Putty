@@ -45,7 +45,7 @@ const MapExtensionController: React.FC<MapExtensionControllerProps> = ({
   };
 
   // Database integration state
-  const [storedXPaths, setStoredXPaths] = useState<Array<{id: number, element_name: string, xpath: string, page_name: string, created_at: string, session_id: string}>>([]);
+  const [storedXPaths, setStoredXPaths] = useState<Array<{id: number, element_name: string, xpath: string, page_name: string, page_url?: string, page_domain?: string, created_at: string, session_id: string, user_email?: string}>>([]);
   const [isStoringToDB, setIsStoringToDB] = useState(false);
   const [isResettingXPaths, setIsResettingXPaths] = useState(false);
   const [isRefreshingXPaths, setIsRefreshingXPaths] = useState(false);
@@ -141,7 +141,7 @@ const MapExtensionController: React.FC<MapExtensionControllerProps> = ({
       if (!forceRefresh && lastApiResponse && (currentTime - lastRefreshTime) < REFRESH_CACHE_DURATION) {
         console.log('⚡ Using cached data (age:', (currentTime - lastRefreshTime) + 'ms)');
         setIsRefreshingXPaths(false);
-        
+
         toast({
           title: "⚡ Instant Refresh",
           description: `Using cached data (${storedXPaths.length} XPaths)`,
@@ -154,26 +154,32 @@ const MapExtensionController: React.FC<MapExtensionControllerProps> = ({
       const apiUrl = buildApiUrl('/api/extension-xpaths');
       console.log('🚀 Ultra-fast API call to:', apiUrl);
 
-      // Make the API call with aggressive timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-      
-      const response = await fetch(apiUrl, {
-        signal: controller.signal,
-        headers: {
-          'X-User-Email': getCurrentUserEmail()
-        }
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('❌ API returned error:', errorData);
-        throw new Error(errorData.error || 'Failed to load XPaths from database');
-      }
+      const fetchForUser = async (userEmail: string) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const responseData = await response.json();
+        try {
+          const response = await fetch(apiUrl, {
+            signal: controller.signal,
+            headers: {
+              'X-User-Email': userEmail
+            }
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            console.error('❌ API returned error:', errorData);
+            throw new Error(errorData.error || 'Failed to load XPaths from database');
+          }
+
+          return response.json();
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      };
+
+      const currentUserEmail = getCurrentUserEmail();
+      let responseData = await fetchForUser(currentUserEmail);
       console.log('⚡ Ultra-fast response received:', responseData);
       
       // Process data ultra-fast
@@ -183,6 +189,16 @@ const MapExtensionController: React.FC<MapExtensionControllerProps> = ({
         xpaths = responseData;
       } else if (responseData?.xpaths && Array.isArray(responseData.xpaths)) {
         xpaths = responseData.xpaths;
+      }
+
+      if (xpaths.length === 0 && currentUserEmail !== 'extension_user') {
+        console.log('🔁 No rows for logged-in user, retrying with extension_user');
+        responseData = await fetchForUser('extension_user');
+        if (Array.isArray(responseData)) {
+          xpaths = responseData;
+        } else if (responseData?.xpaths && Array.isArray(responseData.xpaths)) {
+          xpaths = responseData.xpaths;
+        }
       }
       
       // Sort ultra-fast using numeric timestamp comparison
@@ -200,7 +216,7 @@ const MapExtensionController: React.FC<MapExtensionControllerProps> = ({
       
       // ⚡ INSTANT UI UPDATE - Update state immediately
       setStoredXPaths(xpaths);
-      
+
       const loadingTime = Math.round(performance.now() - loadingStartTime);
       console.log(`⚡ ULTRA-FAST LOAD COMPLETE: ${xpaths.length} XPaths loaded in ${loadingTime}ms`);
       
@@ -829,6 +845,9 @@ const MapExtensionController: React.FC<MapExtensionControllerProps> = ({
                         
                         <div className="text-xs text-gray-500">
                           📅 {new Date(xpathData.created_at).toLocaleString()}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          Domain: {xpathData.page_domain || 'Unknown Domain'}
                         </div>
                       </div>
                     ))}

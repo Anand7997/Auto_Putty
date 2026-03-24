@@ -58,6 +58,19 @@
           sendResponseSafe(sendResponse, { success: true });
           break;
 
+        case 'XPATH_BATCH_SAVED_TO_DATABASE':
+          window.postMessage({
+            type: 'XPATH_BATCH_SAVED_TO_DATABASE',
+            count: request.count || 0,
+            session_id: request.session_id || null,
+            stored_xpaths: request.stored_xpaths || [],
+            user_email: request.user_email || null,
+            source: 'qfast-extension',
+            timestamp: request.timestamp || new Date().toISOString()
+          }, '*');
+          sendResponseSafe(sendResponse, { success: true });
+          break;
+
         case 'BULK_VALIDATE_SELECTORS': {
           const validation = bulkValidateSelectors(request.items || []);
           sendResponseSafe(sendResponse, { success: true, ...validation });
