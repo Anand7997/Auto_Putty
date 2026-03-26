@@ -177,7 +177,6 @@ def get_db_connection():
         print(f"[DB_ERROR] Failed to connect to database: {e}")
         raise
 
-
 def table_exists(cursor, table_name: str, schema_name: str = 'dbo') -> bool:
     """Check if a table exists in SQL Server."""
     cursor.execute("""
@@ -447,6 +446,7 @@ def migrate_test_steps(source_testcase_name: str, target_testcase_name: str, con
                 test_step_description NVARCHAR(MAX),
                 element_name NVARCHAR(MAX),
                 action_type NVARCHAR(MAX),
+                assertion_type NVARCHAR(MAX) NULL,
                 xpath NVARCHAR(MAX),
                 [values] NVARCHAR(MAX),
                 expected_result NVARCHAR(MAX),
@@ -456,6 +456,8 @@ def migrate_test_steps(source_testcase_name: str, target_testcase_name: str, con
             )
         """)
         ensure_test_steps_columns_unlimited(cursor, target_table)
+        ensure_assertion_type_column_exists(cursor, source_table)
+        ensure_assertion_type_column_exists(cursor, target_table)
         
         # Get the proper testcase_id for the target test case
         cursor.execute("SELECT testcase_id FROM TestCases WHERE name = ?", (target_testcase_name,))
@@ -468,8 +470,8 @@ def migrate_test_steps(source_testcase_name: str, target_testcase_name: str, con
         
         # Copy all test steps from source to target with proper testcase_id
         cursor.execute(f"""
-            INSERT INTO [{target_table}] (tc_id, step_no, test_step_description, element_name, action_type, xpath, [values])
-            SELECT ?, step_no, test_step_description, element_name, action_type, xpath, [values]
+            INSERT INTO [{target_table}] (tc_id, step_no, test_step_description, element_name, action_type, assertion_type, xpath, [values])
+            SELECT ?, step_no, test_step_description, element_name, action_type, COALESCE(assertion_type, ''), xpath, [values]
             FROM [{source_table}]
             ORDER BY step_no
         """, (target_testcase_id,))
@@ -4588,6 +4590,7 @@ def create_testcase():
                     test_step_description NVARCHAR(MAX),
                     element_name NVARCHAR(MAX),
                     action_type NVARCHAR(MAX),
+                    assertion_type NVARCHAR(MAX) NULL,
                     xpath NVARCHAR(MAX),
                     [values] NVARCHAR(MAX),
                     expected_result NVARCHAR(MAX),
@@ -4901,7 +4904,8 @@ def get_teststeps(testcase_name):
             table_name = generate_unique_table_name(project_name, module_name, testcase_name)
 
         ensure_page_column_exists(cursor, table_name)
-        cursor.execute(f"SELECT id, tc_id, step_no, test_step_description, element_name, action_type, xpath, [values], page FROM [{table_name}] ORDER BY step_no")
+        ensure_assertion_type_column_exists(cursor, table_name)
+        cursor.execute(f"SELECT id, tc_id, step_no, test_step_description, element_name, action_type, assertion_type, xpath, [values], page FROM [{table_name}] ORDER BY step_no")
 
         steps = []
         for row in cursor.fetchall():
@@ -4912,9 +4916,10 @@ def get_teststeps(testcase_name):
                 'test_step_description': row[3],
                 'element_name': row[4],
                 'action_type': row[5],
-                'xpath': row[6],
-                'values': row[7],
-                'page': row[8]
+                'assertion_type': row[6],
+                'xpath': row[7],
+                'values': row[8],
+                'page': row[9]
             })
 
         conn.close()
@@ -4996,12 +5001,13 @@ def create_teststep(testcase_name):
         print(f"Using testcase_id: {proper_testcase_id} for test case: {testcase_name}")
 
         ensure_page_column_exists(cursor, table_name)
+        ensure_assertion_type_column_exists(cursor, table_name)
         cursor.execute(f"""
-            INSERT INTO [{table_name}] (tc_id, step_no, test_step_description, element_name, action_type, xpath, [values], page)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO [{table_name}] (tc_id, step_no, test_step_description, element_name, action_type, assertion_type, xpath, [values], page)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             proper_testcase_id, data['step_no'], data['test_step_description'],
-            data['element_name'], data['action_type'], data.get('xpath', ''), data.get('values', ''), data.get('page', None)
+            data['element_name'], data['action_type'], data.get('assertion_type', ''), data.get('xpath', ''), data.get('values', ''), data.get('page', None)
         ))
         step_id = cursor.execute("SELECT @@IDENTITY").fetchone()[0]
         conn.commit()
@@ -5064,6 +5070,7 @@ def create_teststeps_bulk(testcase_name):
                     test_step_description NVARCHAR(MAX),
                     element_name NVARCHAR(MAX),
                     action_type NVARCHAR(MAX),
+                    assertion_type NVARCHAR(MAX) NULL,
                     xpath NVARCHAR(MAX),
                     [values] NVARCHAR(MAX),
                     expected_result NVARCHAR(MAX),
@@ -5089,6 +5096,7 @@ def create_teststeps_bulk(testcase_name):
                     test_step_description NVARCHAR(MAX),
                     element_name NVARCHAR(MAX),
                     action_type NVARCHAR(MAX),
+                    assertion_type NVARCHAR(MAX) NULL,
                     xpath NVARCHAR(MAX),
                     [values] NVARCHAR(MAX),
                     expected_result NVARCHAR(MAX),
@@ -5100,6 +5108,7 @@ def create_teststeps_bulk(testcase_name):
             print(f"[SUCCESS] Created table {table_name}")
         else:
             ensure_page_column_exists(cursor, table_name)
+            ensure_assertion_type_column_exists(cursor, table_name)
         ensure_test_steps_columns_unlimited(cursor, table_name)
 
         # Use the resolved testcase row so duplicate testcase names do not mix identifiers.
@@ -5113,14 +5122,15 @@ def create_teststeps_bulk(testcase_name):
         inserted_count = 0
         for step in steps:
             cursor.execute(f"""
-                INSERT INTO [{table_name}] (tc_id, step_no, test_step_description, element_name, action_type, xpath, [values], page)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO [{table_name}] (tc_id, step_no, test_step_description, element_name, action_type, assertion_type, xpath, [values], page)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 proper_testcase_id,
                 step['step_no'],
                 step['test_step_description'],
                 step['element_name'],
                 step['action_type'],
+                step.get('assertion_type', ''),
                 step.get('xpath', ''),
                 step.get('values', ''),
                 step.get('page', None)
@@ -5141,6 +5151,13 @@ def ensure_page_column_exists(cursor, table_name):
         ALTER TABLE [{table_name}] ADD page NVARCHAR(MAX) NULL
     """, (table_name,))
 
+def ensure_assertion_type_column_exists(cursor, table_name):
+    """Ensure the 'assertion_type' column exists in the given test step table."""
+    cursor.execute(f"""
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ? AND COLUMN_NAME = 'assertion_type')
+        ALTER TABLE [{table_name}] ADD assertion_type NVARCHAR(MAX) NULL
+    """, (table_name,))
+
 def ensure_test_steps_columns_unlimited(cursor, table_name):
     """Ensure test step text columns are NVARCHAR(MAX) to avoid length caps."""
     escaped_table_name = table_name.replace(']', ']]')
@@ -5148,6 +5165,7 @@ def ensure_test_steps_columns_unlimited(cursor, table_name):
         'test_step_description',
         'element_name',
         'action_type',
+        'assertion_type',
         'values',
         'expected_result',
         'actual_result',
@@ -6492,7 +6510,8 @@ def execute_single_testcase(testcase_name, request_data=None):
                 'testcase_name': testcase_name
             }
 
-        cursor.execute(f"SELECT tc_id, step_no, test_step_description, element_name, action_type, xpath, [values] FROM [{table_name}] ORDER BY step_no")
+        ensure_assertion_type_column_exists(cursor, table_name)
+        cursor.execute(f"SELECT tc_id, step_no, test_step_description, element_name, action_type, assertion_type, xpath, [values] FROM [{table_name}] ORDER BY step_no")
 
         test_steps = []
         for row in cursor.fetchall():
@@ -6502,8 +6521,9 @@ def execute_single_testcase(testcase_name, request_data=None):
                 'test_step_description': row[2],
                 'element_name': row[3],
                 'action_type': row[4],
-                'xpath': row[5],
-                'values': row[6]
+                'assertion_type': row[5],
+                'xpath': row[6],
+                'values': row[7]
             })
 
         cursor.close()  # Close cursor before closing connection
@@ -8551,7 +8571,8 @@ def handle_start_test_execution(data):
                     # Fallback to old naming for backward compatibility
                     table_name = sanitize_table_name(testcase_name)
 
-                cursor.execute(f"SELECT tc_id, step_no, test_step_description, element_name, action_type, xpath, [values] FROM [{table_name}] ORDER BY step_no")
+                ensure_assertion_type_column_exists(cursor, table_name)
+                cursor.execute(f"SELECT tc_id, step_no, test_step_description, element_name, action_type, assertion_type, xpath, [values] FROM [{table_name}] ORDER BY step_no")
 
                 test_steps = []
                 for row in cursor.fetchall():
@@ -8561,8 +8582,9 @@ def handle_start_test_execution(data):
                         'test_step_description': row[2],
                         'element_name': row[3],
                         'action_type': row[4],
-                        'xpath': row[5],
-                        'values': row[6]
+                        'assertion_type': row[5],
+                        'xpath': row[6],
+                        'values': row[7]
                     })
 
                 cursor.close()
@@ -9804,6 +9826,7 @@ def generate_testcases_from_brd():
                         test_step_description NVARCHAR(MAX),
                         element_name NVARCHAR(MAX),
                         action_type NVARCHAR(MAX),
+                        assertion_type NVARCHAR(MAX) NULL,
                         xpath NVARCHAR(MAX),
                         [values] NVARCHAR(MAX),
                         expected_result NVARCHAR(MAX),
@@ -10747,7 +10770,8 @@ def execute_single_testcase_with_excel_data(testcase_name, request_data=None):
                 'testcase_name': testcase_name
             }
 
-        cursor.execute(f"SELECT tc_id, step_no, test_step_description, element_name, action_type, xpath, [values] FROM [{table_name}] ORDER BY step_no")
+        ensure_assertion_type_column_exists(cursor, table_name)
+        cursor.execute(f"SELECT tc_id, step_no, test_step_description, element_name, action_type, assertion_type, xpath, [values] FROM [{table_name}] ORDER BY step_no")
 
         test_steps = []
         for row in cursor.fetchall():
@@ -10757,8 +10781,9 @@ def execute_single_testcase_with_excel_data(testcase_name, request_data=None):
                 'test_step_description': row[2],
                 'element_name': row[3],
                 'action_type': row[4],
-                'xpath': row[5],
-                'values': row[6]
+                'assertion_type': row[5],
+                'xpath': row[6],
+                'values': row[7]
             })
 
         cursor.close()

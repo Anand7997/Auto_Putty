@@ -174,6 +174,11 @@ class SeleniumTestExecutor:
         self.autocomplete_wait_timeout = float(os.getenv("SELENIUM_AUTOCOMPLETE_WAIT_TIMEOUT_SECONDS", "1.2"))
         self._last_count_action_state = None
         self._last_drag_drop_state = None
+        self._last_read_result = None
+        self.download_dir = os.path.join(os.getcwd(), "downloads", "selenium")
+        os.makedirs(self.download_dir, exist_ok=True)
+        self.visual_baseline_dir = os.path.join(os.getcwd(), "visual-baselines", "selenium")
+        os.makedirs(self.visual_baseline_dir, exist_ok=True)
 
         # Grid execution configuration
         self.grid_capabilities = {
@@ -200,6 +205,8 @@ class SeleniumTestExecutor:
         print(f"[INIT] Default step timeout: {self.default_step_timeout}s")
         print(f"[INIT] Fast wait timeout: {self.fast_wait_timeout}s")
         print(f"[INIT] Autocomplete wait timeout: {self.autocomplete_wait_timeout}s")
+        print(f"[INIT] Download directory: {self.download_dir}")
+        print(f"[INIT] Visual baseline directory: {self.visual_baseline_dir}")
 
     def _normalize_chromedriver_path(self, driver_path):
         """Ensure the selected path points to an executable chromedriver binary."""
@@ -1100,6 +1107,13 @@ class SeleniumTestExecutor:
             chrome_options.add_argument("--disable-popup-blocking")
             chrome_options.add_argument("--disable-print-preview")
             chrome_options.add_argument("--no-service-autorun")
+            chrome_options.add_experimental_option("prefs", {
+                "download.default_directory": self.download_dir,
+                "download.prompt_for_download": False,
+                "download.directory_upgrade": True,
+                "safebrowsing.enabled": True,
+                "profile.default_content_settings.popups": 0,
+            })
             if not is_local_visible_run:
                 chrome_options.add_argument("--disable-images")
                 chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -1596,8 +1610,7 @@ class SeleniumTestExecutor:
             return
 
         self.perform_robust_click(target)
-        if str(test_data or "").strip():
-            self.perform_robust_text_input(target, str(test_data))
+        # CLICK_AND_SELECT should remain selection-only. Do not type into generic inputs here.
 
     def _parse_drag_drop_target_locator(self, test_data):
         """Extract target locator for drag/drop from raw step values."""
@@ -1670,13 +1683,14 @@ class SeleniumTestExecutor:
                 xpath = step.get('xpath', '')
                 element_name = step.get('element_name', '')
                 test_data = step.get('values', '')
+                assertion_type = step.get('assertion_type', '')
 
-                pre_validation = self.pre_validate_action(action_type, test_data, xpath, element_name)
+                pre_validation = self.pre_validate_action(action_type, test_data, xpath, element_name, assertion_type)
                 if not pre_validation.get('success', False):
                     raise Exception(pre_validation.get('message', 'Pre-validation failed'))
 
                 # Execute the action using isolation method (which includes window management)
-                self.execute_action_with_isolation(action_type, test_data, xpath, element_name)
+                self.execute_action_with_isolation(action_type, test_data, xpath, element_name, assertion_type)
             
             # Execute the step with timeout
             with ThreadPoolExecutor(max_workers=1) as executor:
@@ -1800,18 +1814,19 @@ class SeleniumTestExecutor:
                     xpath = step.get('xpath', '')
                     element_name = step.get('element_name', '')
                     test_data = step.get('values', '')
+                    assertion_type = step.get('assertion_type', '')
                     
                     print(f"[ISOLATION] Executing action: {action_type} on element: {element_name}")
 
-                    pre_validation = self.pre_validate_action(action_type, test_data, xpath, element_name)
+                    pre_validation = self.pre_validate_action(action_type, test_data, xpath, element_name, assertion_type)
                     if not pre_validation.get('success', False):
                         raise Exception(pre_validation.get('message', 'Pre-validation failed'))
 
                     # Execute the action with enhanced error handling
-                    self.execute_action_with_isolation(action_type, test_data, xpath, element_name)
+                    self.execute_action_with_isolation(action_type, test_data, xpath, element_name, assertion_type)
                     
                     # VALIDATION: Verify the action achieved the expected result without timeout
-                    validation_result = self.validate_action_result(action_type, test_data, xpath, element_name)
+                    validation_result = self.validate_action_result(action_type, test_data, xpath, element_name, assertion_type)
                     if not validation_result['success']:
                         print(f"[VALIDATION_FAIL] Step validation failed: {validation_result['message']}")
                         raise Exception(f"Validation failed: {validation_result['message']}")
@@ -2192,7 +2207,7 @@ class SeleniumTestExecutor:
     
 
     
-    def execute_action_with_isolation(self, action_type, test_data, xpath, element_name):
+    def execute_action_with_isolation(self, action_type, test_data, xpath, element_name, assertion_type=None):
         """Execute specific action with enhanced isolation mode error handling"""
         try:
             print(f"[ISOLATION_ACTION] Executing action: {action_type} with data: '{test_data}' for element: {element_name}")
@@ -2498,6 +2513,57 @@ class SeleniumTestExecutor:
                     print(f"[ISOLATION] Go forward failed: {str(e)}")
                     raise e
 
+            elif action_type == "READ_TEXT":
+                target = self.find_element_with_advanced_wait(xpath)
+                payload = self._get_readable_element_payload(target)
+                self._last_read_result = {"type": "text", "value": payload.get("text", "")}
+                print(f"[ISOLATION] Read text for {element_name}: {self._last_read_result['value']}")
+
+            elif action_type == "READ_VALUE":
+                target = self.find_element_with_advanced_wait(xpath)
+                payload = self._get_readable_element_payload(target)
+                self._last_read_result = {"type": "value", "value": payload.get("value", "")}
+                print(f"[ISOLATION] Read value for {element_name}: {self._last_read_result['value']}")
+
+            elif action_type == "READ_TOOLTIP":
+                target = self.find_element_with_advanced_wait(xpath)
+                payload = self._get_readable_element_payload(target)
+                tooltip_value = payload.get("title") or payload.get("ariaLabel") or payload.get("placeholder") or payload.get("text", "")
+                self._last_read_result = {"type": "tooltip", "value": tooltip_value}
+                print(f"[ISOLATION] Read tooltip for {element_name}: {tooltip_value}")
+
+            elif action_type == "READ_LABEL":
+                target = self.find_element_with_advanced_wait(xpath)
+                payload = self._get_readable_element_payload(target)
+                self._last_read_result = {"type": "label", "value": payload.get("label", "")}
+                print(f"[ISOLATION] Read label for {element_name}: {self._last_read_result['value']}")
+
+            elif action_type == "COPY":
+                target = self.find_element_with_advanced_wait(xpath)
+                self._copy_from_element(target)
+                payload = self._get_readable_element_payload(target)
+                self._last_read_result = {"type": "copy", "value": payload.get("value") or payload.get("text") or ""}
+                print(f"[ISOLATION] Copy executed for {element_name}")
+
+            elif action_type == "PASTE":
+                target = self.find_element_with_advanced_wait(xpath)
+                self._paste_to_element(target, test_data)
+                payload = self._get_readable_element_payload(target)
+                self._last_read_result = {"type": "paste", "value": payload.get("value") or payload.get("text") or ""}
+                print(f"[ISOLATION] Paste executed for {element_name}")
+
+            elif action_type == "UPLOAD_FILE":
+                self._upload_file_to_element(xpath, test_data)
+                print(f"[ISOLATION] Upload executed for {element_name}")
+
+            elif action_type == "DOWNLOAD_FILE":
+                downloaded_name = self._download_file_from_element(xpath, element_name, test_data)
+                print(f"[ISOLATION] Download executed for {element_name}: {downloaded_name}")
+
+            elif action_type == "VISUAL_ASSERTION":
+                result = self._run_visual_assertion(test_data, element_name)
+                print(f"[ISOLATION] Visual assertion for {element_name}: baseline={result.get('baseline')} status={result.get('value')} diff={result.get('difference_ratio')}")
+
             elif action_type in ["TYPE", "INPUT", "ENTER_TEXT"]:
                 target = self.find_element_with_advanced_wait(xpath)
                 self.perform_robust_text_input(target, str(test_data))
@@ -2515,13 +2581,11 @@ class SeleniumTestExecutor:
                 print(f"[ISOLATION] Wait completed for {wait_seconds}s max")
 
             elif action_type in ["PRESS_KEY", "KEY"]:
-                key_name = (str(test_data or "").strip() or "ENTER").upper()
-                key_value = getattr(Keys, key_name, None)
-                if not key_value:
-                    raise Exception(f"Unsupported key: {key_name}")
-                active = self.driver.switch_to.active_element
-                active.send_keys(key_value)
-                print(f"[ISOLATION] Sent key {key_name}")
+                self.handle_press_key_action(test_data)
+                print(f"[ISOLATION] Sent key {str(test_data or '').strip() or 'ENTER'}")
+
+            elif action_type == "ASSERTION":
+                print(f"[ISOLATION] Assertion step prepared for {element_name} ({self.normalize_assertion_type(assertion_type)})")
 
             else:
                 # Last-resort generic behavior: click target and optionally type value.
@@ -2591,6 +2655,359 @@ class SeleniumTestExecutor:
         }
 
         return alias_map.get(normalized, normalized)
+
+    def _normalize_press_key_tokens(self, key_value):
+        raw = str(key_value or "").strip()
+        if not raw:
+            raw = "ENTER"
+        tokens = [token.strip() for token in re.split(r"\s*\+\s*", raw) if token.strip()]
+        return tokens or ["ENTER"]
+
+    def _resolve_selenium_key_token(self, token):
+        normalized = str(token or "").strip().upper().replace(" ", "_").replace("-", "_")
+        alias_map = {
+            "CTRL": "CONTROL",
+            "CMD": "COMMAND",
+            "WIN": "META",
+            "WINDOWS": "META",
+            "OPTION": "ALT",
+            "ESC": "ESCAPE",
+            "LEFT": "ARROW_LEFT",
+            "RIGHT": "ARROW_RIGHT",
+            "UP": "ARROW_UP",
+            "DOWN": "ARROW_DOWN",
+        }
+        resolved = alias_map.get(normalized, normalized)
+        special_key = getattr(Keys, resolved, None)
+        if special_key:
+            return special_key
+        if len(token) == 1:
+            return token.lower()
+        raise Exception(f"Unsupported key token: {token}")
+
+    def handle_press_key_action(self, test_data):
+        tokens = self._normalize_press_key_tokens(test_data)
+        resolved_tokens = [self._resolve_selenium_key_token(token) for token in tokens]
+        active = self.driver.switch_to.active_element
+        if len(resolved_tokens) == 1:
+            active.send_keys(resolved_tokens[0])
+            return
+        active.send_keys(Keys.chord(*resolved_tokens))
+
+    def _get_readable_element_payload(self, element):
+        try:
+            return self.driver.execute_script("""
+                const el = arguments[0];
+                if (!el) return {};
+                const text = ((el.innerText || el.textContent || '') + '').replace(/\\s+/g, ' ').trim();
+                const value = ((el.value || '') + '').trim();
+                const title = ((el.getAttribute('title') || '') + '').trim();
+                const ariaLabel = ((el.getAttribute('aria-label') || '') + '').trim();
+                const placeholder = ((el.getAttribute('placeholder') || '') + '').trim();
+                let label = '';
+                if (el.labels && el.labels.length) {
+                    label = Array.from(el.labels).map(l => (l.innerText || l.textContent || '').trim()).filter(Boolean).join(' ').trim();
+                }
+                if (!label) {
+                    const closest = el.closest && el.closest('label');
+                    if (closest) label = (closest.innerText || closest.textContent || '').replace(/\\s+/g, ' ').trim();
+                }
+                if (!label) {
+                    const id = el.getAttribute('id');
+                    if (id) {
+                        const explicit = document.querySelector(`label[for="${id}"]`);
+                        if (explicit) label = (explicit.innerText || explicit.textContent || '').replace(/\\s+/g, ' ').trim();
+                    }
+                }
+                return { text, value, title, ariaLabel, placeholder, label };
+            """, element) or {}
+        except Exception:
+            return {}
+
+    def _copy_from_element(self, element):
+        self.perform_robust_click(element)
+        tag_name = (element.tag_name or "").lower()
+        is_textual = tag_name in ["input", "textarea"] or str(element.get_attribute("contenteditable") or "").lower() == "true"
+        if is_textual:
+            element.send_keys(Keys.CONTROL, "a")
+        ActionChains(self.driver).key_down(Keys.CONTROL).send_keys("c").key_up(Keys.CONTROL).perform()
+
+    def _paste_to_element(self, element, test_data):
+        text = str(test_data or "").strip()
+        self.perform_robust_click(element)
+        if text:
+            tag_name = (element.tag_name or "").lower()
+            contenteditable = str(element.get_attribute("contenteditable") or "").lower() == "true"
+            if tag_name in ["input", "textarea"]:
+                try:
+                    self.driver.execute_script(
+                        """
+                        const el = arguments[0];
+                        const value = arguments[1];
+                        el.focus();
+                        el.value = value;
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        """,
+                        element,
+                        text,
+                    )
+                    return
+                except Exception:
+                    pass
+            if contenteditable:
+                try:
+                    self.driver.execute_script(
+                        """
+                        const el = arguments[0];
+                        const value = arguments[1];
+                        el.focus();
+                        el.textContent = value;
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        """,
+                        element,
+                        text,
+                    )
+                    return
+                except Exception:
+                    pass
+            element.send_keys(text)
+            return
+        ActionChains(self.driver).key_down(Keys.CONTROL).send_keys("v").key_up(Keys.CONTROL).perform()
+
+    def _upload_file_to_element(self, xpath, test_data):
+        file_path = os.path.abspath(os.path.expandvars(os.path.expanduser(str(test_data or "").strip())))
+        if not os.path.exists(file_path):
+            raise Exception(f'Upload file not found: {file_path}')
+        target = self.find_element_with_advanced_wait(xpath)
+        file_input = target
+        try:
+            if (target.tag_name or "").lower() != "input" or (target.get_attribute("type") or "").lower() != "file":
+                file_input = target.find_element(By.XPATH, ".//input[@type='file']")
+        except Exception:
+            pass
+        file_input.send_keys(file_path)
+        self._last_read_result = {"type": "upload", "value": file_path}
+
+    def _download_file_from_element(self, xpath, element_name, test_data):
+        before_files = {name: os.path.getmtime(os.path.join(self.download_dir, name)) for name in os.listdir(self.download_dir)}
+        target = self.find_element_with_advanced_wait(xpath)
+        self.perform_robust_click(target)
+
+        expected_fragment = str(test_data or "").strip().lower()
+        deadline = time.time() + max(self.default_wait_timeout, 5)
+        latest_file = None
+        while time.time() < deadline:
+            current_files = os.listdir(self.download_dir)
+            for name in current_files:
+                file_path = os.path.join(self.download_dir, name)
+                if not os.path.isfile(file_path):
+                    continue
+                if name.endswith(".crdownload"):
+                    continue
+                mtime = os.path.getmtime(file_path)
+                if name not in before_files or mtime > before_files.get(name, 0):
+                    if expected_fragment and expected_fragment not in name.lower():
+                        latest_file = file_path
+                        continue
+                    self._last_read_result = {"type": "download", "value": name}
+                    return name
+            time.sleep(0.3)
+        raise Exception(f'No downloaded file detected for "{element_name}" in {self.download_dir}')
+
+    def _parse_visual_assertion_config(self, test_data, element_name):
+        raw = str(test_data or "").strip()
+        config = {
+            "baseline": re.sub(r"[^A-Za-z0-9._-]+", "_", str(element_name or "visual_assertion").strip() or "visual_assertion"),
+            "threshold": 0.01,
+        }
+        if not raw:
+            return config
+        try:
+            payload = json.loads(raw)
+            if isinstance(payload, dict):
+                if payload.get("baseline"):
+                    config["baseline"] = re.sub(r"[^A-Za-z0-9._-]+", "_", str(payload["baseline"]).strip())
+                if payload.get("threshold") is not None:
+                    config["threshold"] = max(float(payload["threshold"]), 0.0)
+                return config
+        except Exception:
+            pass
+        for part in re.split(r"[;,\n]+", raw):
+            if "=" in part:
+                key, value = [segment.strip() for segment in part.split("=", 1)]
+                if key.lower() == "baseline" and value:
+                    config["baseline"] = re.sub(r"[^A-Za-z0-9._-]+", "_", value)
+                elif key.lower() == "threshold" and value:
+                    try:
+                        config["threshold"] = max(float(value), 0.0)
+                    except Exception:
+                        pass
+            elif part.strip():
+                config["baseline"] = re.sub(r"[^A-Za-z0-9._-]+", "_", part.strip())
+        return config
+
+    def _run_visual_assertion(self, test_data, element_name):
+        config = self._parse_visual_assertion_config(test_data, element_name)
+        baseline_name = config["baseline"]
+        threshold = config["threshold"]
+        baseline_path = os.path.join(self.visual_baseline_dir, f"{baseline_name}.png")
+        current_attachment = self.save_screenshot(f"visual_{baseline_name}")
+        if not current_attachment:
+            raise Exception("Failed to capture screenshot for visual assertion")
+        current_path = os.path.join(os.getcwd(), "allure-results-new", current_attachment["source"])
+        try:
+            from PIL import Image, ImageChops
+        except Exception as pil_error:
+            raise Exception(f"Visual assertion requires Pillow: {pil_error}")
+
+        current_image = Image.open(current_path).convert("RGBA")
+        if not os.path.exists(baseline_path):
+            current_image.save(baseline_path)
+            self._last_read_result = {"type": "visual_assertion", "value": "baseline_created", "baseline": baseline_name, "difference_ratio": 0.0, "threshold": threshold}
+            return self._last_read_result
+
+        baseline_image = Image.open(baseline_path).convert("RGBA")
+        if baseline_image.size != current_image.size:
+            current_image = current_image.resize(baseline_image.size)
+        diff = ImageChops.difference(baseline_image, current_image)
+        bbox = diff.getbbox()
+        if not bbox:
+            diff_ratio = 0.0
+        else:
+            histogram = diff.histogram()
+            total_channels = 4
+            differing = sum(histogram[index] * (index % 256) for index in range(len(histogram)))
+            max_diff = baseline_image.size[0] * baseline_image.size[1] * total_channels * 255
+            diff_ratio = differing / max_diff if max_diff else 0.0
+        self._last_read_result = {
+            "type": "visual_assertion",
+            "value": "matched" if diff_ratio <= threshold else "mismatch",
+            "baseline": baseline_name,
+            "difference_ratio": diff_ratio,
+            "threshold": threshold,
+        }
+        return self._last_read_result
+
+    def normalize_assertion_type(self, assertion_type):
+        normalized = re.sub(r"[\s\-/]+", "_", str(assertion_type or "").upper().strip())
+        alias_map = {
+            "": "ELEMENT_VISIBLE",
+            "VERIFY_ELEMENT_EXISTS": "ELEMENT_EXISTS",
+            "VERIFY_ELEMENT_VISIBLE": "ELEMENT_VISIBLE",
+            "VERIFY_ELEMENT_ENABLED": "ELEMENT_ENABLED",
+            "VERIFY_ELEMENT_DISABLED": "ELEMENT_DISABLED",
+            "VERIFY_ELEMENT_CLICKABLE": "ELEMENT_CLICKABLE",
+            "VERIFY_TEXT": "VERIFY_TEXT",
+            "VERIFY_INPUT": "VERIFY_INPUT_VALUE",
+            "VERIFY_VALUE": "VERIFY_INPUT_VALUE",
+            "VERIFY_INPUT_VALUE": "VERIFY_INPUT_VALUE",
+            "VERIFY_ATTRIBUTE": "VERIFY_ATTRIBUTE",
+            "VERIFY_PLACEHOLDER": "VERIFY_PLACEHOLDER",
+            "VERIFY_PAGE_TITLE": "VERIFY_PAGE_TITLE",
+            "VERIFY_URL": "VERIFY_URL_CONTAINS",
+            "VERIFY_URL_CONTAINS": "VERIFY_URL_CONTAINS",
+            "VERIFY_URL_EQUALS": "VERIFY_URL_EQUALS",
+            "VERIFY_REDIRECTS": "VERIFY_URL_CONTAINS",
+            "VERIFY_PAGE_LOAD_COMPLETION": "VERIFY_PAGE_LOADED",
+            "VERIFY_PAGE_LOADED": "VERIFY_PAGE_LOADED",
+            "WAIT_FOR_ELEMENT_VISIBLE": "WAIT_FOR_VISIBLE",
+            "WAIT_FOR_VISIBLE": "WAIT_FOR_VISIBLE",
+            "WAIT_FOR_CLICKABLE": "WAIT_FOR_CLICKABLE",
+            "WAIT_FOR_LOADER_DISAPPEARS": "WAIT_FOR_LOADER_DISAPPEARS",
+        }
+        return alias_map.get(normalized, normalized or "ELEMENT_VISIBLE")
+
+    def _assertion_requires_locator(self, assertion_type):
+        return assertion_type not in {"VERIFY_PAGE_TITLE", "VERIFY_URL_CONTAINS", "VERIFY_URL_EQUALS", "VERIFY_PAGE_LOADED"}
+
+    def _evaluate_assertion(self, assertion_type, test_data, xpath, element_name):
+        assertion_type = self.normalize_assertion_type(assertion_type)
+        expected = str(test_data or "").strip()
+
+        if assertion_type == "VERIFY_PAGE_TITLE":
+            actual_title = self.driver.title or ""
+            if actual_title.strip() == expected:
+                return {'success': True, 'message': f'Page title matched "{expected}"'}
+            return {'success': False, 'message': f'Expected page title "{expected}", but found "{actual_title}"'}
+
+        if assertion_type == "VERIFY_URL_CONTAINS":
+            current_url = self.driver.current_url or ""
+            if expected.lower() in current_url.lower():
+                return {'success': True, 'message': f'URL contains "{expected}"'}
+            return {'success': False, 'message': f'Expected URL containing "{expected}", but found "{current_url}"'}
+
+        if assertion_type == "VERIFY_URL_EQUALS":
+            current_url = self.driver.current_url or ""
+            if current_url.strip().lower() == expected.lower():
+                return {'success': True, 'message': f'URL matched "{expected}"'}
+            return {'success': False, 'message': f'Expected URL "{expected}", but found "{current_url}"'}
+
+        if assertion_type == "VERIFY_PAGE_LOADED":
+            ready_state = self.driver.execute_script("return document.readyState")
+            if ready_state == "complete":
+                return {'success': True, 'message': 'Page load completed'}
+            return {'success': False, 'message': f'Expected page readyState complete, found "{ready_state}"'}
+
+        if not xpath or str(xpath).strip().upper() == "NA":
+            return {'success': False, 'message': f'Assertion "{assertion_type}" requires a locator for "{element_name}"'}
+
+        element = self.find_element_with_advanced_wait(xpath)
+        if not element:
+            return {'success': False, 'message': f'Element "{element_name}" not found for assertion "{assertion_type}"'}
+
+        if assertion_type == "ELEMENT_EXISTS":
+            return {'success': True, 'message': f'Element "{element_name}" exists'}
+        if assertion_type == "ELEMENT_VISIBLE":
+            return {'success': True, 'message': f'Element "{element_name}" is visible'} if element.is_displayed() else {'success': False, 'message': f'Element "{element_name}" is not visible'}
+        if assertion_type == "ELEMENT_ENABLED":
+            return {'success': True, 'message': f'Element "{element_name}" is enabled'} if element.is_enabled() else {'success': False, 'message': f'Element "{element_name}" is disabled'}
+        if assertion_type == "ELEMENT_DISABLED":
+            return {'success': True, 'message': f'Element "{element_name}" is disabled'} if not element.is_enabled() else {'success': False, 'message': f'Element "{element_name}" is enabled'}
+        if assertion_type == "ELEMENT_CLICKABLE":
+            if element.is_displayed() and element.is_enabled():
+                return {'success': True, 'message': f'Element "{element_name}" is clickable'}
+            return {'success': False, 'message': f'Element "{element_name}" is not clickable'}
+        if assertion_type == "VERIFY_TEXT":
+            actual_text = (element.text or element.get_attribute("value") or "").strip()
+            if actual_text == expected:
+                return {'success': True, 'message': f'Text matched "{expected}"'}
+            return {'success': False, 'message': f'Expected text "{expected}", but found "{actual_text}"'}
+        if assertion_type == "VERIFY_INPUT_VALUE":
+            actual_value = (element.get_attribute("value") or "").strip()
+            if actual_value == expected:
+                return {'success': True, 'message': f'Input value matched "{expected}"'}
+            return {'success': False, 'message': f'Expected input value "{expected}", but found "{actual_value}"'}
+        if assertion_type == "VERIFY_ATTRIBUTE":
+            attribute_name = ""
+            attribute_value = ""
+            for separator in ["=", ":"]:
+                if separator in expected:
+                    attribute_name, attribute_value = [part.strip() for part in expected.split(separator, 1)]
+                    break
+            if not attribute_name:
+                return {'success': False, 'message': 'VERIFY_ATTRIBUTE requires Values in the form attribute=value'}
+            actual_attr = (element.get_attribute(attribute_name) or "").strip()
+            if actual_attr == attribute_value:
+                return {'success': True, 'message': f'Attribute "{attribute_name}" matched "{attribute_value}"'}
+            return {'success': False, 'message': f'Expected attribute "{attribute_name}"="{attribute_value}", but found "{actual_attr}"'}
+        if assertion_type == "VERIFY_PLACEHOLDER":
+            actual_placeholder = (element.get_attribute("placeholder") or "").strip()
+            if actual_placeholder == expected:
+                return {'success': True, 'message': f'Placeholder matched "{expected}"'}
+            return {'success': False, 'message': f'Expected placeholder "{expected}", but found "{actual_placeholder}"'}
+        if assertion_type == "WAIT_FOR_VISIBLE":
+            WebDriverWait(self.driver, self.default_wait_timeout).until(lambda d: element.is_displayed())
+            return {'success': True, 'message': f'Element "{element_name}" became visible'}
+        if assertion_type == "WAIT_FOR_CLICKABLE":
+            WebDriverWait(self.driver, self.default_wait_timeout).until(EC.element_to_be_clickable((By.XPATH, xpath)))
+            return {'success': True, 'message': f'Element "{element_name}" became clickable'}
+        if assertion_type == "WAIT_FOR_LOADER_DISAPPEARS":
+            WebDriverWait(self.driver, self.default_wait_timeout).until(EC.invisibility_of_element_located((By.XPATH, xpath)))
+            return {'success': True, 'message': f'Loader "{element_name}" disappeared'}
+
+        return {'success': False, 'message': f'Unsupported assertion type: {assertion_type}'}
 
     def resolve_count_element_type(self, element_name):
         """Map varied element labels to a canonical count type."""
@@ -2771,22 +3188,11 @@ class SeleniumTestExecutor:
                 return
 
             if data_text:
-                print(f"[UNIFIED_SELECT] Applying text/autocomplete strategy")
-                try:
-                    self.perform_robust_click(element)
-                    self.perform_robust_text_input(element, data_text)
-                except Exception as text_error:
-                    if not self._is_stale_element_error(text_error):
-                        raise
-                    print("[UNIFIED_SELECT] Element became stale during text input, retrying once with fresh element")
-                    element = self.find_element_with_advanced_wait(xpath)
-                    self.perform_robust_click(element)
-                    self.perform_robust_text_input(element, data_text)
-                if not self.try_autocomplete_selection(data_text):
-                    try:
-                        element.send_keys(Keys.ARROW_DOWN, Keys.ENTER)
-                    except Exception:
-                        pass
+                print(f"[UNIFIED_SELECT] Applying selection-only fallback")
+                self.perform_robust_click(element)
+                # Best effort: if a visible option already appears after click, choose it by text.
+                if self.try_autocomplete_selection(data_text):
+                    return
                 return
 
             # 4) Final fallback: pure click.
@@ -3404,34 +3810,187 @@ class SeleniumTestExecutor:
         """
         try:
             print(f"[CHECKBOX] Handling checkbox: {element_name}")
-            
-            should_be_checked = test_data.upper() in ["TRUE", "1", "YES"]
+            raw_value = str(test_data or "").strip()
+            choice_values = self._extract_choice_values(raw_value)
+
+            if choice_values and not self._is_boolean_like_value(raw_value):
+                for choice in choice_values:
+                    checkbox = self.find_choice_control(xpath, choice, "checkbox")
+                    if checkbox is None:
+                        raise Exception(f'Checkbox option "{choice}" not found for {element_name}')
+                    self._set_control_checked_state(checkbox, True, f"{element_name} [{choice}]")
+                print(f"[SUCCESS] {element_name} checked for values: {', '.join(choice_values)}")
+                return
+
+            should_be_checked = self._value_means_checked(raw_value)
             checkbox = self.find_checkbox_element(xpath, element_name)
-            
+
             if checkbox is None:
                 raise Exception(f"[ERROR] Checkbox element not found: {element_name}")
-            
-            current_state = checkbox.is_selected()
-            print(f"[CURRENT] Current: {current_state} | Target: {should_be_checked}")
-            
-            # Always clear default checked state first for deterministic behavior.
-            if current_state:
-                self.driver.execute_script("arguments[0].click();", checkbox)
-                time.sleep(0.1)
-                print(f"[CHECKBOX] Cleared default checked state for {element_name}")
 
-            if should_be_checked:
-                post_clear_state = checkbox.is_selected()
-                if not post_clear_state:
-                    self.driver.execute_script("arguments[0].click();", checkbox)
-                    time.sleep(0.1)
-                print(f"[SUCCESS] {element_name} checked")
-            else:
-                print(f"[SUCCESS] {element_name} unchecked")
+            current_state = self._is_control_selected(checkbox)
+            print(f"[CURRENT] Current: {current_state} | Target: {should_be_checked}")
+
+            if current_state != should_be_checked:
+                self._set_control_checked_state(checkbox, should_be_checked, element_name)
+
+            print(f"[SUCCESS] {element_name} {'checked' if should_be_checked else 'unchecked'}")
             
         except Exception as e:
             print(f"[ERROR] Error with checkbox '{element_name}': {str(e)}")
             raise e
+
+    def _normalize_choice_value(self, value):
+        return re.sub(r"\s+", " ", str(value or "").strip()).lower()
+
+    def _extract_choice_values(self, raw_value):
+        normalized = str(raw_value or "").strip()
+        if not normalized:
+            return []
+        parts = [part.strip() for part in re.split(r"[,;\n]+", normalized) if part.strip()]
+        return [self._normalize_choice_value(part) for part in parts]
+
+    def _value_means_checked(self, value):
+        return self._normalize_choice_value(value) in ["true", "1", "yes", "on", "check", "checked", "select", "selected"]
+
+    def _value_means_unchecked(self, value):
+        return self._normalize_choice_value(value) in ["false", "0", "no", "off", "uncheck", "unchecked", "deselect", "unselected", ""]
+
+    def _is_boolean_like_value(self, value):
+        normalized = self._normalize_choice_value(value)
+        return normalized in ["", "true", "1", "yes", "on", "check", "checked", "select", "selected", "false", "0", "no", "off", "uncheck", "unchecked", "deselect", "unselected"]
+
+    def _is_control_selected(self, element):
+        try:
+            aria_checked = (element.get_attribute("aria-checked") or "").strip().lower()
+            if aria_checked in ["true", "false"]:
+                return aria_checked == "true"
+        except Exception:
+            pass
+        try:
+            return element.is_selected()
+        except Exception:
+            return False
+
+    def _set_control_checked_state(self, element, should_be_checked, element_name):
+        current_state = self._is_control_selected(element)
+        if current_state == should_be_checked:
+            return
+
+        try:
+            self.perform_robust_click(element)
+        except Exception:
+            self.driver.execute_script("arguments[0].click();", element)
+        time.sleep(0.1)
+
+        final_state = self._is_control_selected(element)
+        if final_state != should_be_checked:
+            raise Exception(f"{element_name} did not reach expected selected state")
+
+    def find_choice_control(self, xpath, option_text, control_kind):
+        root = self.find_element_with_advanced_wait(xpath)
+        if root is None:
+            return None
+
+        desired = self._normalize_choice_value(option_text)
+        control_kind = (control_kind or "").strip().lower()
+        if control_kind not in ["radio", "checkbox"]:
+            return None
+
+        if not desired and self._matches_control_kind(root, control_kind):
+            return root
+
+        try:
+            return self.driver.execute_script(
+                """
+                const root = arguments[0];
+                const desired = (arguments[1] || '').toLowerCase().trim().replace(/\\s+/g, ' ');
+                const kind = arguments[2];
+                if (!root || !desired) return null;
+
+                const selectors = kind === 'radio'
+                    ? ['input[type="radio"]', '[role="radio"]']
+                    : ['input[type="checkbox"]', '[role="checkbox"]'];
+
+                const normalize = (value) => (value || '').toLowerCase().replace(/\\s+/g, ' ').trim();
+                const scoreText = (candidate) => {
+                    const text = normalize(candidate);
+                    if (!text) return 0;
+                    if (text === desired) return 100;
+                    if (text.includes(desired)) return 60;
+                    if (desired.includes(text)) return 40;
+                    return 0;
+                };
+
+                const collectTexts = (el) => {
+                    const texts = [];
+                    const push = (value) => {
+                        const normalized = normalize(value);
+                        if (normalized) texts.push(normalized);
+                    };
+                    push(el.value);
+                    push(el.getAttribute && el.getAttribute('value'));
+                    push(el.getAttribute && el.getAttribute('aria-label'));
+                    push(el.getAttribute && el.getAttribute('aria-labelledby'));
+                    push(el.getAttribute && el.getAttribute('data-testid'));
+                    push(el.getAttribute && el.getAttribute('id'));
+                    push(el.getAttribute && el.getAttribute('name'));
+                    push(el.textContent);
+                    if (el.labels) {
+                        for (const label of el.labels) push(label.textContent);
+                    }
+                    const closestLabel = el.closest && el.closest('label');
+                    if (closestLabel) push(closestLabel.textContent);
+                    if (el.parentElement) push(el.parentElement.textContent);
+                    if (el.nextElementSibling) push(el.nextElementSibling.textContent);
+                    if (el.previousElementSibling) push(el.previousElementSibling.textContent);
+                    return texts;
+                };
+
+                const candidates = [];
+                const addCandidate = (el) => {
+                    if (!el) return;
+                    if (candidates.includes(el)) return;
+                    candidates.push(el);
+                };
+
+                for (const selector of selectors) {
+                    if (root.matches && root.matches(selector)) addCandidate(root);
+                    root.querySelectorAll(selector).forEach(addCandidate);
+                }
+
+                let best = null;
+                let bestScore = 0;
+
+                for (const candidate of candidates) {
+                    const texts = collectTexts(candidate);
+                    let candidateScore = 0;
+                    for (const text of texts) {
+                        candidateScore = Math.max(candidateScore, scoreText(text));
+                    }
+                    if (candidateScore > bestScore) {
+                        best = candidate;
+                        bestScore = candidateScore;
+                    }
+                }
+
+                return bestScore > 0 ? best : null;
+                """,
+                root,
+                desired,
+                control_kind,
+            )
+        except Exception:
+            return None
+
+    def _matches_control_kind(self, element, control_kind):
+        try:
+            tag_name = (element.tag_name or "").strip().lower()
+            input_type = (element.get_attribute("type") or "").strip().lower()
+            role = (element.get_attribute("role") or "").strip().lower()
+            return (tag_name == "input" and input_type == control_kind) or role == control_kind
+        except Exception:
+            return False
 
     def find_checkbox_element(self, xpath, element_name):
         """
@@ -3949,13 +4508,19 @@ class SeleniumTestExecutor:
 
     def handle_radio_button_action(self, test_data, xpath, element_name):
         """Handle radio button selection. Selects the target radio when needed."""
-        target = self.find_element_with_advanced_wait(xpath)
-        should_select = str(test_data or "true").strip().lower() in ["", "true", "1", "yes", "on", "select", "selected"]
+        raw_value = str(test_data or "").strip()
+        if raw_value and not self._is_boolean_like_value(raw_value):
+            target = self.find_choice_control(xpath, raw_value, "radio")
+            if target is None:
+                raise Exception(f'Radio option "{raw_value}" not found for {element_name}')
+            should_select = True
+        else:
+            target = self.find_element_with_advanced_wait(xpath)
+            should_select = not self._value_means_unchecked(raw_value)
 
         if should_select:
-            if not target.is_selected():
-                self.perform_robust_click(target)
-            if not target.is_selected():
+            self._set_control_checked_state(target, True, element_name)
+            if not self._is_control_selected(target):
                 raise Exception(f"Radio button '{element_name}' is not selected after click")
             print(f"[ACTION] Radio button selected for {element_name}")
         else:
@@ -3999,7 +4564,7 @@ class SeleniumTestExecutor:
         }
         print(f"[ACTION] Drag and drop successful for {element_name}")
 
-    def validate_action_result(self, action_type, test_data, xpath, element_name):
+    def validate_action_result(self, action_type, test_data, xpath, element_name, assertion_type=None):
         """
         Validate that the action achieved the expected result
         Returns: {'success': bool, 'message': str}
@@ -4017,6 +4582,49 @@ class SeleniumTestExecutor:
                 else:
                     return {'success': False, 'message': f'Expected URL containing "{test_data}", but got: {current_url}'}
             
+            elif action_type == "ASSERTION":
+                return self._evaluate_assertion(assertion_type, test_data, xpath, element_name)
+
+            elif action_type in ["READ_TEXT", "READ_VALUE", "READ_TOOLTIP", "READ_LABEL", "COPY", "PASTE", "UPLOAD_FILE", "DOWNLOAD_FILE", "VISUAL_ASSERTION"]:
+                if action_type == "VISUAL_ASSERTION":
+                    visual_result = self._last_read_result or {}
+                    status = visual_result.get("value")
+                    baseline = visual_result.get("baseline")
+                    diff_ratio = float(visual_result.get("difference_ratio", 1.0) or 0.0)
+                    threshold = float(visual_result.get("threshold", 0.01) or 0.01)
+                    if status == "baseline_created":
+                        return {'success': True, 'message': f'Visual baseline "{baseline}" created'}
+                    if diff_ratio <= threshold:
+                        return {'success': True, 'message': f'Visual assertion passed for "{baseline}" (diff={diff_ratio:.6f}, threshold={threshold:.6f})'}
+                    return {'success': False, 'message': f'Visual assertion failed for "{baseline}" (diff={diff_ratio:.6f}, threshold={threshold:.6f})'}
+                if action_type == "DOWNLOAD_FILE":
+                    download_name = ((self._last_read_result or {}).get("value") or "").strip()
+                    expected_name = str(test_data or "").strip()
+                    if expected_name and expected_name.lower() not in download_name.lower():
+                        return {'success': False, 'message': f'Expected downloaded filename containing "{expected_name}", but found "{download_name}"'}
+                    return {'success': True, 'message': f'Download validated for "{element_name}": {download_name or "file detected"}'}
+
+                target = self.find_element_with_advanced_wait(xpath)
+                payload = self._get_readable_element_payload(target)
+                actual_map = {
+                    "READ_TEXT": payload.get("text", "").strip(),
+                    "READ_VALUE": payload.get("value", "").strip(),
+                    "READ_TOOLTIP": (payload.get("title") or payload.get("ariaLabel") or payload.get("placeholder") or payload.get("text") or "").strip(),
+                    "READ_LABEL": payload.get("label", "").strip(),
+                    "COPY": ((self._last_read_result or {}).get("value") or payload.get("value") or payload.get("text") or "").strip(),
+                    "PASTE": (payload.get("value") or payload.get("text") or "").strip(),
+                    "UPLOAD_FILE": ((target.get_attribute("value") or "").strip() or ((self._last_read_result or {}).get("value") or "").strip()),
+                }
+                actual_value = actual_map.get(action_type, "").strip()
+                expected_value = str(test_data or "").strip()
+                if expected_value:
+                    if expected_value.lower() in actual_value.lower():
+                        return {'success': True, 'message': f'{action_type} matched "{expected_value}"'}
+                    return {'success': False, 'message': f'Expected "{expected_value}", but found "{actual_value}" for "{element_name}"'}
+                if actual_value or action_type in ["COPY", "PASTE", "UPLOAD_FILE"]:
+                    return {'success': True, 'message': f'{action_type} completed for "{element_name}"'}
+                return {'success': False, 'message': f'{action_type} produced no readable value for "{element_name}"'}
+
             elif action_type == "CLICK_AND_SELECT":
                 # Reusable validation for CLICK_AND_SELECT action.
                 try:
@@ -4098,8 +4706,9 @@ class SeleniumTestExecutor:
 
             elif action_type == "RADIO_BUTTON":
                 try:
-                    element = self.find_element_with_advanced_wait(xpath)
-                    if element.is_selected():
+                    raw_value = str(test_data or "").strip()
+                    element = self.find_choice_control(xpath, raw_value, "radio") if raw_value and not self._is_boolean_like_value(raw_value) else self.find_element_with_advanced_wait(xpath)
+                    if element and self._is_control_selected(element):
                         return {'success': True, 'message': f'Radio button "{element_name}" selected successfully'}
                     return {'success': False, 'message': f'Radio button "{element_name}" is not selected'}
                 except Exception as radio_error:
@@ -4231,7 +4840,7 @@ class SeleniumTestExecutor:
 
 
 
-    def pre_validate_action(self, action_type, test_data, xpath, element_name):
+    def pre_validate_action(self, action_type, test_data, xpath, element_name, assertion_type=None):
         """
         Pre-validate action before execution - check all prerequisites
         """
@@ -4276,8 +4885,20 @@ class SeleniumTestExecutor:
                 "DRAG_AND_DROP",
                 "HANDLE_CHECKBOX",
                 "INCREMENT",
-                "DECREMENT"
+                "DECREMENT",
+                "READ_TEXT",
+                "READ_VALUE",
+                "READ_TOOLTIP",
+                "READ_LABEL",
+                "COPY",
+                "PASTE",
+                "UPLOAD_FILE",
+                "DOWNLOAD_FILE",
+                "VISUAL_ASSERTION",
             ]
+
+            if action_type == "ASSERTION" and self._assertion_requires_locator(self.normalize_assertion_type(assertion_type)):
+                locator_required_actions.append("ASSERTION")
             
             if action_type in locator_required_actions:
                 missing_locator = (not xpath or xpath.strip() == "" or xpath.upper() == "NA")
@@ -4287,6 +4908,14 @@ class SeleniumTestExecutor:
                         missing_locator = False
                     else:
                         return {'success': False, 'message': f'Invalid or missing locator for element "{element_name}": "{xpath}"'}
+
+            if action_type == "ASSERTION":
+                normalized_assertion = self.normalize_assertion_type(assertion_type)
+                if normalized_assertion in ["VERIFY_PAGE_TITLE", "VERIFY_URL_CONTAINS", "VERIFY_URL_EQUALS", "VERIFY_TEXT", "VERIFY_INPUT_VALUE", "VERIFY_ATTRIBUTE", "VERIFY_PLACEHOLDER"] and not test_data_text:
+                    return {'success': False, 'message': f'Assertion "{normalized_assertion}" requires a value for "{element_name_text}"'}
+
+            if action_type == "UPLOAD_FILE" and not test_data_text:
+                return {'success': False, 'message': f'UPLOAD_FILE requires a file path in Values for "{element_name_text}"'}
 
                 locator_by = None
                 locator_value = None
@@ -4391,14 +5020,12 @@ class SeleniumTestExecutor:
             
             elif action_type == "HANDLE_CHECKBOX":
                 # Validate checkbox value
-                valid_checkbox_values = ['true', 'false', '1', '0', 'yes', 'no']
-                if str(test_data or "").lower() not in valid_checkbox_values:
-                    return {'success': False, 'message': f'Invalid checkbox value: "{test_data}". Use: true/false, 1/0, or yes/no'}
+                if test_data is None:
+                    return {'success': False, 'message': f'HANDLE_CHECKBOX requires a value for "{element_name}"'}
 
             elif action_type == "RADIO_BUTTON":
-                valid_radio_values = ['', 'true', '1', 'yes', 'on', 'select', 'selected']
-                if str(test_data or '').strip().lower() not in valid_radio_values:
-                    return {'success': False, 'message': f'Invalid RADIO_BUTTON value: "{test_data}". Use true/yes/1/select or leave blank.'}
+                if test_data is None:
+                    return {'success': False, 'message': f'RADIO_BUTTON requires a value or selectable option for "{element_name}"'}
             
             elif action_type == "CLICK":
                 # For general clicks, validate that test_data makes sense if provided
@@ -4923,13 +5550,24 @@ class SeleniumTestExecutor:
         """Validate that checkbox is in the expected state"""
         try:
             time.sleep(0.5)
-            
-            should_be_checked = expected_state.upper() in ["TRUE", "1", "YES"]
-            
+            raw_value = str(expected_state or "").strip()
+            choice_values = self._extract_choice_values(raw_value)
+
+            if choice_values and not self._is_boolean_like_value(raw_value):
+                for choice in choice_values:
+                    checkbox = self.find_choice_control(xpath, choice, "checkbox")
+                    if not checkbox:
+                        return {'success': False, 'message': f'Checkbox option "{choice}" not found for validation'}
+                    if not self._is_control_selected(checkbox):
+                        return {'success': False, 'message': f'Checkbox option "{choice}" is not checked for "{element_name}"'}
+                return {'success': True, 'message': f'Checkbox values validated for "{element_name}"'}
+
+            should_be_checked = self._value_means_checked(raw_value)
+
             checkbox = self.find_checkbox_element(xpath, element_name)
             if checkbox:
-                actual_state = checkbox.is_selected()
-                
+                actual_state = self._is_control_selected(checkbox)
+
                 if actual_state == should_be_checked:
                     state_text = "checked" if should_be_checked else "unchecked"
                     print(f"[VALIDATION_PASS] Checkbox validated: {element_name} is {state_text}")

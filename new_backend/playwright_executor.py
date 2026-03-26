@@ -41,12 +41,19 @@ class PlaywrightTestExecutor:
         self.default_step_timeout = int(os.getenv("PLAYWRIGHT_STEP_TIMEOUT_SECONDS", "45"))
         self._last_count_action_state = None
         self._last_drag_drop_state = None
+        self._last_read_result = None
+        self.download_dir = os.path.join(os.getcwd(), "downloads", "playwright")
+        os.makedirs(self.download_dir, exist_ok=True)
+        self.visual_baseline_dir = os.path.join(os.getcwd(), "visual-baselines", "playwright")
+        os.makedirs(self.visual_baseline_dir, exist_ok=True)
 
         print(f"[INIT] Playwright Test Executor initialized with isolation mode: {'ENABLED' if enable_isolation else 'DISABLED'}")
         print(f"[INIT] Safe field interaction mode: {'ENABLED' if safe_field_interaction else 'DISABLED'}")
         print(f"[INIT] VNC session: {'AVAILABLE' if vnc_session else 'NONE'}")
         print(f"[INIT] Default wait timeout: {self.default_wait_timeout}s")
         print(f"[INIT] Default step timeout: {self.default_step_timeout}s")
+        print(f"[INIT] Download directory: {self.download_dir}")
+        print(f"[INIT] Visual baseline directory: {self.visual_baseline_dir}")
 
     def clean_xpath(self, xpath):
         """Clean XPath to fix common syntax issues"""
@@ -273,6 +280,7 @@ class PlaywrightTestExecutor:
             self.browser = self.playwright.chromium.launch(
                 headless=headless_mode,
                 args=launch_args,
+                downloads_path=self.download_dir,
                 timeout=60000  # 60 second timeout for launch
             )
             
@@ -280,7 +288,8 @@ class PlaywrightTestExecutor:
             self.context = self.browser.new_context(
                 viewport={"width": 1280, "height": 720},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",  # Pretend to be a regular Chrome browser
-                ignore_https_errors=True  # Don't fail on SSL certificate issues
+                ignore_https_errors=True,  # Don't fail on SSL certificate issues
+                accept_downloads=True
             )
             
             print("[PAGE] Creating new page...")
@@ -522,17 +531,18 @@ class PlaywrightTestExecutor:
                 xpath = step.get('xpath', '')
                 element_name = step.get('element_name', '')
                 test_data = step.get('values', '')
+                assertion_type = step.get('assertion_type', '')
                 timeout_seconds = self._resolve_step_timeout_seconds(step)
 
-                pre_validation = self.pre_validate_action(action_type, test_data, xpath, element_name)
+                pre_validation = self.pre_validate_action(action_type, test_data, xpath, element_name, assertion_type)
                 if not pre_validation.get('success', False):
                     raise Exception(pre_validation.get('message', 'Pre-validation failed'))
 
                 self.page.set_default_timeout(timeout_seconds * 1000)
                 self.page.set_default_navigation_timeout(timeout_seconds * 1000)
 
-                self.execute_action(action_type, test_data, xpath, element_name)
-                validation = self.validate_action_result(action_type, test_data, xpath, element_name)
+                self.execute_action(action_type, test_data, xpath, element_name, assertion_type)
+                validation = self.validate_action_result(action_type, test_data, xpath, element_name, assertion_type)
                 if validation.get('success', False):
                     step_result['status'] = 'PASS'
                     print(f"[SUCCESS] Step {step_number} completed successfully")
@@ -569,7 +579,7 @@ class PlaywrightTestExecutor:
         
         return step_result
 
-    def execute_action(self, action_type, test_data, xpath, element_name):
+    def execute_action(self, action_type, test_data, xpath, element_name, assertion_type=None):
         """Execute a specific action using Playwright."""
         action_type = self.normalize_action_type(action_type)
         element_name = element_name or ""
@@ -598,8 +608,6 @@ class PlaywrightTestExecutor:
                 print(f"[ACTION] Unified click/select failed, using generic fallback: {unified_error}")
                 target = self.find_element_with_advanced_wait(xpath)
                 self.perform_robust_click(target)
-                if test_data_text.strip():
-                    self.robust_fill_input(target, test_data_text, element_name)
 
         elif action_type == "CLICK_AND_SELECT_DATE":
             self.handle_date_selection(test_data, xpath, element_name)
@@ -723,6 +731,61 @@ class PlaywrightTestExecutor:
             self.active_frame = None
             self.page.go_forward(wait_until="domcontentloaded")
 
+        elif action_type in ["PRESS_KEY", "KEY"]:
+            self.handle_press_key_action(test_data)
+
+        elif action_type == "ASSERTION":
+            print(f"[ACTION] Assertion step prepared for {element_name} ({self.normalize_assertion_type(assertion_type)})")
+
+        elif action_type == "READ_TEXT":
+            target = self.find_element_with_advanced_wait(xpath)
+            payload = self._readable_locator_payload(target)
+            self._last_read_result = {"type": "text", "value": payload.get("text", "")}
+
+        elif action_type == "READ_VALUE":
+            target = self.find_element_with_advanced_wait(xpath)
+            payload = self._readable_locator_payload(target)
+            self._last_read_result = {"type": "value", "value": payload.get("value", "")}
+
+        elif action_type == "READ_TOOLTIP":
+            target = self.find_element_with_advanced_wait(xpath)
+            payload = self._readable_locator_payload(target)
+            self._last_read_result = {"type": "tooltip", "value": payload.get("title") or payload.get("ariaLabel") or payload.get("placeholder") or payload.get("text", "")}
+
+        elif action_type == "READ_LABEL":
+            target = self.find_element_with_advanced_wait(xpath)
+            payload = self._readable_locator_payload(target)
+            self._last_read_result = {"type": "label", "value": payload.get("label", "")}
+
+        elif action_type == "COPY":
+            target = self.find_element_with_advanced_wait(xpath)
+            self._copy_from_locator(target)
+            payload = self._readable_locator_payload(target)
+            self._last_read_result = {"type": "copy", "value": payload.get("value") or payload.get("text") or ""}
+
+        elif action_type == "PASTE":
+            target = self.find_element_with_advanced_wait(xpath)
+            self._paste_to_locator(target, test_data)
+            payload = self._readable_locator_payload(target)
+            self._last_read_result = {"type": "paste", "value": payload.get("value") or payload.get("text") or ""}
+
+        elif action_type == "UPLOAD_FILE":
+            target = self.find_element_with_advanced_wait(xpath)
+            self._upload_file_to_locator(target, test_data)
+
+        elif action_type == "DOWNLOAD_FILE":
+            target = self.find_element_with_advanced_wait(xpath)
+            with self.page.expect_download(timeout=self.default_step_timeout * 1000) as download_info:
+                self.perform_robust_click(target)
+            download = download_info.value
+            download_name = download.suggested_filename or f"download-{int(time.time())}"
+            download.save_as(os.path.join(self.download_dir, download_name))
+            self._last_read_result = {"type": "download", "value": download_name}
+
+        elif action_type == "VISUAL_ASSERTION":
+            result = self._run_visual_assertion(test_data, element_name)
+            print(f"[ACTION] Visual assertion for {element_name}: baseline={result.get('baseline')} status={result.get('value')} diff={result.get('difference_ratio')}")
+
         else:
             raise Exception(f"Unknown action type: {action_type}")
 
@@ -749,6 +812,239 @@ class PlaywrightTestExecutor:
             "SWITCH_DEFAULT_CONTENT": "SWITCH_TO_DEFAULT_CONTENT",
         }
         return alias_map.get(normalized, normalized)
+
+    def _normalize_press_key_value(self, key_value):
+        raw = str(key_value or "").strip()
+        if not raw:
+            return "Enter"
+
+        tokens = [token.strip() for token in re.split(r"\s*\+\s*", raw) if token.strip()]
+        alias_map = {
+            "CTRL": "Control",
+            "CONTROL": "Control",
+            "CMD": "Meta",
+            "COMMAND": "Meta",
+            "WIN": "Meta",
+            "WINDOWS": "Meta",
+            "ALT": "Alt",
+            "OPTION": "Alt",
+            "SHIFT": "Shift",
+            "ENTER": "Enter",
+            "RETURN": "Enter",
+            "TAB": "Tab",
+            "ESC": "Escape",
+            "ESCAPE": "Escape",
+            "SPACE": "Space",
+            "BACKSPACE": "Backspace",
+            "DELETE": "Delete",
+            "DEL": "Delete",
+            "ARROW_UP": "ArrowUp",
+            "UP": "ArrowUp",
+            "ARROW_DOWN": "ArrowDown",
+            "DOWN": "ArrowDown",
+            "ARROW_LEFT": "ArrowLeft",
+            "LEFT": "ArrowLeft",
+            "ARROW_RIGHT": "ArrowRight",
+            "RIGHT": "ArrowRight",
+        }
+        resolved_tokens = []
+        for token in tokens:
+            normalized = token.upper().replace(" ", "_").replace("-", "_")
+            if normalized in alias_map:
+                resolved_tokens.append(alias_map[normalized])
+            elif len(token) == 1:
+                resolved_tokens.append(token.upper())
+            else:
+                resolved_tokens.append(token)
+        return "+".join(resolved_tokens) if resolved_tokens else "Enter"
+
+    def handle_press_key_action(self, test_data):
+        key_combo = self._normalize_press_key_value(test_data)
+        self.page.keyboard.press(key_combo)
+        print(f"[ACTION] Pressed key combo {key_combo}")
+
+    def normalize_assertion_type(self, assertion_type):
+        normalized = re.sub(r"[\s\-/]+", "_", str(assertion_type or "").upper().strip())
+        alias_map = {
+            "": "ELEMENT_VISIBLE",
+            "VERIFY_ELEMENT_EXISTS": "ELEMENT_EXISTS",
+            "VERIFY_ELEMENT_VISIBLE": "ELEMENT_VISIBLE",
+            "VERIFY_ELEMENT_ENABLED": "ELEMENT_ENABLED",
+            "VERIFY_ELEMENT_DISABLED": "ELEMENT_DISABLED",
+            "VERIFY_ELEMENT_CLICKABLE": "ELEMENT_CLICKABLE",
+            "VERIFY_TEXT": "VERIFY_TEXT",
+            "VERIFY_INPUT": "VERIFY_INPUT_VALUE",
+            "VERIFY_VALUE": "VERIFY_INPUT_VALUE",
+            "VERIFY_INPUT_VALUE": "VERIFY_INPUT_VALUE",
+            "VERIFY_ATTRIBUTE": "VERIFY_ATTRIBUTE",
+            "VERIFY_PLACEHOLDER": "VERIFY_PLACEHOLDER",
+            "VERIFY_PAGE_TITLE": "VERIFY_PAGE_TITLE",
+            "VERIFY_URL": "VERIFY_URL_CONTAINS",
+            "VERIFY_URL_CONTAINS": "VERIFY_URL_CONTAINS",
+            "VERIFY_URL_EQUALS": "VERIFY_URL_EQUALS",
+            "VERIFY_PAGE_LOAD_COMPLETION": "VERIFY_PAGE_LOADED",
+            "VERIFY_PAGE_LOADED": "VERIFY_PAGE_LOADED",
+            "WAIT_FOR_ELEMENT_VISIBLE": "WAIT_FOR_VISIBLE",
+            "WAIT_FOR_VISIBLE": "WAIT_FOR_VISIBLE",
+            "WAIT_FOR_CLICKABLE": "WAIT_FOR_CLICKABLE",
+            "WAIT_FOR_LOADER_DISAPPEARS": "WAIT_FOR_LOADER_DISAPPEARS",
+        }
+        return alias_map.get(normalized, normalized or "ELEMENT_VISIBLE")
+
+    def _assertion_requires_locator(self, assertion_type):
+        return assertion_type not in {"VERIFY_PAGE_TITLE", "VERIFY_URL_CONTAINS", "VERIFY_URL_EQUALS", "VERIFY_PAGE_LOADED"}
+
+    def _readable_locator_payload(self, locator):
+        try:
+            return locator.evaluate(
+                """el => {
+                    const text = ((el.innerText || el.textContent || '') + '').replace(/\\s+/g, ' ').trim();
+                    const value = ((el.value || '') + '').trim();
+                    const title = ((el.getAttribute('title') || '') + '').trim();
+                    const ariaLabel = ((el.getAttribute('aria-label') || '') + '').trim();
+                    const placeholder = ((el.getAttribute('placeholder') || '') + '').trim();
+                    let label = '';
+                    if (el.labels && el.labels.length) {
+                        label = Array.from(el.labels).map(l => (l.innerText || l.textContent || '').trim()).filter(Boolean).join(' ').trim();
+                    }
+                    if (!label) {
+                        const closest = el.closest && el.closest('label');
+                        if (closest) label = (closest.innerText || closest.textContent || '').replace(/\\s+/g, ' ').trim();
+                    }
+                    if (!label) {
+                        const id = el.getAttribute('id');
+                        if (id) {
+                            const explicit = document.querySelector(`label[for="${id}"]`);
+                            if (explicit) label = (explicit.innerText || explicit.textContent || '').replace(/\\s+/g, ' ').trim();
+                        }
+                    }
+                    return { text, value, title, ariaLabel, placeholder, label };
+                }"""
+            ) or {}
+        except Exception:
+            return {}
+
+    def _copy_from_locator(self, locator):
+        locator.click(timeout=self.default_wait_timeout * 1000)
+        try:
+            locator.press("Control+A")
+        except Exception:
+            pass
+        self.page.keyboard.press("Control+C")
+
+    def _paste_to_locator(self, locator, test_data):
+        text = str(test_data or "").strip()
+        locator.click(timeout=self.default_wait_timeout * 1000)
+        if text:
+            try:
+                locator.evaluate(
+                    """(el, value) => {
+                        el.focus();
+                        if ('value' in el) {
+                            el.value = value;
+                        } else {
+                            el.textContent = value;
+                        }
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }""",
+                    text,
+                )
+                return
+            except Exception:
+                pass
+            try:
+                locator.fill(text, timeout=self.default_wait_timeout * 1000)
+                return
+            except Exception:
+                locator.type(text, timeout=self.default_wait_timeout * 1000)
+                return
+        self.page.keyboard.press("Control+V")
+
+    def _upload_file_to_locator(self, locator, test_data):
+        file_path = os.path.abspath(os.path.expandvars(os.path.expanduser(str(test_data or "").strip())))
+        if not os.path.exists(file_path):
+            raise Exception(f'Upload file not found: {file_path}')
+        try:
+            locator.set_input_files(file_path, timeout=self.default_wait_timeout * 1000)
+        except Exception:
+            file_input = locator.locator("input[type='file']").first
+            file_input.set_input_files(file_path, timeout=self.default_wait_timeout * 1000)
+        self._last_read_result = {"type": "upload", "value": file_path}
+
+    def _parse_visual_assertion_config(self, test_data, element_name):
+        raw = str(test_data or "").strip()
+        config = {
+            "baseline": re.sub(r"[^A-Za-z0-9._-]+", "_", str(element_name or "visual_assertion").strip() or "visual_assertion"),
+            "threshold": 0.01,
+        }
+        if not raw:
+            return config
+        try:
+            payload = json.loads(raw)
+            if isinstance(payload, dict):
+                if payload.get("baseline"):
+                    config["baseline"] = re.sub(r"[^A-Za-z0-9._-]+", "_", str(payload["baseline"]).strip())
+                if payload.get("threshold") is not None:
+                    config["threshold"] = max(float(payload["threshold"]), 0.0)
+                return config
+        except Exception:
+            pass
+        for part in re.split(r"[;,\n]+", raw):
+            if "=" in part:
+                key, value = [segment.strip() for segment in part.split("=", 1)]
+                if key.lower() == "baseline" and value:
+                    config["baseline"] = re.sub(r"[^A-Za-z0-9._-]+", "_", value)
+                elif key.lower() == "threshold" and value:
+                    try:
+                        config["threshold"] = max(float(value), 0.0)
+                    except Exception:
+                        pass
+            elif part.strip():
+                config["baseline"] = re.sub(r"[^A-Za-z0-9._-]+", "_", part.strip())
+        return config
+
+    def _run_visual_assertion(self, test_data, element_name):
+        config = self._parse_visual_assertion_config(test_data, element_name)
+        baseline_name = config["baseline"]
+        threshold = config["threshold"]
+        baseline_path = os.path.join(self.visual_baseline_dir, f"{baseline_name}.png")
+        current_attachment = self.save_screenshot(f"visual_{baseline_name}")
+        if not current_attachment:
+            raise Exception("Failed to capture screenshot for visual assertion")
+        current_path = os.path.join(os.getcwd(), "allure-results-new", current_attachment["source"])
+        try:
+            from PIL import Image, ImageChops
+        except Exception as pil_error:
+            raise Exception(f"Visual assertion requires Pillow: {pil_error}")
+
+        current_image = Image.open(current_path).convert("RGBA")
+        if not os.path.exists(baseline_path):
+            current_image.save(baseline_path)
+            self._last_read_result = {"type": "visual_assertion", "value": "baseline_created", "baseline": baseline_name, "difference_ratio": 0.0, "threshold": threshold}
+            return self._last_read_result
+
+        baseline_image = Image.open(baseline_path).convert("RGBA")
+        if baseline_image.size != current_image.size:
+            current_image = current_image.resize(baseline_image.size)
+        diff = ImageChops.difference(baseline_image, current_image)
+        bbox = diff.getbbox()
+        if not bbox:
+            diff_ratio = 0.0
+        else:
+            histogram = diff.histogram()
+            total_channels = 4
+            differing = sum(histogram[index] * (index % 256) for index in range(len(histogram)))
+            max_diff = baseline_image.size[0] * baseline_image.size[1] * total_channels * 255
+            diff_ratio = differing / max_diff if max_diff else 0.0
+        self._last_read_result = {
+            "type": "visual_assertion",
+            "value": "matched" if diff_ratio <= threshold else "mismatch",
+            "baseline": baseline_name,
+            "difference_ratio": diff_ratio,
+            "threshold": threshold,
+        }
+        return self._last_read_result
 
     def resolve_count_element_type(self, element_name):
         """Map varied element labels to a canonical count type."""
@@ -820,13 +1116,23 @@ class PlaywrightTestExecutor:
         print(f"[ACTION] Mouse over successful for {element_name}")
 
     def handle_radio_button_action(self, test_data, xpath, element_name):
-        locator = self.find_element_with_advanced_wait(xpath)
-        locator.wait_for(state="visible", timeout=self.default_wait_timeout * 1000)
-        desired = str(test_data or "").strip().lower() in ["", "true", "1", "yes", "on", "select", "selected"]
-        if desired and not locator.is_checked():
-            locator.check(force=True)
-        elif (not desired) and locator.is_checked():
-            locator.uncheck(force=True)
+        raw_value = str(test_data or "").strip()
+        if raw_value and not self._is_boolean_like_value(raw_value):
+            handle = self.find_choice_control(xpath, raw_value, "radio")
+            if handle is None:
+                raise Exception(f'Radio option "{raw_value}" not found for {element_name}')
+            desired = True
+        else:
+            handle = self.find_element_with_advanced_wait(xpath).element_handle()
+            desired = not self._value_means_unchecked(raw_value)
+
+        if handle is None:
+            raise Exception(f"Radio button not found for {element_name}")
+
+        if desired:
+            self._set_control_checked_state(handle, True, element_name)
+        else:
+            print(f"[ACTION] Radio button action skipped unselect for {element_name} (not supported)")
         print(f"[ACTION] Radio button action successful for {element_name}")
 
     def handle_drag_and_drop(self, source_locator, test_data, element_name):
@@ -2735,23 +3041,165 @@ class PlaywrightTestExecutor:
             raise e
 
     def handle_checkbox_action(self, test_data, xpath, element_name):
-        should_be_checked = test_data.upper() in ["TRUE", "1", "YES"]
-        normalized_xpath = self.normalize_selector(xpath)
-        checkbox = self._locator(normalized_xpath)
-        current_state = checkbox.is_checked()
+        raw_value = str(test_data or "").strip()
+        choice_values = self._extract_choice_values(raw_value)
 
-        # Clear default checked state first for deterministic behavior.
-        if current_state:
-            checkbox.uncheck()
-            self.page.wait_for_timeout(100)
-            print(f"[CHECKBOX] Cleared default checked state for {element_name}")
+        if choice_values and not self._is_boolean_like_value(raw_value):
+            for choice in choice_values:
+                handle = self.find_choice_control(xpath, choice, "checkbox")
+                if handle is None:
+                    raise Exception(f'Checkbox option "{choice}" not found for {element_name}')
+                self._set_control_checked_state(handle, True, f"{element_name} [{choice}]")
+            print(f"[CHECKBOX] {element_name} checked for values: {', '.join(choice_values)}")
+            return
 
-        if should_be_checked:
-            if not checkbox.is_checked():
-                checkbox.check()
-            print(f"[CHECKBOX] {element_name} checked")
-        else:
-            print(f"[CHECKBOX] {element_name} unchecked")
+        should_be_checked = self._value_means_checked(raw_value)
+        checkbox = self.find_element_with_advanced_wait(xpath).element_handle()
+        if checkbox is None:
+            raise Exception(f"Checkbox not found for {element_name}")
+
+        self._set_control_checked_state(checkbox, should_be_checked, element_name)
+        print(f"[CHECKBOX] {element_name} {'checked' if should_be_checked else 'unchecked'}")
+
+    def _normalize_choice_value(self, value):
+        return re.sub(r"\s+", " ", str(value or "").strip()).lower()
+
+    def _extract_choice_values(self, raw_value):
+        normalized = str(raw_value or "").strip()
+        if not normalized:
+            return []
+        parts = [part.strip() for part in re.split(r"[,;\n]+", normalized) if part.strip()]
+        return [self._normalize_choice_value(part) for part in parts]
+
+    def _value_means_checked(self, value):
+        return self._normalize_choice_value(value) in ["true", "1", "yes", "on", "check", "checked", "select", "selected"]
+
+    def _value_means_unchecked(self, value):
+        return self._normalize_choice_value(value) in ["false", "0", "no", "off", "uncheck", "unchecked", "deselect", "unselected", ""]
+
+    def _is_boolean_like_value(self, value):
+        normalized = self._normalize_choice_value(value)
+        return normalized in ["", "true", "1", "yes", "on", "check", "checked", "select", "selected", "false", "0", "no", "off", "uncheck", "unchecked", "deselect", "unselected"]
+
+    def _is_control_selected(self, handle):
+        try:
+            aria_checked = self.page.evaluate("(el) => (el.getAttribute('aria-checked') || '').toLowerCase()", handle)
+            if aria_checked in ["true", "false"]:
+                return aria_checked == "true"
+        except Exception:
+            pass
+        try:
+            return handle.is_checked()
+        except Exception:
+            return False
+
+    def _set_control_checked_state(self, handle, should_be_checked, element_name):
+        current_state = self._is_control_selected(handle)
+        if current_state == should_be_checked:
+            return
+
+        try:
+            handle.click(force=True, timeout=self.default_wait_timeout * 1000)
+        except Exception:
+            self.page.evaluate("(el) => el.click()", handle)
+        self.page.wait_for_timeout(100)
+
+        final_state = self._is_control_selected(handle)
+        if final_state != should_be_checked:
+            raise Exception(f"{element_name} did not reach expected selected state")
+
+    def find_choice_control(self, xpath, option_text, control_kind):
+        locator = self.find_element_with_advanced_wait(xpath)
+        root_handle = locator.element_handle()
+        if root_handle is None:
+            return None
+
+        desired = self._normalize_choice_value(option_text)
+        control_kind = (control_kind or "").strip().lower()
+        if control_kind not in ["radio", "checkbox"] or not desired:
+            return root_handle if root_handle and self._matches_control_kind(root_handle, control_kind) else None
+
+        result = locator.evaluate_handle(
+            """(root, payload) => {
+                const desired = (payload.desired || '').toLowerCase().trim().replace(/\\s+/g, ' ');
+                const kind = payload.kind;
+                const selectors = kind === 'radio'
+                    ? ['input[type="radio"]', '[role="radio"]']
+                    : ['input[type="checkbox"]', '[role="checkbox"]'];
+                const normalize = (value) => (value || '').toLowerCase().replace(/\\s+/g, ' ').trim();
+                const scoreText = (candidate) => {
+                    const text = normalize(candidate);
+                    if (!text) return 0;
+                    if (text === desired) return 100;
+                    if (text.includes(desired)) return 60;
+                    if (desired.includes(text)) return 40;
+                    return 0;
+                };
+                const collectTexts = (el) => {
+                    const texts = [];
+                    const push = (value) => {
+                        const normalized = normalize(value);
+                        if (normalized) texts.push(normalized);
+                    };
+                    push(el.value);
+                    push(el.getAttribute && el.getAttribute('value'));
+                    push(el.getAttribute && el.getAttribute('aria-label'));
+                    push(el.getAttribute && el.getAttribute('aria-labelledby'));
+                    push(el.getAttribute && el.getAttribute('data-testid'));
+                    push(el.getAttribute && el.getAttribute('id'));
+                    push(el.getAttribute && el.getAttribute('name'));
+                    push(el.textContent);
+                    if (el.labels) {
+                        for (const label of el.labels) push(label.textContent);
+                    }
+                    const closestLabel = el.closest && el.closest('label');
+                    if (closestLabel) push(closestLabel.textContent);
+                    if (el.parentElement) push(el.parentElement.textContent);
+                    if (el.nextElementSibling) push(el.nextElementSibling.textContent);
+                    if (el.previousElementSibling) push(el.previousElementSibling.textContent);
+                    return texts;
+                };
+                const candidates = [];
+                const addCandidate = (el) => {
+                    if (el && !candidates.includes(el)) candidates.push(el);
+                };
+                for (const selector of selectors) {
+                    if (root.matches && root.matches(selector)) addCandidate(root);
+                    root.querySelectorAll(selector).forEach(addCandidate);
+                }
+                let best = null;
+                let bestScore = 0;
+                for (const candidate of candidates) {
+                    let candidateScore = 0;
+                    for (const text of collectTexts(candidate)) {
+                        candidateScore = Math.max(candidateScore, scoreText(text));
+                    }
+                    if (candidateScore > bestScore) {
+                        best = candidate;
+                        bestScore = candidateScore;
+                    }
+                }
+                return bestScore > 0 ? best : null;
+            }""",
+            {"desired": desired, "kind": control_kind},
+        )
+        return result.as_element() if result else None
+
+    def _matches_control_kind(self, handle, control_kind):
+        try:
+            return self.page.evaluate(
+                """(payload) => {
+                    const el = payload.element;
+                    const kind = payload.kind;
+                    const tag = (el.tagName || '').toLowerCase();
+                    const type = (el.getAttribute('type') || '').toLowerCase();
+                    const role = (el.getAttribute('role') || '').toLowerCase();
+                    return (tag === 'input' && type === kind) || role === kind;
+                }""",
+                {"element": handle, "kind": control_kind},
+            )
+        except Exception:
+            return False
 
     # --- Window/Page Management ---
 
@@ -3035,7 +3483,7 @@ class PlaywrightTestExecutor:
         """Playwright's model is naturally isolated. This is an alias for the main execute_action."""
         return self.execute_action(action_type, test_data, xpath, element_name)
 
-    def validate_action_result(self, action_type, test_data, xpath, element_name):
+    def validate_action_result(self, action_type, test_data, xpath, element_name, assertion_type=None):
         """Best-effort post-action validation for key interaction types."""
         action_type = self.normalize_action_type(action_type)
         element_name = element_name or "unnamed_element"
@@ -3044,6 +3492,134 @@ class PlaywrightTestExecutor:
                 if self.page and self.page.url:
                     return {'success': True, 'message': f'{action_type} completed successfully'}
                 return {'success': False, 'message': f'{action_type} failed: page URL unavailable'}
+
+            if action_type == "ASSERTION":
+                normalized_assertion = self.normalize_assertion_type(assertion_type)
+                expected = str(test_data or "").strip()
+
+                if normalized_assertion == "VERIFY_PAGE_TITLE":
+                    actual_title = self.page.title()
+                    if actual_title.strip() == expected:
+                        return {'success': True, 'message': f'Page title matched "{expected}"'}
+                    return {'success': False, 'message': f'Expected page title "{expected}", but found "{actual_title}"'}
+
+                if normalized_assertion == "VERIFY_URL_CONTAINS":
+                    current_url = self.page.url or ""
+                    if expected.lower() in current_url.lower():
+                        return {'success': True, 'message': f'URL contains "{expected}"'}
+                    return {'success': False, 'message': f'Expected URL containing "{expected}", but found "{current_url}"'}
+
+                if normalized_assertion == "VERIFY_URL_EQUALS":
+                    current_url = self.page.url or ""
+                    if current_url.strip().lower() == expected.lower():
+                        return {'success': True, 'message': f'URL matched "{expected}"'}
+                    return {'success': False, 'message': f'Expected URL "{expected}", but found "{current_url}"'}
+
+                if normalized_assertion == "VERIFY_PAGE_LOADED":
+                    state = self.page.evaluate("() => document.readyState")
+                    if state == "complete":
+                        return {'success': True, 'message': 'Page load completed'}
+                    return {'success': False, 'message': f'Expected page readyState complete, found "{state}"'}
+
+                target = self.find_element_with_advanced_wait(xpath)
+                if normalized_assertion == "ELEMENT_EXISTS":
+                    target.wait_for(state="attached", timeout=self.default_wait_timeout * 1000)
+                    return {'success': True, 'message': f'Element "{element_name}" exists'}
+                if normalized_assertion == "ELEMENT_VISIBLE":
+                    target.wait_for(state="visible", timeout=self.default_wait_timeout * 1000)
+                    return {'success': True, 'message': f'Element "{element_name}" is visible'}
+                if normalized_assertion == "ELEMENT_ENABLED":
+                    if target.is_enabled():
+                        return {'success': True, 'message': f'Element "{element_name}" is enabled'}
+                    return {'success': False, 'message': f'Element "{element_name}" is disabled'}
+                if normalized_assertion == "ELEMENT_DISABLED":
+                    if not target.is_enabled():
+                        return {'success': True, 'message': f'Element "{element_name}" is disabled'}
+                    return {'success': False, 'message': f'Element "{element_name}" is enabled'}
+                if normalized_assertion == "ELEMENT_CLICKABLE":
+                    target.wait_for(state="visible", timeout=self.default_wait_timeout * 1000)
+                    if target.is_enabled():
+                        return {'success': True, 'message': f'Element "{element_name}" is clickable'}
+                    return {'success': False, 'message': f'Element "{element_name}" is not clickable'}
+                if normalized_assertion == "VERIFY_TEXT":
+                    actual_text = (target.text_content(timeout=self.default_wait_timeout * 1000) or "").strip()
+                    if actual_text == expected:
+                        return {'success': True, 'message': f'Text matched "{expected}"'}
+                    return {'success': False, 'message': f'Expected text "{expected}", but found "{actual_text}"'}
+                if normalized_assertion == "VERIFY_INPUT_VALUE":
+                    actual_value = (target.input_value(timeout=self.default_wait_timeout * 1000) or "").strip()
+                    if actual_value == expected:
+                        return {'success': True, 'message': f'Input value matched "{expected}"'}
+                    return {'success': False, 'message': f'Expected input value "{expected}", but found "{actual_value}"'}
+                if normalized_assertion == "VERIFY_ATTRIBUTE":
+                    attribute_name = ""
+                    attribute_value = ""
+                    for separator in ["=", ":"]:
+                        if separator in expected:
+                            attribute_name, attribute_value = [part.strip() for part in expected.split(separator, 1)]
+                            break
+                    if not attribute_name:
+                        return {'success': False, 'message': 'VERIFY_ATTRIBUTE requires Values in the form attribute=value'}
+                    actual_attr = (target.get_attribute(attribute_name, timeout=self.default_wait_timeout * 1000) or "").strip()
+                    if actual_attr == attribute_value:
+                        return {'success': True, 'message': f'Attribute "{attribute_name}" matched "{attribute_value}"'}
+                    return {'success': False, 'message': f'Expected attribute "{attribute_name}"="{attribute_value}", but found "{actual_attr}"'}
+                if normalized_assertion == "VERIFY_PLACEHOLDER":
+                    actual_placeholder = (target.get_attribute("placeholder", timeout=self.default_wait_timeout * 1000) or "").strip()
+                    if actual_placeholder == expected:
+                        return {'success': True, 'message': f'Placeholder matched "{expected}"'}
+                    return {'success': False, 'message': f'Expected placeholder "{expected}", but found "{actual_placeholder}"'}
+                if normalized_assertion == "WAIT_FOR_VISIBLE":
+                    target.wait_for(state="visible", timeout=self.default_wait_timeout * 1000)
+                    return {'success': True, 'message': f'Element "{element_name}" became visible'}
+                if normalized_assertion == "WAIT_FOR_CLICKABLE":
+                    target.wait_for(state="visible", timeout=self.default_wait_timeout * 1000)
+                    if target.is_enabled():
+                        return {'success': True, 'message': f'Element "{element_name}" became clickable'}
+                    return {'success': False, 'message': f'Element "{element_name}" is visible but not clickable'}
+                if normalized_assertion == "WAIT_FOR_LOADER_DISAPPEARS":
+                    target.wait_for(state="hidden", timeout=self.default_wait_timeout * 1000)
+                    return {'success': True, 'message': f'Loader "{element_name}" disappeared'}
+
+                return {'success': False, 'message': f'Unsupported assertion type: {normalized_assertion}'}
+
+            if action_type in ["READ_TEXT", "READ_VALUE", "READ_TOOLTIP", "READ_LABEL", "COPY", "PASTE", "UPLOAD_FILE", "DOWNLOAD_FILE", "VISUAL_ASSERTION"]:
+                if action_type == "VISUAL_ASSERTION":
+                    visual_result = self._last_read_result or {}
+                    baseline = visual_result.get("baseline")
+                    diff_ratio = float(visual_result.get("difference_ratio", 1.0) or 0.0)
+                    threshold = float(visual_result.get("threshold", 0.01) or 0.01)
+                    if visual_result.get("value") == "baseline_created":
+                        return {'success': True, 'message': f'Visual baseline "{baseline}" created'}
+                    if diff_ratio <= threshold:
+                        return {'success': True, 'message': f'Visual assertion passed for "{baseline}" (diff={diff_ratio:.6f}, threshold={threshold:.6f})'}
+                    return {'success': False, 'message': f'Visual assertion failed for "{baseline}" (diff={diff_ratio:.6f}, threshold={threshold:.6f})'}
+                expected = str(test_data or "").strip()
+                if action_type == "DOWNLOAD_FILE":
+                    download_name = ((self._last_read_result or {}).get("value") or "").strip()
+                    if expected and expected.lower() not in download_name.lower():
+                        return {'success': False, 'message': f'Expected downloaded filename containing "{expected}", but found "{download_name}"'}
+                    return {'success': True, 'message': f'Download validated for "{element_name}": {download_name or "file detected"}'}
+
+                target = self.find_element_with_advanced_wait(xpath)
+                payload = self._readable_locator_payload(target)
+                actual_map = {
+                    "READ_TEXT": payload.get("text", "").strip(),
+                    "READ_VALUE": payload.get("value", "").strip(),
+                    "READ_TOOLTIP": (payload.get("title") or payload.get("ariaLabel") or payload.get("placeholder") or payload.get("text") or "").strip(),
+                    "READ_LABEL": payload.get("label", "").strip(),
+                    "COPY": ((self._last_read_result or {}).get("value") or payload.get("value") or payload.get("text") or "").strip(),
+                    "PASTE": (payload.get("value") or payload.get("text") or "").strip(),
+                    "UPLOAD_FILE": ((self._last_read_result or {}).get("value") or "").strip(),
+                }
+                actual_value = actual_map.get(action_type, "").strip()
+                if expected:
+                    if expected.lower() in actual_value.lower():
+                        return {'success': True, 'message': f'{action_type} matched "{expected}"'}
+                    return {'success': False, 'message': f'Expected "{expected}", but found "{actual_value}" for "{element_name}"'}
+                if actual_value or action_type in ["COPY", "PASTE", "UPLOAD_FILE"]:
+                    return {'success': True, 'message': f'{action_type} completed for "{element_name}"'}
+                return {'success': False, 'message': f'{action_type} produced no readable value for "{element_name}"'}
 
             if action_type in ["CLICK", "DOUBLE_CLICK", "RIGHT_CLICK", "MOUSE_OVER"]:
                 transient_click_targets = {"DONE", "DONEBUTTON", "TRAVELCLASS", "CLASS"}
@@ -3071,13 +3647,26 @@ class PlaywrightTestExecutor:
 
             if action_type == "HANDLE_CHECKBOX":
                 target = self.find_element_with_advanced_wait(xpath)
-                expected = str(test_data or "").strip().lower() in ["true", "1", "yes", "on", "checked"]
+                raw_value = str(test_data or "").strip()
+                if raw_value and not self._is_boolean_like_value(raw_value):
+                    for choice in self._extract_choice_values(raw_value):
+                        handle = self.find_choice_control(xpath, choice, "checkbox")
+                        if handle is None or not self._is_control_selected(handle):
+                            return {'success': False, 'message': f'Checkbox option "{choice}" is not checked for "{element_name}"'}
+                    return {'success': True, 'message': f'Checkbox validation passed for "{element_name}"'}
+                expected = self._value_means_checked(raw_value)
                 actual = target.is_checked()
                 if expected == actual:
                     return {'success': True, 'message': f'Checkbox validation passed for "{element_name}"'}
                 return {'success': False, 'message': f'Checkbox mismatch for "{element_name}"'}
 
             if action_type == "RADIO_BUTTON":
+                raw_value = str(test_data or "").strip()
+                if raw_value and not self._is_boolean_like_value(raw_value):
+                    handle = self.find_choice_control(xpath, raw_value, "radio")
+                    if handle is not None and self._is_control_selected(handle):
+                        return {'success': True, 'message': f'Radio button "{element_name}" selected'}
+                    return {'success': False, 'message': f'Radio option "{raw_value}" is not selected for "{element_name}"'}
                 target = self.find_element_with_advanced_wait(xpath)
                 if target.is_checked():
                     return {'success': True, 'message': f'Radio button "{element_name}" selected'}
@@ -3107,7 +3696,7 @@ class PlaywrightTestExecutor:
         except Exception as e:
             return {'success': False, 'message': f'Validation failed for {action_type}: {e}'}
 
-    def pre_validate_action(self, action_type, test_data, xpath, element_name):
+    def pre_validate_action(self, action_type, test_data, xpath, element_name, assertion_type=None):
         """Validate action inputs before execution with generic selector checks."""
         action_type = self.normalize_action_type(action_type)
         element_name = (element_name or "").strip() or "unnamed_element"
@@ -3128,7 +3717,19 @@ class PlaywrightTestExecutor:
                 "HANDLE_CHECKBOX",
                 "INCREMENT",
                 "DECREMENT",
+                "READ_TEXT",
+                "READ_VALUE",
+                "READ_TOOLTIP",
+                "READ_LABEL",
+                "COPY",
+                "PASTE",
+                "UPLOAD_FILE",
+                "DOWNLOAD_FILE",
+                "VISUAL_ASSERTION",
             ]
+
+            if action_type == "ASSERTION" and self._assertion_requires_locator(self.normalize_assertion_type(assertion_type)):
+                locator_required_actions.append("ASSERTION")
 
             if action_type in locator_required_actions:
                 missing_locator = (not xpath or not str(xpath).strip() or str(xpath).strip().upper() == "NA")
@@ -3151,6 +3752,14 @@ class PlaywrightTestExecutor:
             if action_type in ["CLICK_AND_SELECT", "CLICK_AND_TYPE", "CLEAR_AND_TYPE", "SELECT_COUNT"] and test_data in [None, ""]:
                 return {'success': False, 'message': f'{action_type} requires a value for "{element_name}"'}
 
+            if action_type == "ASSERTION":
+                normalized_assertion = self.normalize_assertion_type(assertion_type)
+                if normalized_assertion in ["VERIFY_PAGE_TITLE", "VERIFY_URL_CONTAINS", "VERIFY_URL_EQUALS", "VERIFY_TEXT", "VERIFY_INPUT_VALUE", "VERIFY_ATTRIBUTE", "VERIFY_PLACEHOLDER"] and test_data in [None, ""]:
+                    return {'success': False, 'message': f'Assertion "{normalized_assertion}" requires a value for "{element_name}"'}
+
+            if action_type == "UPLOAD_FILE" and test_data in [None, ""]:
+                return {'success': False, 'message': f'UPLOAD_FILE requires a file path for "{element_name}"'}
+
             if action_type == "DRAG_AND_DROP":
                 target_locator = self._parse_drag_drop_target_locator(test_data)
                 if not target_locator:
@@ -3167,9 +3776,8 @@ class PlaywrightTestExecutor:
                     return {'success': False, 'message': f'{action_type} requires non-negative value; got "{test_data}"'}
 
             if action_type == "RADIO_BUTTON":
-                valid_radio_values = ['', 'true', '1', 'yes', 'on', 'select', 'selected']
-                if str(test_data or '').strip().lower() not in valid_radio_values:
-                    return {'success': False, 'message': f'Invalid RADIO_BUTTON value "{test_data}"'}
+                if test_data is None:
+                    return {'success': False, 'message': f'RADIO_BUTTON requires a value or selectable option for "{element_name}"'}
 
             return {'success': True, 'message': f'Pre-validation passed for {action_type}'}
         except Exception as e:

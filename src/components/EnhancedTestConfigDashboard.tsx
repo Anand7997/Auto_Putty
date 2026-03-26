@@ -15,6 +15,7 @@ interface TestStep {
   test_step_description: string;
   element_name: string;
   action_type: string;
+  assertion_type?: string;
   xpath: string;
   values: string;
 }
@@ -53,10 +54,58 @@ const ACTION_TYPES = [
   'REFRESH_PAGE',
   'GO_BACK',
   'GO_FORWARD',
+  'READ_TEXT',
+  'READ_VALUE',
+  'READ_TOOLTIP',
+  'READ_LABEL',
+  'COPY',
+  'PASTE',
+  'UPLOAD_FILE',
+  'DOWNLOAD_FILE',
+  'VISUAL_ASSERTION',
   'TYPE',
   'SELECT',
   'WAIT',
-  'PRESS_KEY'
+  'PRESS_KEY',
+  'ASSERTION'
+];
+
+const PRESS_KEY_OPTIONS = [
+  'ENTER',
+  'TAB',
+  'SHIFT+TAB',
+  'ESCAPE',
+  'BACKSPACE',
+  'DELETE',
+  'ARROW_UP',
+  'ARROW_DOWN',
+  'ARROW_LEFT',
+  'ARROW_RIGHT',
+  'CTRL+A',
+  'CTRL+C',
+  'CTRL+V',
+  'CTRL+X',
+  'CTRL+Z',
+  'CTRL+Y',
+];
+
+const ASSERTION_OPTIONS = [
+  'ELEMENT_EXISTS',
+  'ELEMENT_VISIBLE',
+  'ELEMENT_ENABLED',
+  'ELEMENT_DISABLED',
+  'ELEMENT_CLICKABLE',
+  'VERIFY_TEXT',
+  'VERIFY_INPUT_VALUE',
+  'VERIFY_ATTRIBUTE',
+  'VERIFY_PLACEHOLDER',
+  'VERIFY_PAGE_TITLE',
+  'VERIFY_URL_CONTAINS',
+  'VERIFY_URL_EQUALS',
+  'VERIFY_PAGE_LOADED',
+  'WAIT_FOR_VISIBLE',
+  'WAIT_FOR_CLICKABLE',
+  'WAIT_FOR_LOADER_DISAPPEARS',
 ];
 
 const LEGACY_TO_CURRENT_ACTION: Record<string, string> = {
@@ -89,6 +138,10 @@ const normalizeActionType = (actionType?: string): string => {
   return 'CLICK';
 };
 
+const isPressKeyAction = (actionType?: string): boolean => normalizeActionType(actionType) === 'PRESS_KEY';
+const isAssertionAction = (actionType?: string): boolean => normalizeActionType(actionType) === 'ASSERTION';
+const getAssertionLabel = (assertionType?: string): string => assertionType || 'ELEMENT_VISIBLE';
+
 const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = ({ 
   selectedProject,
   selectedModule,
@@ -101,6 +154,7 @@ const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = 
   const [steps, setSteps] = useState<TestStep[]>([]);
   const [editingStepId, setEditingStepId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [openPressKeyPicker, setOpenPressKeyPicker] = useState<number | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -149,6 +203,7 @@ const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = 
       test_step_description: '',
       element_name: '',
       action_type: 'CLICK',
+      assertion_type: '',
       xpath: '',
       values: ''
     };
@@ -166,6 +221,7 @@ const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = 
       test_step_description: '',
       element_name: '',
       action_type: 'CLICK',
+      assertion_type: '',
       xpath: '',
       values: ''
     };
@@ -187,9 +243,18 @@ const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = 
   const updateStep = (stepId: number, field: keyof TestStep, value: string | number) => {
     const updatedSteps = steps.map(step =>
       step.id === stepId
-        ? { ...step, [field]: field === 'action_type' ? normalizeActionType(String(value)) : value }
+        ? {
+            ...step,
+            [field]: field === 'action_type' ? normalizeActionType(String(value)) : value,
+            ...(field === 'action_type' && normalizeActionType(String(value)) === 'PRESS_KEY' && !step.values ? { values: 'ENTER' } : {}),
+            ...(field === 'action_type' && normalizeActionType(String(value)) === 'ASSERTION' && !step.assertion_type ? { assertion_type: 'ELEMENT_VISIBLE' } : {})
+          }
         : step
     );
+    if (field === 'action_type') {
+      const normalizedAction = normalizeActionType(String(value));
+      setOpenPressKeyPicker((normalizedAction === 'PRESS_KEY' || normalizedAction === 'ASSERTION') ? stepId : null);
+    }
     setSteps(updatedSteps);
     onTestStepsChange?.(updatedSteps);
   };
@@ -346,19 +411,57 @@ const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = 
                                 placeholder="Element identifier"
                               />
                             </div>
-                            <div>
+                            <div className="relative">
                               <label className="block text-sm font-medium text-gray-700 mb-1">
                                 Action Type
                               </label>
                               <select
                                 value={normalizeActionType(step.action_type)}
                                 onChange={(e) => updateStep(step.id, 'action_type', e.target.value)}
+                                onClick={() => (isPressKeyAction(step.action_type) || isAssertionAction(step.action_type)) && setOpenPressKeyPicker(step.id)}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                               >
                                 {ACTION_TYPES.map(action => (
                                   <option key={action} value={action}>{action}</option>
                                 ))}
                               </select>
+                              {isPressKeyAction(step.action_type) && (
+                                <div className="mt-1 text-xs font-medium text-purple-700">
+                                  Key: {step.values || 'ENTER'}
+                                </div>
+                              )}
+                              {isAssertionAction(step.action_type) && (
+                                <div className="mt-1 text-xs font-medium text-amber-700">
+                                  Assertion: {getAssertionLabel(step.assertion_type)}
+                                </div>
+                              )}
+                              {(isPressKeyAction(step.action_type) || isAssertionAction(step.action_type)) && openPressKeyPicker === step.id && (
+                                <div className="absolute bottom-0 left-full z-20 ml-2 w-48 rounded-md border border-gray-300 bg-white p-1 shadow-lg">
+                                  {(isPressKeyAction(step.action_type) ? PRESS_KEY_OPTIONS : ASSERTION_OPTIONS).map((option) => (
+                                    <button
+                                      key={option}
+                                      type="button"
+                                      onClick={() => {
+                                        if (isPressKeyAction(step.action_type)) {
+                                          updateStep(step.id, 'values', option);
+                                        } else {
+                                          updateStep(step.id, 'assertion_type', option);
+                                        }
+                                        setOpenPressKeyPicker(null);
+                                      }}
+                                      className={`block w-full rounded px-3 py-2 text-left text-sm ${
+                                        (isPressKeyAction(step.action_type)
+                                          ? (step.values || 'ENTER')
+                                          : getAssertionLabel(step.assertion_type)) === option
+                                          ? 'bg-purple-100 text-purple-700'
+                                          : 'text-gray-700 hover:bg-purple-50'
+                                      }`}
+                                    >
+                                      {option}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                             <div>
                               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -367,7 +470,8 @@ const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = 
                               <Input
                                 value={step.values}
                                 onChange={(e) => updateStep(step.id, 'values', e.target.value)}
-                                placeholder="Input values"
+                                placeholder={isPressKeyAction(step.action_type) ? "Selected from key dropdown" : isAssertionAction(step.action_type) ? "Expected text / URL / title / attribute=value" : "Input values"}
+                                disabled={isPressKeyAction(step.action_type)}
                               />
                             </div>
                             <div className="md:col-span-2">

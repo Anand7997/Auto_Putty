@@ -16,6 +16,7 @@ interface TestStep {
   test_step_description: string;
   element_name: string;
   action_type: string;
+  assertion_type?: string;
   xpath: string;
   values: string;
 }
@@ -56,10 +57,58 @@ const ACTION_TYPES = [
   'REFRESH_PAGE',
   'GO_BACK',
   'GO_FORWARD',
+  'READ_TEXT',
+  'READ_VALUE',
+  'READ_TOOLTIP',
+  'READ_LABEL',
+  'COPY',
+  'PASTE',
+  'UPLOAD_FILE',
+  'DOWNLOAD_FILE',
+  'VISUAL_ASSERTION',
   'TYPE',
   'SELECT',
   'WAIT',
-  'PRESS_KEY'
+  'PRESS_KEY',
+  'ASSERTION'
+];
+
+const PRESS_KEY_OPTIONS = [
+  'ENTER',
+  'TAB',
+  'SHIFT+TAB',
+  'ESCAPE',
+  'BACKSPACE',
+  'DELETE',
+  'ARROW_UP',
+  'ARROW_DOWN',
+  'ARROW_LEFT',
+  'ARROW_RIGHT',
+  'CTRL+A',
+  'CTRL+C',
+  'CTRL+V',
+  'CTRL+X',
+  'CTRL+Z',
+  'CTRL+Y',
+];
+
+const ASSERTION_OPTIONS = [
+  'ELEMENT_EXISTS',
+  'ELEMENT_VISIBLE',
+  'ELEMENT_ENABLED',
+  'ELEMENT_DISABLED',
+  'ELEMENT_CLICKABLE',
+  'VERIFY_TEXT',
+  'VERIFY_INPUT_VALUE',
+  'VERIFY_ATTRIBUTE',
+  'VERIFY_PLACEHOLDER',
+  'VERIFY_PAGE_TITLE',
+  'VERIFY_URL_CONTAINS',
+  'VERIFY_URL_EQUALS',
+  'VERIFY_PAGE_LOADED',
+  'WAIT_FOR_VISIBLE',
+  'WAIT_FOR_CLICKABLE',
+  'WAIT_FOR_LOADER_DISAPPEARS',
 ];
 
 const LEGACY_TO_CURRENT_ACTION: Record<string, string> = {
@@ -92,6 +141,10 @@ const normalizeActionType = (actionType?: string): string => {
   return 'CLICK';
 };
 
+const isPressKeyAction = (actionType?: string): boolean => normalizeActionType(actionType) === 'PRESS_KEY';
+const isAssertionAction = (actionType?: string): boolean => normalizeActionType(actionType) === 'ASSERTION';
+const getAssertionLabel = (assertionType?: string): string => assertionType || 'ELEMENT_VISIBLE';
+
 const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({ 
   selectedTestCase, 
   selectedProject,
@@ -108,12 +161,14 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
   const [editingStep, setEditingStep] = useState<TestStep | null>(null);
   const [showGrid, setShowGrid] = useState(false);
   const [gridSteps, setGridSteps] = useState<TestStep[]>([]);
+  const [openPressKeyPicker, setOpenPressKeyPicker] = useState<string | number | null>(null);
   const [formData, setFormData] = useState({
     tc_id: '',
     step_no: 1,
     test_step_description: '',
     element_name: '',
     action_type: 'CLICK',
+    assertion_type: '',
     xpath: '',
     values: ''
   });
@@ -160,6 +215,7 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
       test_step_description: '',
       element_name: '',
       action_type: 'CLICK',
+      assertion_type: '',
       xpath: '',
       values: ''
     });
@@ -177,6 +233,7 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
       test_step_description: '',
       element_name: '',
       action_type: 'CLICK',
+      assertion_type: '',
       xpath: '',
       values: ''
     };
@@ -186,9 +243,18 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
   const updateGridStep = (stepId: number, field: string, value: string | number) => {
     setGridSteps(gridSteps.map(step => 
       step.id === stepId
-        ? { ...step, [field]: field === 'action_type' ? normalizeActionType(String(value)) : value }
+        ? {
+            ...step,
+            [field]: field === 'action_type' ? normalizeActionType(String(value)) : value,
+            ...(field === 'action_type' && normalizeActionType(String(value)) === 'PRESS_KEY' && !step.values ? { values: 'ENTER' } : {}),
+            ...(field === 'action_type' && normalizeActionType(String(value)) === 'ASSERTION' && !step.assertion_type ? { assertion_type: 'ELEMENT_VISIBLE' } : {})
+          }
         : step
     ));
+    if (field === 'action_type') {
+      const normalizedAction = normalizeActionType(String(value));
+      setOpenPressKeyPicker((normalizedAction === 'PRESS_KEY' || normalizedAction === 'ASSERTION') ? stepId : null);
+    }
   };
 
   const saveGridSteps = () => {
@@ -247,6 +313,7 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
         test_step_description: formData.test_step_description,
         element_name: formData.element_name,
         action_type: formData.action_type,
+        assertion_type: formData.assertion_type || '',
         xpath: formData.xpath,
         values: formData.values
       };
@@ -288,6 +355,7 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
       test_step_description: step.test_step_description,
       element_name: step.element_name,
       action_type: normalizeActionType(step.action_type),
+      assertion_type: step.assertion_type || '',
       xpath: step.xpath,
       values: step.values
     });
@@ -536,17 +604,58 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                 className="bg-gray-50 border-gray-200 text-gray-900"
               />
             </div>
-            <div>
+            <div className="relative">
               <label className="text-sm font-medium text-gray-600">Action Type</label>
               <select
                 value={formData.action_type}
-                onChange={(e) => setFormData({ ...formData, action_type: e.target.value })}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  action_type: e.target.value,
+                  values: normalizeActionType(e.target.value) === 'PRESS_KEY' ? (formData.values || 'ENTER') : formData.values,
+                  assertion_type: normalizeActionType(e.target.value) === 'ASSERTION' ? (formData.assertion_type || 'ELEMENT_VISIBLE') : formData.assertion_type
+                })}
+                onClick={() => (isPressKeyAction(formData.action_type) || isAssertionAction(formData.action_type)) && setOpenPressKeyPicker('form')}
                 className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-gray-900"
               >
                 {ACTION_TYPES.map(action => (
                   <option key={action} value={action}>{action}</option>
                 ))}
               </select>
+              {isPressKeyAction(formData.action_type) && (
+                <div className="mt-1 text-xs font-medium text-purple-700">
+                  Key: {formData.values || 'ENTER'}
+                </div>
+              )}
+              {isAssertionAction(formData.action_type) && (
+                <div className="mt-1 text-xs font-medium text-amber-700">
+                  Assertion: {getAssertionLabel(formData.assertion_type)}
+                </div>
+              )}
+              {(isPressKeyAction(formData.action_type) || isAssertionAction(formData.action_type)) && openPressKeyPicker === 'form' && (
+                <div className="absolute bottom-0 left-full z-20 ml-2 w-48 rounded-md border border-gray-200 bg-white p-1 shadow-lg">
+                  {(isPressKeyAction(formData.action_type) ? PRESS_KEY_OPTIONS : ASSERTION_OPTIONS).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => {
+                        setFormData(isPressKeyAction(formData.action_type)
+                          ? { ...formData, values: option }
+                          : { ...formData, assertion_type: option });
+                        setOpenPressKeyPicker(null);
+                      }}
+                      className={`block w-full rounded px-3 py-2 text-left text-sm ${
+                        (isPressKeyAction(formData.action_type)
+                          ? (formData.values || 'ENTER')
+                          : getAssertionLabel(formData.assertion_type)) === option
+                          ? 'bg-purple-100 text-purple-700'
+                          : 'text-gray-700 hover:bg-purple-50'
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              )}
               <p className="text-xs text-gray-500 mt-1">
                 {normalizeActionType(formData.action_type) === 'OPEN_BROWSER' && 'Use Values for URL (e.g. https://example.com).'}
                 {normalizeActionType(formData.action_type) === 'CLICK_AND_SELECT' && 'Use for selection flows (city/date/age) with Values as the input.'}
@@ -556,12 +665,23 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                 {normalizeActionType(formData.action_type) === 'CLICK' && 'Use for pure click actions where no selection/input is needed.'}
                 {normalizeActionType(formData.action_type) === 'CLICK_AND_TYPE' && 'Clicks the element and types the text from Values.'}
                 {normalizeActionType(formData.action_type) === 'CLEAR_AND_TYPE' && 'Clears existing/default value, then types Values.'}
+                {normalizeActionType(formData.action_type) === 'READ_TEXT' && 'Reads visible text from the target. Optionally put expected text in Values.'}
+                {normalizeActionType(formData.action_type) === 'READ_VALUE' && 'Reads the input value from the target. Optionally put expected value in Values.'}
+                {normalizeActionType(formData.action_type) === 'READ_TOOLTIP' && 'Reads tooltip/title/aria-label text. Optionally put expected tooltip in Values.'}
+                {normalizeActionType(formData.action_type) === 'READ_LABEL' && 'Reads the label associated with the target element. Optionally put expected label in Values.'}
+                {normalizeActionType(formData.action_type) === 'COPY' && 'Copies selected text from the target element. Use Values only if you want expected text validation.'}
+                {normalizeActionType(formData.action_type) === 'PASTE' && 'Pastes clipboard contents into the target, or pastes the text from Values when provided.'}
+                {normalizeActionType(formData.action_type) === 'UPLOAD_FILE' && 'Use Values as the file path to upload.'}
+                {normalizeActionType(formData.action_type) === 'DOWNLOAD_FILE' && 'Clicks the target to download a file. Optionally use Values as expected filename text.'}
+                {normalizeActionType(formData.action_type) === 'VISUAL_ASSERTION' && 'Use Values like baseline=login_page;threshold=0.01 to compare the current screenshot with a stored baseline.'}
                 {normalizeActionType(formData.action_type) === 'DOUBLE_CLICK' && 'Performs a double click on the target element.'}
                 {normalizeActionType(formData.action_type) === 'RIGHT_CLICK' && 'Performs a context (right) click on the target element.'}
                 {normalizeActionType(formData.action_type) === 'MOUSE_OVER' && 'Moves mouse over target element to trigger hover states.'}
                 {normalizeActionType(formData.action_type) === 'RADIO_BUTTON' && 'Selects the target radio button (Values can be true/yes/1/select).' }
                 {normalizeActionType(formData.action_type) === 'DRAG_AND_DROP' && 'Use XPath as source and Values as target locator (or target=...).'}
                 {normalizeActionType(formData.action_type) === 'HANDLE_CHECKBOX' && 'Use Values: true/false, yes/no, or 1/0.'}
+                {normalizeActionType(formData.action_type) === 'PRESS_KEY' && 'Choose a key action from the dropdown. It will be stored in Values automatically.'}
+                {normalizeActionType(formData.action_type) === 'ASSERTION' && 'Choose an assertion type from the popup. Use Values for the expected text, URL, title, or attribute=value when needed.'}
               </p>
             </div>
             <div className="col-span-2">
@@ -581,8 +701,9 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
               <Input
                 value={formData.values}
                 onChange={(e) => setFormData({ ...formData, values: e.target.value })}
-                placeholder="Enter values if needed"
+                placeholder={isPressKeyAction(formData.action_type) ? "Selected from key dropdown" : isAssertionAction(formData.action_type) ? "Expected text / URL / title / attribute=value" : "Enter values if needed"}
                 className="bg-gray-50 border-gray-200 text-gray-900"
+                disabled={isPressKeyAction(formData.action_type)}
               />
             </div>
             <div className="col-span-2 flex justify-end space-x-2">
@@ -684,15 +805,55 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                         />
                       </td>
                       <td className="py-2 px-2">
-                        <select
-                                value={normalizeActionType(step.action_type)}
-                                onChange={(e) => updateGridStep(step.id, 'action_type', e.target.value)}
-                          className="w-full h-8 text-xs bg-white border border-gray-200 rounded-md px-2"
-                        >
-                          {ACTION_TYPES.map(action => (
-                            <option key={action} value={action}>{action}</option>
-                          ))}
-                        </select>
+                        <div className="relative">
+                          <select
+                                  value={normalizeActionType(step.action_type)}
+                                  onChange={(e) => updateGridStep(step.id, 'action_type', e.target.value)}
+                            onClick={() => (isPressKeyAction(step.action_type) || isAssertionAction(step.action_type)) && setOpenPressKeyPicker(step.id)}
+                            className="w-full h-8 text-xs bg-white border border-gray-200 rounded-md px-2"
+                          >
+                            {ACTION_TYPES.map(action => (
+                              <option key={action} value={action}>{action}</option>
+                            ))}
+                          </select>
+                          {isPressKeyAction(step.action_type) && (
+                            <div className="mt-1 text-[11px] font-medium text-purple-700">
+                              Key: {step.values || 'ENTER'}
+                            </div>
+                          )}
+                          {isAssertionAction(step.action_type) && (
+                            <div className="mt-1 text-[11px] font-medium text-amber-700">
+                              Assertion: {getAssertionLabel(step.assertion_type)}
+                            </div>
+                          )}
+                          {(isPressKeyAction(step.action_type) || isAssertionAction(step.action_type)) && openPressKeyPicker === step.id && (
+                            <div className="absolute bottom-0 left-full z-20 ml-2 w-44 rounded-md border border-gray-200 bg-white p-1 shadow-lg">
+                              {(isPressKeyAction(step.action_type) ? PRESS_KEY_OPTIONS : ASSERTION_OPTIONS).map((option) => (
+                                <button
+                                  key={option}
+                                  type="button"
+                                  onClick={() => {
+                                    if (isPressKeyAction(step.action_type)) {
+                                      updateGridStep(step.id, 'values', option);
+                                    } else {
+                                      updateGridStep(step.id, 'assertion_type', option);
+                                    }
+                                    setOpenPressKeyPicker(null);
+                                  }}
+                                  className={`block w-full rounded px-2 py-1.5 text-left text-xs ${
+                                    (isPressKeyAction(step.action_type)
+                                      ? (step.values || 'ENTER')
+                                      : getAssertionLabel(step.assertion_type)) === option
+                                      ? 'bg-purple-100 text-purple-700'
+                                      : 'text-gray-700 hover:bg-purple-50'
+                                  }`}
+                                >
+                                  {option}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="py-2 px-2">
                         <Input
@@ -707,7 +868,8 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                           value={step.values}
                           onChange={(e) => updateGridStep(step.id, 'values', e.target.value)}
                           className="h-8 text-xs"
-                          placeholder="Values"
+                          placeholder={isPressKeyAction(step.action_type) ? "Selected from key dropdown" : "Values"}
+                          disabled={isPressKeyAction(step.action_type)}
                         />
                       </td>
                       <td className="py-2 px-2">

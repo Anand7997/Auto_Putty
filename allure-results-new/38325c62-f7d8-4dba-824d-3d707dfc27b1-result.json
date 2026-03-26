@@ -1,0 +1,283 @@
+{
+  "uuid": "38325c62-f7d8-4dba-824d-3d707dfc27b1",
+  "historyId": "38325c62-f7d8-4dba-824d-3d707dfc27b1",
+  "name": "[Ixigo_Flights_Testing_TC002] Testing",
+  "fullName": "Ixigo .Flights.Regression.Testing",
+  "status": "failed",
+  "stage": "finished",
+  "start": 1774536213768,
+  "stop": 1774536262055,
+  "description": "Execution Time: 0:00:48 | Test Run ID: Testing_Testing_TR001 | Result ID: TC002_TR001",
+  "labels": [
+    {
+      "name": "epic",
+      "value": "Ixigo "
+    },
+    {
+      "name": "feature",
+      "value": "Flights Module"
+    },
+    {
+      "name": "story",
+      "value": "Testing Suite"
+    },
+    {
+      "name": "suite",
+      "value": "Testing Tests"
+    },
+    {
+      "name": "testClass",
+      "value": "Flights_Testing"
+    },
+    {
+      "name": "testMethod",
+      "value": "Testing"
+    },
+    {
+      "name": "parentSuite",
+      "value": "[ROCKET] Ixigo "
+    },
+    {
+      "name": "subSuite",
+      "value": "[PACKAGE] Flights -> Testing"
+    },
+    {
+      "name": "severity",
+      "value": "normal"
+    },
+    {
+      "name": "owner",
+      "value": "QA Team"
+    },
+    {
+      "name": "tag",
+      "value": "module:flights"
+    },
+    {
+      "name": "tag",
+      "value": "suite:Testing"
+    },
+    {
+      "name": "testCaseId",
+      "value": "Ixigo_Flights_Testing_TC002"
+    },
+    {
+      "name": "testRunId",
+      "value": "Testing_Testing_TR001"
+    },
+    {
+      "name": "resultId",
+      "value": "TC002_TR001"
+    },
+    {
+      "name": "executionTime",
+      "value": "0:00:48"
+    }
+  ],
+  "parameters": [
+    {
+      "name": "Test Case ID",
+      "value": "Ixigo_Flights_Testing_TC002"
+    },
+    {
+      "name": "Test Run ID",
+      "value": "Testing_Testing_TR001"
+    },
+    {
+      "name": "Result ID",
+      "value": "TC002_TR001"
+    },
+    {
+      "name": "Suite Type",
+      "value": "Regression"
+    },
+    {
+      "name": "Module",
+      "value": "Flights"
+    },
+    {
+      "name": "Project",
+      "value": "Ixigo "
+    },
+    {
+      "name": "Execution Time",
+      "value": "0:00:48"
+    },
+    {
+      "name": "Total Steps",
+      "value": "3"
+    },
+    {
+      "name": "[OK] Passed Steps",
+      "value": "0"
+    },
+    {
+      "name": "[X] Failed Steps",
+      "value": "3"
+    }
+  ],
+  "steps": [
+    {
+      "name": "[X] Step 1: Step 1:",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1774536213768,
+      "stop": 1774536214768,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 1 (Element Highlighted)",
+          "source": "38325c62-f7d8-4dba-824d-3d707dfc27b1-20260326_201352_768_After_Step_1_FAILED.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "To"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//label[contains(text(),'To')]/following::input[1]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "mumbai"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:14"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed_highlighted"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: Element \"To\" not found with locator: \"//label[contains(text(),'To')]/following::input[1]\". Check if selector exists on current page.",
+        "trace": "Element \"To\" not found with locator: \"//label[contains(text(),'To')]/following::input[1]\". Check if selector exists on current page."
+      }
+    },
+    {
+      "name": "[X] Step 2: Step 2:",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1774536214768,
+      "stop": 1774536215768,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 2 (Element Highlighted)",
+          "source": "38325c62-f7d8-4dba-824d-3d707dfc27b1-20260326_201407_104_After_Step_2_FAILED.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "Return"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//*[contains(text(), 'Return')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "23/09/26"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:13"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed_highlighted"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: Element \"Return\" not found with locator: \"//*[contains(text(), 'Return')]\". Check if selector exists on current page.",
+        "trace": "Element \"Return\" not found with locator: \"//*[contains(text(), 'Return')]\". Check if selector exists on current page."
+      }
+    },
+    {
+      "name": "[X] Step 3: Step 3:",
+      "status": "failed",
+      "stage": "finished",
+      "start": 1774536215768,
+      "stop": 1774536216768,
+      "steps": [],
+      "attachments": [
+        {
+          "name": "[RED_CIRCLE] FAILED - After Step 3 (Element Highlighted)",
+          "source": "38325c62-f7d8-4dba-824d-3d707dfc27b1-20260326_201420_870_After_Step_3_FAILED.png",
+          "type": "image/png",
+          "size": 0
+        }
+      ],
+      "parameters": [
+        {
+          "name": "[MOVIE] Action Type",
+          "value": "CLICK"
+        },
+        {
+          "name": "[TARGET] Element",
+          "value": "ChildCount"
+        },
+        {
+          "name": "[SEARCH] XPath",
+          "value": "//p[contains(text(), 'Children')]"
+        },
+        {
+          "name": "[DISK] Test Data",
+          "value": "3"
+        },
+        {
+          "name": "[CLOCK] Step Time",
+          "value": "0:00:13"
+        },
+        {
+          "name": "[CAMERA] Screenshot Status",
+          "value": "failed_highlighted"
+        }
+      ],
+      "statusDetails": {
+        "message": "[X] FAILED: Element \"ChildCount\" not found with locator: \"//p[contains(text(), 'Children')]\". Check if selector exists on current page.",
+        "trace": "Element \"ChildCount\" not found with locator: \"//p[contains(text(), 'Children')]\". Check if selector exists on current page."
+      }
+    }
+  ],
+  "attachments": [
+    {
+      "name": "After_Step_1_FAILED",
+      "source": "38325c62-f7d8-4dba-824d-3d707dfc27b1-20260326_201352_768_After_Step_1_FAILED.png",
+      "type": "image/png",
+      "size": 11583
+    },
+    {
+      "name": "After_Step_2_FAILED",
+      "source": "38325c62-f7d8-4dba-824d-3d707dfc27b1-20260326_201407_104_After_Step_2_FAILED.png",
+      "type": "image/png",
+      "size": 11583
+    },
+    {
+      "name": "After_Step_3_FAILED",
+      "source": "38325c62-f7d8-4dba-824d-3d707dfc27b1-20260326_201420_870_After_Step_3_FAILED.png",
+      "type": "image/png",
+      "size": 11583
+    }
+  ],
+  "statusDetails": {
+    "message": "All steps failed",
+    "trace": "All steps failed"
+  }
+}

@@ -27,6 +27,7 @@ interface TestStep {
   page?: string; // New: associated page name
   element_name: string;
   action_type: string;
+  assertion_type?: string;
   xpath: string;
   values: string;
 }
@@ -76,10 +77,58 @@ const ACTION_TYPES = [
   'REFRESH_PAGE',
   'GO_BACK',
   'GO_FORWARD',
+  'READ_TEXT',
+  'READ_VALUE',
+  'READ_TOOLTIP',
+  'READ_LABEL',
+  'COPY',
+  'PASTE',
+  'UPLOAD_FILE',
+  'DOWNLOAD_FILE',
+  'VISUAL_ASSERTION',
   'TYPE',
   'SELECT',
   'WAIT',
-  'PRESS_KEY'
+  'PRESS_KEY',
+  'ASSERTION'
+];
+
+const PRESS_KEY_OPTIONS = [
+  'ENTER',
+  'TAB',
+  'SHIFT+TAB',
+  'ESCAPE',
+  'BACKSPACE',
+  'DELETE',
+  'ARROW_UP',
+  'ARROW_DOWN',
+  'ARROW_LEFT',
+  'ARROW_RIGHT',
+  'CTRL+A',
+  'CTRL+C',
+  'CTRL+V',
+  'CTRL+X',
+  'CTRL+Z',
+  'CTRL+Y',
+];
+
+const ASSERTION_OPTIONS = [
+  'ELEMENT_EXISTS',
+  'ELEMENT_VISIBLE',
+  'ELEMENT_ENABLED',
+  'ELEMENT_DISABLED',
+  'ELEMENT_CLICKABLE',
+  'VERIFY_TEXT',
+  'VERIFY_INPUT_VALUE',
+  'VERIFY_ATTRIBUTE',
+  'VERIFY_PLACEHOLDER',
+  'VERIFY_PAGE_TITLE',
+  'VERIFY_URL_CONTAINS',
+  'VERIFY_URL_EQUALS',
+  'VERIFY_PAGE_LOADED',
+  'WAIT_FOR_VISIBLE',
+  'WAIT_FOR_CLICKABLE',
+  'WAIT_FOR_LOADER_DISAPPEARS',
 ];
 
 const LEGACY_TO_CURRENT_ACTION: Record<string, string> = {
@@ -112,6 +161,10 @@ const normalizeActionType = (actionType?: string): string => {
   return 'CLICK';
 };
 
+const isPressKeyAction = (actionType?: string): boolean => normalizeActionType(actionType) === 'PRESS_KEY';
+const isAssertionAction = (actionType?: string): boolean => normalizeActionType(actionType) === 'ASSERTION';
+const getAssertionLabel = (assertionType?: string): string => assertionType || 'ELEMENT_VISIBLE';
+
 const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({ 
   selectedProject,
   selectedModule,
@@ -127,9 +180,11 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
     page: '',
     element_name: '',
     action_type: 'CLICK',
+    assertion_type: '',
     xpath: '',
     values: ''
   });
+  const [openPressKeyPicker, setOpenPressKeyPicker] = useState<string | number | null>(null);
   const [isExcelSidebarOpen, setIsExcelSidebarOpen] = useState(false);
   const [mappedExcelSheet, setMappedExcelSheet] = useState<string>('');
   const [mappedExcelFileId, setMappedExcelFileId] = useState<number | null>(null);
@@ -218,6 +273,16 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
       if (step.id === stepId) {
         const updatedValue = field === 'action_type' ? normalizeActionType(String(value)) : value;
         const updated = { ...step, [field]: updatedValue };
+        if (field === 'action_type') {
+          const normalizedAction = normalizeActionType(String(value));
+          if (normalizedAction === 'PRESS_KEY' && !updated.values) {
+            updated.values = 'ENTER';
+          }
+          if (normalizedAction === 'ASSERTION' && !updated.assertion_type) {
+            updated.assertion_type = 'ELEMENT_VISIBLE';
+          }
+          setOpenPressKeyPicker((normalizedAction === 'PRESS_KEY' || normalizedAction === 'ASSERTION') ? stepId : null);
+        }
         
         // If page is changed, clear element_name and xpath to avoid confusion
         if (field === 'page') {
@@ -302,6 +367,7 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
       page: '',
       element_name: '',
       action_type: 'CLICK',
+      assertion_type: '',
       xpath: '',
       values: ''
     };
@@ -345,9 +411,11 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
       page: '',
       element_name: '',
       action_type: 'CLICK',
+      assertion_type: '',
       xpath: '',
       values: ''
     });
+    setOpenPressKeyPicker(null);
   };
 
   const handleSaveNewStep = () => {
@@ -378,6 +446,7 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
       xpath: '',
       values: ''
     });
+    setOpenPressKeyPicker(null);
     
     toast({
       title: "Step Added",
@@ -402,6 +471,16 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
     setNewStepData(prev => {
       const normalizedValue = field === 'action_type' ? normalizeActionType(value) : value;
       const updated = { ...prev, [field]: normalizedValue };
+      if (field === 'action_type') {
+        const normalizedAction = normalizeActionType(value);
+        if (normalizedAction === 'PRESS_KEY' && !updated.values) {
+          updated.values = 'ENTER';
+        }
+        if (normalizedAction === 'ASSERTION' && !updated.assertion_type) {
+          updated.assertion_type = 'ELEMENT_VISIBLE';
+        }
+        setOpenPressKeyPicker((normalizedAction === 'PRESS_KEY' || normalizedAction === 'ASSERTION') ? 'new' : null);
+      }
       
       // If page is changed, clear element_name and xpath to avoid confusion
       if (field === 'page') {
@@ -897,15 +976,55 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
 
                     {/* Action Type */}
                     <td className="border border-gray-200 px-4 py-3">
-                      <select
-                        value={normalizeActionType(newStepData.action_type)}
-                        onChange={(e) => updateNewStepData('action_type', e.target.value)}
-                        className="w-full px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                      >
-                        {ACTION_TYPES.map(action => (
-                          <option key={action} value={action}>{action}</option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <select
+                          value={normalizeActionType(newStepData.action_type)}
+                          onChange={(e) => updateNewStepData('action_type', e.target.value)}
+                          onClick={() => (isPressKeyAction(newStepData.action_type) || isAssertionAction(newStepData.action_type)) && setOpenPressKeyPicker('new')}
+                          className="w-full px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                        >
+                          {ACTION_TYPES.map(action => (
+                            <option key={action} value={action}>{action}</option>
+                          ))}
+                        </select>
+                        {isPressKeyAction(newStepData.action_type) && (
+                          <div className="mt-1 text-xs font-medium text-blue-700">
+                            Key: {newStepData.values || 'ENTER'}
+                          </div>
+                        )}
+                        {isAssertionAction(newStepData.action_type) && (
+                          <div className="mt-1 text-xs font-medium text-amber-700">
+                            Assertion: {getAssertionLabel(newStepData.assertion_type)}
+                          </div>
+                        )}
+                        {(isPressKeyAction(newStepData.action_type) || isAssertionAction(newStepData.action_type)) && openPressKeyPicker === 'new' && (
+                          <div className="absolute bottom-0 left-full z-20 ml-2 w-48 rounded-md border border-blue-300 bg-white p-1 shadow-lg">
+                            {(isPressKeyAction(newStepData.action_type) ? PRESS_KEY_OPTIONS : ASSERTION_OPTIONS).map((option) => (
+                              <button
+                                key={option}
+                                type="button"
+                                onClick={() => {
+                                  if (isPressKeyAction(newStepData.action_type)) {
+                                    updateNewStepData('values', option);
+                                  } else {
+                                    updateNewStepData('assertion_type', option);
+                                  }
+                                  setOpenPressKeyPicker(null);
+                                }}
+                                className={`block w-full rounded px-3 py-2 text-left text-sm ${
+                                  (isPressKeyAction(newStepData.action_type)
+                                    ? (newStepData.values || 'ENTER')
+                                    : getAssertionLabel(newStepData.assertion_type)) === option
+                                    ? 'bg-blue-100 text-blue-700'
+                                    : 'text-gray-700 hover:bg-blue-50'
+                                }`}
+                              >
+                                {option}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </td>
 
                     {/* Values */}
@@ -913,8 +1032,9 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
                       <Input
                         value={newStepData.values}
                         onChange={(e) => updateNewStepData('values', e.target.value)}
-                        placeholder="Input values"
+                        placeholder={isPressKeyAction(newStepData.action_type) ? "Selected from key dropdown" : isAssertionAction(newStepData.action_type) ? "Expected text / URL / title / attribute=value" : "Input values"}
                         className="w-full border-blue-300 focus:border-blue-500"
+                        disabled={isPressKeyAction(newStepData.action_type)}
                       />
                     </td>
 
@@ -1051,16 +1171,59 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
 
                     {/* Action Type */}
                     <td className="border border-gray-200 px-4 py-3">
-                      <select
-                        value={normalizeActionType(step.action_type)}
-                        onChange={(e) => !readOnlyMode && updateStep(step.id, 'action_type', e.target.value)}
-                        className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm ${readOnlyMode ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-                        disabled={readOnlyMode}
-                      >
-                        {ACTION_TYPES.map(action => (
-                          <option key={action} value={action}>{action}</option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <select
+                          value={normalizeActionType(step.action_type)}
+                          onChange={(e) => !readOnlyMode && updateStep(step.id, 'action_type', e.target.value)}
+                          onClick={() => !readOnlyMode && (isPressKeyAction(step.action_type) || isAssertionAction(step.action_type)) && setOpenPressKeyPicker(step.id)}
+                          className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm ${readOnlyMode ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                          disabled={readOnlyMode}
+                        >
+                          {ACTION_TYPES.map(action => (
+                            <option key={action} value={action}>{action}</option>
+                          ))}
+                        </select>
+                        {isPressKeyAction(step.action_type) && (
+                          <div className="mt-1 text-xs font-medium text-purple-700">
+                            Key: {step.values || 'ENTER'}
+                          </div>
+                        )}
+                        {isAssertionAction(step.action_type) && (
+                          <div className="mt-1 text-xs font-medium text-amber-700">
+                            Assertion: {getAssertionLabel(step.assertion_type)}
+                          </div>
+                        )}
+                        {(isPressKeyAction(step.action_type) || isAssertionAction(step.action_type)) && openPressKeyPicker === step.id && (
+                          <div className={`absolute bottom-0 left-full z-20 ml-2 w-48 rounded-md border border-gray-300 bg-white p-1 shadow-lg ${readOnlyMode ? 'pointer-events-none bg-gray-100' : ''}`}>
+                            {(isPressKeyAction(step.action_type) ? PRESS_KEY_OPTIONS : ASSERTION_OPTIONS).map((option) => (
+                              <button
+                                key={option}
+                                type="button"
+                                onClick={() => {
+                                  if (!readOnlyMode) {
+                                    if (isPressKeyAction(step.action_type)) {
+                                      updateStep(step.id, 'values', option);
+                                    } else {
+                                      updateStep(step.id, 'assertion_type', option);
+                                    }
+                                    setOpenPressKeyPicker(null);
+                                  }
+                                }}
+                                className={`block w-full rounded px-3 py-2 text-left text-sm ${
+                                  (isPressKeyAction(step.action_type)
+                                    ? (step.values || 'ENTER')
+                                    : getAssertionLabel(step.assertion_type)) === option
+                                    ? 'bg-purple-100 text-purple-700'
+                                    : 'text-gray-700 hover:bg-purple-50'
+                                }`}
+                                disabled={readOnlyMode}
+                              >
+                                {option}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </td>
 
                     {/* Values */}
@@ -1068,9 +1231,9 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
                       <Input
                         value={step.values || ''}
                         onChange={(e) => !readOnlyMode && updateStep(step.id, 'values', e.target.value)}
-                        placeholder="Input values"
+                        placeholder={isPressKeyAction(step.action_type) ? "Selected from key dropdown" : isAssertionAction(step.action_type) ? "Expected text / URL / title / attribute=value" : "Input values"}
                         className={`w-full ${readOnlyMode ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-                        disabled={readOnlyMode}
+                        disabled={readOnlyMode || isPressKeyAction(step.action_type)}
                       />
                     </td>
 

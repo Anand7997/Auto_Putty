@@ -481,6 +481,84 @@ Cypress.Commands.add('selectAutocompleteOption', { prevSubject: 'optional' }, (s
   })
 })
 
+Cypress.Commands.add('resolveChoiceControl', { prevSubject: true }, (subject, optionText, controlKind = 'checkbox') => {
+  const $subject = Cypress.$(subject).first()
+  if (!$subject.length) {
+    throw new Error('resolveChoiceControl requires a subject')
+  }
+
+  const normalizedTarget = (optionText || '').replace(/\s+/g, ' ').trim().toLowerCase()
+  const normalizedKind = (controlKind || 'checkbox').toString().trim().toLowerCase()
+  const selectors = normalizedKind === 'radio'
+    ? 'input[type="radio"], [role="radio"]'
+    : 'input[type="checkbox"], [role="checkbox"]'
+
+  const collectTexts = (el) => {
+    const $el = Cypress.$(el)
+    const texts = [
+      el.value,
+      $el.attr('value'),
+      $el.attr('aria-label'),
+      $el.attr('aria-labelledby'),
+      $el.attr('data-testid'),
+      $el.attr('id'),
+      $el.attr('name'),
+      $el.text(),
+      $el.parent().text(),
+      $el.next().text(),
+      $el.prev().text(),
+      $el.closest('label').text(),
+    ]
+
+    if (el.labels && el.labels.length) {
+      Array.from(el.labels).forEach((label) => texts.push(label.textContent))
+    }
+
+    return texts
+      .map((value) => (value || '').replace(/\s+/g, ' ').trim().toLowerCase())
+      .filter(Boolean)
+  }
+
+  const scoreCandidate = (el) => {
+    const texts = collectTexts(el)
+    if (!normalizedTarget) {
+      return Cypress.$(el).is(selectors) ? 1 : 0
+    }
+
+    let bestScore = 0
+    texts.forEach((text) => {
+      if (text === normalizedTarget) bestScore = Math.max(bestScore, 100)
+      else if (text.includes(normalizedTarget)) bestScore = Math.max(bestScore, 60)
+      else if (normalizedTarget.includes(text)) bestScore = Math.max(bestScore, 40)
+    })
+    return bestScore
+  }
+
+  const candidates = []
+  const addCandidates = ($root) => {
+    if (!$root || !$root.length) return
+    if ($root.is(selectors)) candidates.push($root[0])
+    $root.find(selectors).each((_, el) => candidates.push(el))
+  }
+
+  addCandidates($subject)
+  addCandidates($subject.closest('label'))
+  addCandidates($subject.closest('[role="group"], fieldset, form, section, article, div'))
+  addCandidates($subject.parent())
+  addCandidates($subject.siblings())
+
+  const unique = [...new Set(candidates)]
+    .map((el) => ({ element: el, score: scoreCandidate(el) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+
+  if (!unique.length) {
+    throw new Error(`Unable to resolve ${normalizedKind} option "${optionText}"`)
+  }
+
+  return cy.wrap(Cypress.$(unique[0].element), { log: false })
+})
+
 Cypress.Commands.add('visitStealth', (url, options = {}) => {
   Cypress.env('qfastFrameRef', null)
   const visitOptions = {
@@ -630,6 +708,7 @@ describe('{testcase_name}', () => {{
                 xpath = step.get('xpath', '')
                 element_name = step.get('element_name', '')
                 test_data = step.get('values', '')
+                assertion_type = step.get('assertion_type', '')
 
                 print(f"[CYPRESS_GEN] Step {i}: action={action_type}, element={element_name}, data={test_data[:50] if test_data else ''}")
 
@@ -640,7 +719,7 @@ describe('{testcase_name}', () => {{
 
                 # Generate Cypress command based on action type
                 timeout_seconds = self._resolve_step_timeout_seconds(step)
-                cypress_command = self.generate_cypress_command(action_type, xpath, element_name, test_data, i, timeout_seconds)
+                cypress_command = self.generate_cypress_command(action_type, xpath, element_name, test_data, i, timeout_seconds, assertion_type)
                 print(f"[CYPRESS_GEN] Generated command: {cypress_command[:100]}")
                 test_content += f"    {cypress_command}\n"
 
@@ -730,6 +809,69 @@ describe('{testcase_name}', () => {{
         }
         return alias_map.get(normalized, normalized)
 
+    def normalize_assertion_type(self, assertion_type):
+        normalized = re.sub(r"[\s\-/]+", "_", str(assertion_type or "").upper().strip())
+        alias_map = {
+            "": "ELEMENT_VISIBLE",
+            "VERIFY_ELEMENT_EXISTS": "ELEMENT_EXISTS",
+            "VERIFY_ELEMENT_VISIBLE": "ELEMENT_VISIBLE",
+            "VERIFY_ELEMENT_ENABLED": "ELEMENT_ENABLED",
+            "VERIFY_ELEMENT_DISABLED": "ELEMENT_DISABLED",
+            "VERIFY_ELEMENT_CLICKABLE": "ELEMENT_CLICKABLE",
+            "VERIFY_INPUT": "VERIFY_INPUT_VALUE",
+            "VERIFY_VALUE": "VERIFY_INPUT_VALUE",
+            "VERIFY_URL": "VERIFY_URL_CONTAINS",
+            "VERIFY_PAGE_LOAD_COMPLETION": "VERIFY_PAGE_LOADED",
+            "WAIT_FOR_ELEMENT_VISIBLE": "WAIT_FOR_VISIBLE",
+        }
+        return alias_map.get(normalized, normalized or "ELEMENT_VISIBLE")
+
+    def _translate_press_key_for_cypress(self, key_value):
+        raw = str(key_value or "").strip()
+        if not raw:
+            return "{enter}"
+
+        tokens = [token.strip() for token in re.split(r"\s*\+\s*", raw) if token.strip()]
+        alias_map = {
+            "CTRL": "{ctrl}",
+            "CONTROL": "{ctrl}",
+            "CMD": "{meta}",
+            "COMMAND": "{meta}",
+            "WIN": "{meta}",
+            "WINDOWS": "{meta}",
+            "ALT": "{alt}",
+            "OPTION": "{alt}",
+            "SHIFT": "{shift}",
+            "ENTER": "{enter}",
+            "RETURN": "{enter}",
+            "TAB": "{tab}",
+            "ESC": "{esc}",
+            "ESCAPE": "{esc}",
+            "SPACE": " ",
+            "BACKSPACE": "{backspace}",
+            "DELETE": "{del}",
+            "DEL": "{del}",
+            "ARROW_UP": "{uparrow}",
+            "UP": "{uparrow}",
+            "ARROW_DOWN": "{downarrow}",
+            "DOWN": "{downarrow}",
+            "ARROW_LEFT": "{leftarrow}",
+            "LEFT": "{leftarrow}",
+            "ARROW_RIGHT": "{rightarrow}",
+            "RIGHT": "{rightarrow}",
+        }
+
+        translated = []
+        for token in tokens:
+            normalized = token.upper().replace(" ", "_").replace("-", "_")
+            if normalized in alias_map:
+                translated.append(alias_map[normalized])
+            elif len(token) == 1:
+                translated.append(token.lower())
+            else:
+                raise ValueError(f"Unsupported Cypress key token: {token}")
+        return "".join(translated) if translated else "{enter}"
+
     def _resolve_step_timeout_seconds(self, step):
         """Resolve per-step timeout with a safe default."""
         try:
@@ -792,7 +934,7 @@ describe('{testcase_name}', () => {{
         selector = self.escape_string_for_js(self.clean_xpath(raw))
         return f"cy.xpathOrCSS('{selector}', true)"
 
-    def generate_cypress_command(self, action_type, xpath, element_name, test_data, step_number, timeout_seconds=None):
+    def generate_cypress_command(self, action_type, xpath, element_name, test_data, step_number, timeout_seconds=None, assertion_type=None):
         """Generate Cypress command for a specific action"""
         try:
             action_type = self.normalize_action_type(action_type)
@@ -865,10 +1007,20 @@ describe('{testcase_name}', () => {{
                 return f"{selector_cmd}.scrollIntoView().trigger('mouseover', {{ force: true, timeout: {timeout_ms} }})"
 
             elif action_type == "RADIO_BUTTON":
-                should_check = str(test_data or '').strip().lower() in ["", "true", "1", "yes", "on", "select", "selected"]
+                radio_value = str(test_data or '').strip()
+                normalized_radio_value = radio_value.lower()
+                radio_boolean_values = ["", "true", "1", "yes", "on", "select", "selected", "false", "0", "no", "off", "uncheck", "unchecked", "deselect", "unselected"]
+                if normalized_radio_value not in radio_boolean_values and radio_value:
+                    radio_value_escaped = self.escape_string_for_js(radio_value)
+                    return (
+                        f"{selector_cmd}.scrollIntoView()"
+                        f".resolveChoiceControl('{radio_value_escaped}', 'radio')"
+                        f".scrollIntoView().click({{ force: true, timeout: {timeout_ms} }})"
+                    )
+                should_check = normalized_radio_value in ["", "true", "1", "yes", "on", "select", "selected"]
                 if should_check:
                     return f"{selector_cmd}.scrollIntoView().check({{ force: true, timeout: {timeout_ms} }})"
-                return f"{selector_cmd}.scrollIntoView().uncheck({{ force: true, timeout: {timeout_ms} }})"
+                return "// RADIO_BUTTON unselect skipped: radios cannot be safely unchecked directly"
 
             elif action_type == "DRAG_AND_DROP":
                 target_locator = self._parse_drag_drop_target_locator(test_data)
@@ -881,7 +1033,21 @@ describe('{testcase_name}', () => {{
                 )
 
             elif action_type == "HANDLE_CHECKBOX":
-                should_check = test_data_text.upper() in ["TRUE", "1", "YES"]
+                checkbox_value = str(test_data or '').strip()
+                normalized_checkbox_value = checkbox_value.lower()
+                checkbox_boolean_values = ["", "true", "1", "yes", "on", "check", "checked", "select", "selected", "false", "0", "no", "off", "uncheck", "unchecked", "deselect", "unselected"]
+                if normalized_checkbox_value not in checkbox_boolean_values and checkbox_value:
+                    choice_values = [self.escape_string_for_js(part.strip()) for part in re.split(r"[,;\n]+", checkbox_value) if part.strip()]
+                    choice_commands = [
+                        (
+                            f"{selector_cmd}.scrollIntoView()"
+                            f".resolveChoiceControl('{choice}', 'checkbox')"
+                            f".then(($choice) => {{ if (!$choice.prop('checked')) {{ cy.wrap($choice).scrollIntoView().click({{ force: true, timeout: {timeout_ms} }}); }} }})"
+                        )
+                        for choice in choice_values
+                    ]
+                    return "\n".join(choice_commands)
+                should_check = normalized_checkbox_value in ["true", "1", "yes", "on", "check", "checked", "select", "selected"]
                 if should_check:
                     return (
                         f"{selector_cmd}.scrollIntoView()"
@@ -921,6 +1087,103 @@ describe('{testcase_name}', () => {{
 
             elif action_type == "GO_FORWARD":
                 return "cy.go('forward')"
+
+            elif action_type == "PRESS_KEY":
+                key_sequence = self.escape_string_for_js(self._translate_press_key_for_cypress(test_data))
+                return (
+                    "cy.focused().then(($focused) => { "
+                    "if ($focused && $focused.length) { "
+                    f"cy.wrap($focused).type('{key_sequence}', {{ force: true, parseSpecialCharSequences: true, timeout: {timeout_ms} }}); "
+                    "} else { "
+                    f"cy.get('body').type('{key_sequence}', {{ force: true, parseSpecialCharSequences: true, timeout: {timeout_ms} }}); "
+                    "} "
+                    "})"
+                )
+
+            elif action_type == "READ_TEXT":
+                assertion_js = f"expect(actual).to.contain('{test_data_escaped}')" if test_data_text else "cy.log(`READ_TEXT: ${actual}`)"
+                return f"{selector_cmd}.invoke('text').then((text) => {{ const actual = String(text || '').replace(/\\\\s+/g, ' ').trim(); {assertion_js}; }})"
+
+            elif action_type == "READ_VALUE":
+                assertion_js = f"expect(actual).to.contain('{test_data_escaped}')" if test_data_text else "cy.log(`READ_VALUE: ${actual}`)"
+                return f"{selector_cmd}.invoke('val').then((value) => {{ const actual = String(value || '').trim(); {assertion_js}; }})"
+
+            elif action_type == "READ_TOOLTIP":
+                assertion_js = f"expect(actual).to.contain('{test_data_escaped}')" if test_data_text else "cy.log(`READ_TOOLTIP: ${actual}`)"
+                return f"{selector_cmd}.then(($el) => {{ const actual = String($el.attr('title') || $el.attr('aria-label') || $el.attr('placeholder') || '').trim(); {assertion_js}; }})"
+
+            elif action_type == "READ_LABEL":
+                assertion_js = f"expect(actual).to.contain('{test_data_escaped}')" if test_data_text else "cy.log(`READ_LABEL: ${actual}`)"
+                return f"{selector_cmd}.then(($el) => {{ const id = $el.attr('id'); const explicit = id ? Cypress.$(`label[for=\"${{id}}\"]`).text() : ''; const closest = $el.closest('label').text(); const actual = String(explicit || closest || '').replace(/\\\\s+/g, ' ').trim(); {assertion_js}; }})"
+
+            elif action_type == "COPY":
+                return (
+                    f"{selector_cmd}.scrollIntoView().click({{ force: true, timeout: {timeout_ms} }}); "
+                    "cy.focused().type('{ctrl}a{ctrl}c', { force: true, parseSpecialCharSequences: true })"
+                )
+
+            elif action_type == "PASTE":
+                if test_data_text:
+                    return f"{selector_cmd}.scrollIntoView().clear({{ force: true }}).type('{test_data_escaped}', {{ force: true, timeout: {timeout_ms} }})"
+                return (
+                    f"{selector_cmd}.scrollIntoView().click({{ force: true, timeout: {timeout_ms} }}); "
+                    "cy.focused().type('{ctrl}v', { force: true, parseSpecialCharSequences: true })"
+                )
+
+            elif action_type == "UPLOAD_FILE":
+                return f"{selector_cmd}.selectFile('{test_data_escaped}', {{ force: true, timeout: {timeout_ms} }})"
+
+            elif action_type == "DOWNLOAD_FILE":
+                return f"{selector_cmd}.scrollIntoView().click({{ force: true, timeout: {timeout_ms} }})"
+
+            elif action_type == "VISUAL_ASSERTION":
+                baseline_name = self.escape_string_for_js(str(test_data or element_name or 'visual_assertion').strip())
+                return f"cy.screenshot('visual-{baseline_name}')"
+
+            elif action_type == "ASSERTION":
+                normalized_assertion = self.normalize_assertion_type(assertion_type)
+                expected_escaped = self.escape_string_for_js(test_data)
+                if normalized_assertion == "VERIFY_PAGE_TITLE":
+                    return f"cy.title().should('eq', '{expected_escaped}')"
+                if normalized_assertion == "VERIFY_URL_CONTAINS":
+                    return f"cy.url().should('include', '{expected_escaped}')"
+                if normalized_assertion == "VERIFY_URL_EQUALS":
+                    return f"cy.url().should('eq', '{expected_escaped}')"
+                if normalized_assertion == "VERIFY_PAGE_LOADED":
+                    return "cy.document().its('readyState').should('eq', 'complete')"
+                if normalized_assertion == "ELEMENT_EXISTS":
+                    return f"{selector_cmd}.should('exist')"
+                if normalized_assertion == "ELEMENT_VISIBLE":
+                    return f"{selector_cmd}.should('be.visible')"
+                if normalized_assertion == "ELEMENT_ENABLED":
+                    return f"{selector_cmd}.should('be.enabled')"
+                if normalized_assertion == "ELEMENT_DISABLED":
+                    return f"{selector_cmd}.should('be.disabled')"
+                if normalized_assertion == "ELEMENT_CLICKABLE":
+                    return f"{selector_cmd}.should('be.visible').and('be.enabled')"
+                if normalized_assertion == "VERIFY_TEXT":
+                    return f"{selector_cmd}.should('have.text', '{expected_escaped}')"
+                if normalized_assertion == "VERIFY_INPUT_VALUE":
+                    return f"{selector_cmd}.should('have.value', '{expected_escaped}')"
+                if normalized_assertion == "VERIFY_PLACEHOLDER":
+                    return f"{selector_cmd}.should('have.attr', 'placeholder', '{expected_escaped}')"
+                if normalized_assertion == "VERIFY_ATTRIBUTE":
+                    attribute_name = ""
+                    attribute_value = ""
+                    for separator in ['=', ':']:
+                        if separator in str(test_data or ''):
+                            attribute_name, attribute_value = [part.strip() for part in str(test_data).split(separator, 1)]
+                            break
+                    if not attribute_name:
+                        return "// ASSERTION VERIFY_ATTRIBUTE requires Values as attribute=value"
+                    return f"{selector_cmd}.should('have.attr', '{self.escape_string_for_js(attribute_name)}', '{self.escape_string_for_js(attribute_value)}')"
+                if normalized_assertion == "WAIT_FOR_VISIBLE":
+                    return f"{selector_cmd}.should('be.visible')"
+                if normalized_assertion == "WAIT_FOR_CLICKABLE":
+                    return f"{selector_cmd}.should('be.visible').and('be.enabled')"
+                if normalized_assertion == "WAIT_FOR_LOADER_DISAPPEARS":
+                    return f"{selector_cmd}.should('not.exist')"
+                return f"// Unsupported assertion type: {normalized_assertion}"
 
             else:
                 return f"// Unknown action type: {action_type}"
@@ -983,17 +1246,11 @@ describe('{testcase_name}', () => {{
         cy.wrap($target)
           .scrollIntoView()
           .click({{ force: true, timeout: {timeout_ms} }})
-          .resolveAnchoredInput()
-          .then(($input) => {{
-            cy.wrap($input).scrollIntoView().clear({{ force: true }}).type(_value, {{ force: true, delay: 35, timeout: {timeout_ms} }})
-            cy.wrap($input).selectAutocompleteOption(_value).then(($suggestion) => {{
-              if ($suggestion && $suggestion.length) {{
-                cy.wrap($suggestion).scrollIntoView().click({{ force: true }})
-              }} else {{
-                cy.wrap($input).type('{{downarrow}}{{enter}}', {{ force: true }})
-              }}
-            }})
-          }})
+        cy.wrap($target).selectAutocompleteOption(_value).then(($suggestion) => {{
+          if ($suggestion && $suggestion.length) {{
+            cy.wrap($suggestion).scrollIntoView().click({{ force: true }})
+          }}
+        }})
         return
       }}
 
