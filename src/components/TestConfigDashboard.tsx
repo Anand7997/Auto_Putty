@@ -405,6 +405,7 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
       test_step_description: '',
       element_name: '',
       action_type: 'CLICK',
+      assertion_type: '',
       xpath: '',
       values: ''
     };
@@ -432,6 +433,7 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
       test_step_description: '',
       element_name: '',
       action_type: 'CLICK',
+      assertion_type: '',
       xpath: '',
       values: ''
     });
