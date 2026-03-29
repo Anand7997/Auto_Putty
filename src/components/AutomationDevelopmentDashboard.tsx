@@ -473,7 +473,7 @@ const CreatePageSectionBlock: React.FC<{
 
 
   return (
-    <div className="space-y-4">
+    <div className="automation-development-theme space-y-4">
       {/* Common Back Button */}
       {onBack && (
         <div className="mb-4">
@@ -487,7 +487,7 @@ const CreatePageSectionBlock: React.FC<{
       {step === 1 && (
         <>
           {/* Create Page Block */}
-          <div className="rounded-lg border bg-card text-card-foreground shadow-sm transition-all duration-300 bg-gradient-to-br from-green-50 to-emerald-100 border-green-200">
+          <div className="rounded-lg border bg-card text-card-foreground shadow-sm transition-all duration-300 bg-gradient-to-br from-green-50 to-emerald-100 border-green-200 dark:from-slate-900 dark:to-slate-800 dark:border-emerald-900/60">
             <div className="flex flex-col space-y-1.5 p-6 pb-3">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center">
@@ -518,7 +518,7 @@ const CreatePageSectionBlock: React.FC<{
           </div>
 
           {/* Existing Pages Block */}
-          <div className="rounded-lg border bg-card text-card-foreground shadow-sm transition-all duration-300 bg-gradient-to-br from-blue-50 to-indigo-100 border-blue-200">
+          <div className="rounded-lg border bg-card text-card-foreground shadow-sm transition-all duration-300 bg-gradient-to-br from-blue-50 to-indigo-100 border-blue-200 dark:from-slate-900 dark:to-slate-800 dark:border-blue-900/60">
             <div className="flex flex-col space-y-1.5 p-6 pb-3">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
@@ -537,7 +537,7 @@ const CreatePageSectionBlock: React.FC<{
                 {!loadingPages && pages.map((p) => (
                   <div
                     key={p.id}
-                    className="rounded-lg border bg-card text-card-foreground shadow-sm cursor-pointer hover:shadow-lg transition-all duration-300 bg-gradient-to-br from-blue-50 to-indigo-100 border-blue-200 hover:border-blue-300"
+                    className="rounded-lg border bg-card text-card-foreground shadow-sm cursor-pointer hover:shadow-lg transition-all duration-300 bg-gradient-to-br from-blue-50 to-indigo-100 border-blue-200 hover:border-blue-300 dark:from-slate-900 dark:to-slate-800 dark:border-blue-900/60 dark:hover:border-blue-700/70"
                     onClick={() => openObjectsFor(p.page_name)}
                   >
                     <div className="flex flex-col space-y-1.5 p-4 pb-2">
@@ -584,7 +584,7 @@ const CreatePageSectionBlock: React.FC<{
       {step === 2 && (
         <div className="space-y-4">
           {/* Extension Controller Card */}
-          <div className="rounded-lg border bg-card text-card-foreground shadow-sm transition-all duration-300 bg-gradient-to-br from-blue-50 to-cyan-100 border-blue-200">
+          <div className="rounded-lg border bg-card text-card-foreground shadow-sm transition-all duration-300 bg-gradient-to-br from-blue-50 to-cyan-100 border-blue-200 dark:from-slate-900 dark:to-slate-800 dark:border-cyan-900/60">
             <div className="flex flex-col space-y-1.5 p-6 pb-3">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
@@ -612,7 +612,7 @@ const CreatePageSectionBlock: React.FC<{
           </div>
 
           {/* Objects Management Card */}
-          <div className="rounded-lg border bg-card text-card-foreground shadow-sm transition-all duration-300 bg-gradient-to-br from-green-50 to-emerald-100 border-green-200">
+          <div className="rounded-lg border bg-card text-card-foreground shadow-sm transition-all duration-300 bg-gradient-to-br from-green-50 to-emerald-100 border-green-200 dark:from-slate-900 dark:to-slate-800 dark:border-emerald-900/60">
             <div className="flex flex-col space-y-1.5 p-6 pb-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
@@ -1416,7 +1416,7 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
   };
 
   const renderOverview = () => (
-    <div className="space-y-6">
+    <div className="automation-development-theme space-y-6">
       <Card className="bg-white backdrop-blur-sm border-gray-200">
         <CardHeader>
           <div className="flex items-center space-x-3">
@@ -1474,7 +1474,7 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
             <div className="grid md:grid-cols-2 gap-6">
               {/* Projects Block */}
               <div
-                className="rounded-lg border bg-card text-card-foreground shadow-sm cursor-pointer hover:shadow-lg transition-all duration-300 bg-gradient-to-br from-blue-50 to-indigo-100 border-blue-200 hover:border-blue-300"
+                className="rounded-lg border bg-card text-card-foreground shadow-sm cursor-pointer hover:shadow-lg transition-all duration-300 bg-gradient-to-br from-blue-50 to-indigo-100 border-blue-200 hover:border-blue-300 dark:from-slate-900 dark:to-slate-800 dark:border-blue-900/60 dark:hover:border-blue-700/70"
               >
                 <div className="flex flex-col space-y-1.5 p-6 pb-3">
                   <div className="flex items-center space-x-3">
@@ -1492,7 +1492,7 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
 
               {/* Create Page Block */}
               <div
-                className="rounded-lg border bg-card text-card-foreground shadow-sm cursor-pointer hover:shadow-lg transition-all duration-300 bg-gradient-to-br from-green-50 to-emerald-100 border-green-200 hover:border-green-300"
+                className="rounded-lg border bg-card text-card-foreground shadow-sm cursor-pointer hover:shadow-lg transition-all duration-300 bg-gradient-to-br from-green-50 to-emerald-100 border-green-200 hover:border-green-300 dark:from-slate-900 dark:to-slate-800 dark:border-emerald-900/60 dark:hover:border-emerald-700/70"
               >
                 <div className="flex flex-col space-y-1.5 p-6 pb-3">
                   <div className="flex items-center space-x-3">
@@ -1822,4 +1822,3 @@ const AutomationDevelopmentDashboard: React.FC<AutomationDevelopmentDashboardPro
 };
 
 export default AutomationDevelopmentDashboard;
-

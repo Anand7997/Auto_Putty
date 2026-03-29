@@ -42,6 +42,7 @@ const Index = () => {
   const [selectedTestSuite, setSelectedTestSuite] = useState(null);
   const [selectedTestCase, setSelectedTestCase] = useState(null);
   const [selectedFunction, setSelectedFunction] = useState(null);
+  const [requirementsInitialPage, setRequirementsInitialPage] = useState<'blocks' | 'authorize-users' | 'authorize-functions' | 'brd-upload' | 'brd-upload-document' | 'test-analysis'>('blocks');
  
   const { toast } = useToast();
  
@@ -142,6 +143,7 @@ const Index = () => {
           });
           return;
         }
+        setRequirementsInitialPage('authorize-users');
         setCurrentView('requirements-analysis');
         break;
       case 'authorize-functions':
@@ -153,6 +155,31 @@ const Index = () => {
           });
           return;
         }
+        setRequirementsInitialPage('authorize-functions');
+        setCurrentView('requirements-analysis');
+        break;
+      case 'upload-document':
+        if (!requirementsAuth.authorized && !requirementsAuth.loading) {
+          toast({
+            title: "Access Denied",
+            description: "You are not authorized to access Requirements & Feasibility Analysis. Please contact your administrator.",
+            variant: "destructive"
+          });
+          return;
+        }
+        setRequirementsInitialPage('brd-upload');
+        setCurrentView('requirements-analysis');
+        break;
+      case 'test-analysis':
+        if (!requirementsAuth.authorized && !requirementsAuth.loading) {
+          toast({
+            title: "Access Denied",
+            description: "You are not authorized to access Requirements & Feasibility Analysis. Please contact your administrator.",
+            variant: "destructive"
+          });
+          return;
+        }
+        setRequirementsInitialPage('test-analysis');
         setCurrentView('requirements-analysis');
         break;
  
@@ -524,7 +551,7 @@ const Index = () => {
         return <AutomationDevelopmentDashboard onBack={handleBack} initialView={devInitialView} />;
  
       case 'requirements-analysis':
-        return <RequirementsAnalysisDashboard onBack={handleBack} onFunctionSelect={handleFunctionSelect} />;
+        return <RequirementsAnalysisDashboard initialPage={requirementsInitialPage} onBack={handleBack} onFunctionSelect={handleFunctionSelect} />;
  
       case 'user-management':
         return (
@@ -558,6 +585,7 @@ const Index = () => {
                 return;
               }
               setCurrentSection('requirements');
+              setRequirementsInitialPage('blocks');
               setCurrentView('requirements-analysis');
             } else if (sectionId === 'planning') {
               if (!planningAuth.authorized && !planningAuth.loading) {
@@ -602,25 +630,25 @@ const Index = () => {
         />
        
         <SidebarInset className="flex-1">
-          <div className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur-sm">
-            <div className="container mx-auto px-6 py-4">
+          <div className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur-sm">
+            <div className="w-full px-6 py-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                   <SidebarTrigger className="hover:bg-accent transition-colors" />
-                  <div className="flex items-center space-x-3">
+                  <div className="flex items-center space-x-4">
                     <img
                       src={LogoImage}
                       alt="Quinnox Logo"
-                      className="h-14 w-14 object-contain rounded-md border border-border bg-card p-1"
+                      className="h-16 w-16 md:h-20 md:w-20 object-contain rounded-md border border-border bg-card p-1.5"
                     />
                     <div>
-                      <h1 className="text-lg md:text-2xl font-bold text-foreground tracking-tight">
+                      <h1 className="text-xl md:text-3xl font-bold text-foreground tracking-tight">
                         QFast Automation Platform
                       </h1>
-                      <p className="text-muted-foreground text-xs md:text-sm flex items-center space-x-2">
-                        <Sparkles className="w-3.5 h-3.5 text-primary" />
+                      <p className="text-muted-foreground text-sm md:text-base flex items-center space-x-2">
+                        <Sparkles className="w-4 h-4 text-primary" />
                         <span>Quinnox Framework for AI-Driven Smart Testing</span>
-                        <Zap className="w-3.5 h-3.5 text-primary" />
+                        <Zap className="w-4 h-4 text-primary" />
                       </p>
                     </div>
                   </div>

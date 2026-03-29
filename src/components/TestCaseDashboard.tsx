@@ -925,7 +925,7 @@ const TestCaseDashboard: React.FC<TestCaseDashboardProps> = ({
     }
 
     return (
-        <div className="space-y-6">
+        <div className="testcase-dashboard-theme space-y-6">
             {/* Header Section */}
             <Card className="bg-white backdrop-blur-sm border-gray-200">
                 <CardHeader>
@@ -1423,5 +1423,4 @@ const TestCaseDashboard: React.FC<TestCaseDashboardProps> = ({
 };
 
 export default TestCaseDashboard;
-
 

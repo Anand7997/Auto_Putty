@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Sidebar,
   SidebarContent,
@@ -7,7 +7,9 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import {
+  Upload,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   FileSearch,
   Target,
@@ -18,15 +20,9 @@ import {
   Database,
   TestTube,
   FolderOpen,
-  GitBranch,
-  Layers,
-  CheckCircle,
-  PlayCircle,
   Activity,
   TrendingUp,
   FileText,
-  Wrench,
-  AlertTriangle,
   Clock,
   Users,
   Shield,
@@ -34,115 +30,110 @@ import {
   Monitor,
   Bug,
   RefreshCw,
-  Sparkles,
   List,
   History,
   BarChart,
-  Minimize2,
-  Maximize2,
   Home,
+  Search,
+  LayoutDashboard,
+  Moon,
+  Sun,
+  UserCircle2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-// Define the main automation workflow sections with professional structure
 const automationSections = [
   {
     id: 'requirements',
     title: 'Requirement and Feasibility Analysis',
     shortTitle: 'Requirements & Feasibility',
+    group: 'Dashboard Types',
     icon: FileSearch,
-    color: 'emerald',
-    gradient: 'from-emerald-500 to-teal-600',
-    description: 'Analyze requirements and assess automation feasibility',
+    railIcon: LayoutDashboard,
     isPlaceholder: false,
     quickActions: [
-      { id: 'authorize-users', title: 'Authorize Users', icon: Users, description: 'Manage user authorizations' },
-      { id: 'authorize-functions', title: 'Authorize Functions', icon: Settings, description: 'Configure function permissions' },
-    ]
- 
+      { id: 'upload-document', title: 'Upload Document', icon: Upload },
+      { id: 'test-analysis', title: 'Test Analysis', icon: TestTube },
+      { id: 'authorize-users', title: 'Authorize Users', icon: Users },
+      { id: 'authorize-functions', title: 'Authorize Functions', icon: Settings },
+    ],
   },
   {
     id: 'planning',
     title: 'Automation Planning',
     shortTitle: 'Automation Planning',
+    group: 'Dashboard Types',
     icon: Target,
-    color: 'blue',
-    gradient: 'from-blue-500 to-indigo-600',
-    description: 'Plan and structure automation projects',
+    railIcon: Database,
     isPlaceholder: false,
     quickActions: [
-      { id: 'projects', title: 'Projects', icon: Database, description: 'Manage test projects' },
-      { id: 'modules', title: 'Modules', icon: TestTube, description: 'Configure project modules' },
-      { id: 'test-cases', title: 'Test Cases', icon: FileText, description: 'Manage test cases' },
-      { id: 'test-steps', title: 'Test Steps', icon: List, description: 'Configure test steps' },
-    ]
+      { id: 'projects', title: 'Projects', icon: Database },
+      { id: 'modules', title: 'Modules', icon: TestTube },
+      { id: 'test-cases', title: 'Test Cases', icon: FileText },
+      { id: 'test-steps', title: 'Test Steps', icon: List },
+    ],
   },
   {
     id: 'development',
     title: 'Automation Development',
     shortTitle: 'Automation Development',
+    group: 'Dashboard Types',
     icon: Code,
-    color: 'purple',
-    gradient: 'from-purple-500 to-violet-600',
-    description: 'Develop and maintain automation scripts',
+    railIcon: FolderOpen,
     isPlaceholder: false,
     quickActions: [
-      { id: 'dev-projects', title: 'Projects', icon: Database, description: 'Development projects' },
-      { id: 'dev-modules', title: 'Modules', icon: TestTube, description: 'Development modules' },
-      { id: 'dev-test-cases', title: 'Test Cases', icon: FileText, description: 'Development test cases' },
-      { id: 'dev-test-steps', title: 'Test Steps', icon: List, description: 'Development test steps' },
-    ]
+      { id: 'dev-projects', title: 'Projects', icon: Database },
+      { id: 'dev-modules', title: 'Modules', icon: TestTube },
+      { id: 'dev-test-cases', title: 'Test Cases', icon: FileText },
+      { id: 'dev-test-steps', title: 'Test Steps', icon: List },
+    ],
   },
   {
     id: 'execution',
     title: 'Test Lab',
     shortTitle: 'Test Lab',
+    group: 'Report Summaries',
     icon: Play,
-    color: 'orange',
-    gradient: 'from-orange-500 to-red-500',
-    description: 'Execute tests and monitor results',
+    railIcon: Play,
     isPlaceholder: false,
     quickActions: [
-      { id: 'test-suite', title: 'Test Suite', icon: TestTube, description: 'Manage test suites' },
-      { id: 'run-execution', title: 'Execute Tests', icon: PlayCircle, description: 'Run selected tests' },
-      { id: 'live-monitor', title: 'Live Monitor', icon: Monitor, description: 'Monitor execution' },
-    ]
+      { id: 'test-suite', title: 'Test Suite', icon: TestTube },
+      { id: 'run-execution', title: 'Execute Tests', icon: Monitor },
+      { id: 'live-monitor', title: 'Live Monitor', icon: Activity },
+    ],
   },
   {
     id: 'reporting',
     title: 'Reporting',
     shortTitle: 'Reporting',
+    group: 'Report Summaries',
     icon: BarChart3,
-    color: 'cyan',
-    gradient: 'from-cyan-500 to-blue-600',
-    description: 'View reports and execution history',
+    railIcon: BarChart,
     isPlaceholder: false,
     quickActions: [
-      { id: 'execution-history', title: 'Execution History', icon: History, description: 'View test execution history' },
-      { id: 'allure-reports', title: 'Allure Reports', icon: BarChart, description: 'Interactive test reports' },
-      { id: 'analytics', title: 'Analytics', icon: TrendingUp, description: 'Test analytics and trends' },
-    ]
+      { id: 'execution-history', title: 'Execution History', icon: History },
+      { id: 'allure-reports', title: 'Allure Reports', icon: FileText },
+      { id: 'analytics', title: 'Analytics', icon: TrendingUp },
+    ],
   },
   {
     id: 'maintenance',
     title: 'Maintenance',
     shortTitle: 'Maintenance',
+    group: 'Business Intelligence',
     icon: Settings,
-    color: 'rose',
-    gradient: 'from-rose-500 to-pink-600',
-    description: 'Maintain and optimize automation assets',
+    railIcon: Settings,
     isPlaceholder: false,
     quickActions: [
-      { id: 'system-health', title: 'System Health', icon: Activity, description: 'Monitor system status' },
-      { id: 'asset-management', title: 'Asset Management', icon: FolderOpen, description: 'Manage test assets' },
-      { id: 'optimization', title: 'Optimization', icon: Zap, description: 'Optimize test performance' },
-      { id: 'scheduling', title: 'Maintenance Scheduling', icon: Clock, description: 'Schedule maintenance tasks' },
-      { id: 'security', title: 'Security & Compliance', icon: Shield, description: 'Security monitoring' },
-      { id: 'troubleshooting', title: 'Diagnostics', icon: Bug, description: 'Troubleshooting tools' },
-      { id: 'cleanup', title: 'Cleanup Tools', icon: RefreshCw, description: 'Clean up old data' },
-      { id: 'backup', title: 'Backup & Recovery', icon: Shield, description: 'Backup and restore data' }
-    ]
-  }
+      { id: 'system-health', title: 'System Health', icon: Activity },
+      { id: 'asset-management', title: 'Asset Management', icon: FolderOpen },
+      { id: 'optimization', title: 'Optimization', icon: Zap },
+      { id: 'scheduling', title: 'Maintenance Scheduling', icon: Clock },
+      { id: 'security', title: 'Security & Compliance', icon: Shield },
+      { id: 'troubleshooting', title: 'Diagnostics', icon: Bug },
+      { id: 'cleanup', title: 'Cleanup Tools', icon: RefreshCw },
+    ],
+  },
 ];
 
 interface NavigationFlow {
@@ -159,315 +150,297 @@ interface ProfessionalSidebarProps {
   onHomeClick?: () => void;
 }
 
-export function ProfessionalSidebar({ onSectionAction, onQuickAction, navigationFlow, onSectionSelect, onHomeClick }: ProfessionalSidebarProps) {
+export function ProfessionalSidebar({
+  onSectionAction,
+  onQuickAction,
+  navigationFlow,
+  onSectionSelect,
+  onHomeClick,
+}: ProfessionalSidebarProps) {
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === 'collapsed';
-  const [expandedSections, setExpandedSections] = useState<string[]>([]);
-  const [activeSections, setActiveSections] = useState<string[]>([]);
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandedSections, setExpandedSections] = useState<string[]>(['requirements']);
+  const [activeSections, setActiveSections] = useState<string[]>(['requirements']);
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('qfast-theme');
+    const initialTheme = savedTheme === 'dark' ? 'dark' : 'light';
+    setTheme(initialTheme);
+    document.documentElement.classList.toggle('dark', initialTheme === 'dark');
+  }, []);
+
+  const toggleTheme = () => {
+    setTheme((prev) => {
+      const nextTheme = prev === 'light' ? 'dark' : 'light';
+      document.documentElement.classList.toggle('dark', nextTheme === 'dark');
+      localStorage.setItem('qfast-theme', nextTheme);
+      return nextTheme;
+    });
+  };
+
+  const groupedSections = useMemo(() => {
+    const filteredSections = automationSections.filter((section) => {
+      if (!searchQuery.trim()) {
+        return true;
+      }
+
+      const query = searchQuery.toLowerCase();
+      return (
+        section.shortTitle.toLowerCase().includes(query) ||
+        section.quickActions.some((action) => action.title.toLowerCase().includes(query))
+      );
+    });
+
+    return filteredSections.reduce<Record<string, typeof automationSections>>((acc, section) => {
+      if (!acc[section.group]) {
+        acc[section.group] = [];
+      }
+      acc[section.group].push(section);
+      return acc;
+    }, {});
+  }, [searchQuery]);
 
   const toggleSection = (sectionId: string) => {
-    setExpandedSections(prev => 
-      prev.includes(sectionId) 
-        ? prev.filter(id => id !== sectionId)
-        : [...prev, sectionId]
+    setExpandedSections((prev) =>
+      prev.includes(sectionId) ? prev.filter((id) => id !== sectionId) : [...prev, sectionId]
     );
   };
 
   const handleSectionClick = (sectionId: string) => {
-    if (isCollapsed) {
-      // If collapsed, expand the section and show it
-      setExpandedSections(prev => 
-        prev.includes(sectionId) ? prev : [...prev, sectionId]
-      );
-    }
-    setActiveSections(prev => 
-      prev.includes(sectionId) 
-        ? prev.filter(id => id !== sectionId)
-        : [...prev, sectionId]
-    );
-
-    // Notify parent that a section header was selected
+    setActiveSections((prev) => (prev.includes(sectionId) ? prev : [sectionId]));
     onSectionSelect?.(sectionId);
   };
 
   const handleQuickActionClick = (sectionId: string, actionId: string) => {
+    setActiveSections([sectionId]);
     onSectionAction?.(sectionId, actionId);
     onQuickAction?.(actionId);
   };
 
-  const getColorClasses = (color: string, isActive: boolean = false, isExpanded: boolean = false) => {
-    const colors = {
-      emerald: {
-        icon: isActive ? 'text-white' : 'text-emerald-700',
-        bg: isActive 
-          ? 'bg-emerald-700 text-white shadow-md border-emerald-700' 
-          : isExpanded 
-            ? 'bg-emerald-50 border-emerald-200 shadow-sm' 
-            : 'hover:bg-emerald-50 border-border hover:border-emerald-200',
-        actionBg: 'hover:bg-muted/60',
-        actionIcon: 'text-gray-600'
+  const railItems = [
+    { id: 'home', icon: Home, onClick: () => onHomeClick?.(), active: false, label: 'Home' },
+    ...automationSections.map((section) => ({
+      id: section.id,
+      icon: section.railIcon,
+      onClick: () => {
+        handleSectionClick(section.id);
+        if (!isCollapsed) {
+          setExpandedSections((prev) => (prev.includes(section.id) ? prev : [...prev, section.id]));
+        }
       },
-      blue: {
-        icon: isActive ? 'text-white' : 'text-blue-700',
-        bg: isActive 
-          ? 'bg-blue-700 text-white shadow-md border-blue-700' 
-          : isExpanded 
-            ? 'bg-blue-50 border-blue-200 shadow-sm' 
-            : 'hover:bg-blue-50 border-border hover:border-blue-200',
-        actionBg: 'hover:bg-muted/60',
-        actionIcon: 'text-gray-600'
-      },
-      purple: {
-        icon: isActive ? 'text-white' : 'text-violet-700',
-        bg: isActive 
-          ? 'bg-violet-700 text-white shadow-md border-violet-700' 
-          : isExpanded 
-            ? 'bg-violet-50 border-violet-200 shadow-sm' 
-            : 'hover:bg-violet-50 border-border hover:border-violet-200',
-        actionBg: 'hover:bg-muted/60',
-        actionIcon: 'text-gray-600'
-      },
-      orange: {
-        icon: isActive ? 'text-white' : 'text-amber-700',
-        bg: isActive 
-          ? 'bg-amber-700 text-white shadow-md border-amber-700' 
-          : isExpanded 
-            ? 'bg-amber-50 border-amber-200 shadow-sm' 
-            : 'hover:bg-amber-50 border-border hover:border-amber-200',
-        actionBg: 'hover:bg-muted/60',
-        actionIcon: 'text-gray-600'
-      },
-      cyan: {
-        icon: isActive ? 'text-white' : 'text-cyan-700',
-        bg: isActive 
-          ? 'bg-cyan-700 text-white shadow-md border-cyan-700' 
-          : isExpanded 
-            ? 'bg-cyan-50 border-cyan-200 shadow-sm' 
-            : 'hover:bg-cyan-50 border-border hover:border-cyan-200',
-        actionBg: 'hover:bg-muted/60',
-        actionIcon: 'text-gray-600'
-      },
-      rose: {
-        icon: isActive ? 'text-white' : 'text-rose-700',
-        bg: isActive 
-          ? 'bg-rose-700 text-white shadow-md border-rose-700' 
-          : isExpanded 
-            ? 'bg-rose-50 border-rose-200 shadow-sm' 
-            : 'hover:bg-rose-50 border-border hover:border-rose-200',
-        actionBg: 'hover:bg-muted/60',
-        actionIcon: 'text-gray-600'
-      }
-    };
-    return colors[color as keyof typeof colors] || colors.blue;
-  };
+      active: activeSections.includes(section.id),
+      label: section.shortTitle,
+    })),
+  ];
 
   return (
-    <Sidebar variant="inset" className="border-r border-border">
-      <SidebarHeader className="p-4 border-b border-border bg-sidebar">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center shadow-sm">
-              <Sparkles className="w-5 h-5 text-white" />
-            </div>
-            {!isCollapsed && (
-              <div>
-                <h2 className="text-base font-semibold text-foreground">
-                  Automation Framework
-                </h2>
-                <p className="text-xs text-muted-foreground">Professional Testing Suite</p>
-              </div>
-            )}
-          </div>
+    <Sidebar
+      variant="inset"
+      collapsible="icon"
+      style={
+        {
+          '--sidebar-width': '24rem',
+          '--sidebar-width-icon': '4.75rem',
+        } as React.CSSProperties
+      }
+      className="border-r-0 p-0 [&_[data-sidebar=sidebar]]:overflow-hidden [&_[data-sidebar=sidebar]]:rounded-none [&_[data-sidebar=sidebar]]:bg-sidebar"
+    >
+      <div className="flex h-full w-full bg-sidebar text-sidebar-foreground">
+        <div className="flex h-full w-[72px] flex-col items-center border-r border-sidebar-border bg-sidebar py-4">
           <button
-            onClick={toggleSidebar}
-            className="p-2 hover:bg-accent rounded-md transition-colors"
-            title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            {isCollapsed ? (
-              <Maximize2 className="w-4 h-4 text-muted-foreground" />
-            ) : (
-              <Minimize2 className="w-4 h-4 text-muted-foreground" />
-            )}
-          </button>
-        </div>
-      </SidebarHeader>
-
-      <SidebarContent className="px-3 py-4 space-y-2">
-        {/* Home Button */}
-        <div className="mb-4">
-          <button
-            className={cn(
-              "group transition-all duration-200 cursor-pointer border rounded-lg p-4 w-full text-left",
-              "hover:bg-accent border-border hover:border-primary/30",
-              "flex items-center space-x-3"
-            )}
+            className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl border border-sidebar-border bg-sidebar-accent text-sidebar-foreground transition hover:bg-sidebar-accent/80"
             onClick={() => onHomeClick?.()}
+            title="Dashboard home"
           >
-            <div className={cn(
-              "w-8 h-8 rounded-lg flex items-center justify-center",
-              "bg-primary/10 border border-primary/20"
-            )}>
-              <Home className="w-4 h-4 text-primary" />
-            </div>
-            
-            {!isCollapsed && (
-              <div className="flex-1 text-left min-w-0">
-                <div className="font-medium text-sm text-foreground">
-                  Home Dashboard
-                </div>
-              </div>
-            )}
+            <LayoutDashboard className="h-5 w-5" />
+          </button>
+
+          <div className="flex flex-1 flex-col items-center gap-3">
+            {railItems.map((item) => (
+              <button
+                key={item.id}
+                className={cn(
+                  'flex h-10 w-10 items-center justify-center rounded-xl text-sidebar-foreground/65 transition',
+                  'hover:bg-sidebar-accent hover:text-sidebar-foreground',
+                  item.active && 'bg-sidebar-accent text-sidebar-foreground'
+                )}
+                onClick={item.onClick}
+                title={item.label}
+              >
+                <item.icon className="h-4.5 w-4.5" />
+              </button>
+            ))}
+          </div>
+
+        <div className="flex flex-col items-center gap-3">
+          <button
+            className="flex h-10 w-10 items-center justify-center rounded-xl text-sidebar-foreground/65 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            onClick={toggleTheme}
+            title={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
+          >
+            {theme === 'light' ? <Moon className="h-4.5 w-4.5" /> : <Sun className="h-4.5 w-4.5" />}
+          </button>
+          <button
+            className="flex h-10 w-10 items-center justify-center rounded-xl text-sidebar-foreground/65 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            title="Settings"
+          >
+            <Settings className="h-4.5 w-4.5" />
+          </button>
+          <button
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-sidebar-border bg-sidebar-accent text-sidebar-foreground"
+            onClick={() => {
+              window.location.href = `${window.location.origin}/dashboard`;
+            }}
+            title="Profile"
+            aria-label="Profile"
+          >
+            <UserCircle2 className="h-5 w-5" />
           </button>
         </div>
+        </div>
 
-        {automationSections.map((section) => {
-          const isExpanded = expandedSections.includes(section.id);
-          const isActive = activeSections.includes(section.id);
-          const colorClasses = getColorClasses(section.color, isActive, isExpanded);
+        {!isCollapsed && (
+          <div className="flex flex-1 bg-sidebar p-3">
+            <div className="flex h-full w-full flex-col overflow-hidden rounded-[24px] border border-sidebar-border bg-sidebar shadow-[0_0_0_1px_hsl(var(--sidebar-border)/0.35)]">
+              <SidebarHeader className="border-b border-sidebar-border bg-sidebar px-5 py-5">
+                <div className="flex items-center justify-between">
+                  <div />
+                  <button
+                    onClick={toggleSidebar}
+                    className="flex h-9 w-9 items-center justify-center rounded-lg text-sidebar-foreground/50 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                    title="Collapse sidebar"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                </div>
 
-          return (
-            <div key={section.id} className="space-y-1">
-              {/* Main Section Button */}
-              <div>
-                <button
-                  className={cn(
-                    "group transition-all duration-200 cursor-pointer border rounded-lg p-4 w-full text-left",
-                    colorClasses.bg,
-                    section.isPlaceholder && "opacity-75 cursor-not-allowed"
-                  )}
-                  onClick={() => {
-                    if (!section.isPlaceholder) {
-                      handleSectionClick(section.id);
-                      if (!isCollapsed) {
-                        toggleSection(section.id);
-                      }
-                    }
-                  }}
-                  disabled={section.isPlaceholder}
-                >
-                  <div className="flex items-center space-x-3 w-full">
-                    <div className={cn(
-                      "w-8 h-8 rounded-lg flex items-center justify-center",
-                      isActive ? "bg-white/20" : "bg-card border border-border"
-                    )}>
-                      <section.icon className={cn("w-4 h-4", colorClasses.icon)} />
-                    </div>
-                    
-                    {!isCollapsed && (
-                      <>
-                        <div className="flex-1 text-left min-w-0">
-                          <div className={cn(
-                            "font-medium text-sm",
-                            isActive ? "text-white" : "text-foreground"
-                          )}>
-                            {section.shortTitle}
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-center space-x-2 flex-shrink-0">
-                          {!section.isPlaceholder && (
-                            <>
-                              {isExpanded ? (
-                                <ChevronDown className={cn(
-                                  "w-4 h-4",
-                                  isActive ? "text-white" : "text-muted-foreground"
-                                )} />
-                              ) : (
-                                <ChevronRight className={cn(
-                                  "w-4 h-4",
-                                  isActive ? "text-white" : "text-muted-foreground"
-                                )} />
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-sidebar-foreground/40" />
+                  <input
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    placeholder="Search tasks, projects..."
+                    className="h-12 w-full rounded-xl border border-sidebar-border bg-sidebar-accent pl-11 pr-4 text-sm text-sidebar-foreground outline-none placeholder:text-sidebar-foreground/45 focus:border-sidebar-ring"
+                  />
+                </div>
+              </SidebarHeader>
+
+              <SidebarContent className="space-y-8 overflow-y-auto bg-sidebar px-4 py-5">
+                {Object.entries(groupedSections).map(([groupName, sections]) => (
+                  <div key={groupName}>
+                    <div className="px-3 text-sm font-medium text-sidebar-foreground/55">{groupName}</div>
+
+                    <div className="mt-3 space-y-1.5">
+                      {sections.map((section) => {
+                        const isExpanded = expandedSections.includes(section.id);
+                        const isActive = activeSections.includes(section.id);
+
+                        return (
+                          <div key={section.id}>
+                            <button
+                              className={cn(
+                                'flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition',
+                                isActive
+                                  ? 'bg-sidebar-accent text-sidebar-foreground'
+                                  : 'text-sidebar-foreground/90 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground'
                               )}
-                            </>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </button>
-              </div>
+                              onClick={() => {
+                                if (!section.isPlaceholder) {
+                                  handleSectionClick(section.id);
+                                  toggleSection(section.id);
+                                }
+                              }}
+                              disabled={section.isPlaceholder}
+                            >
+                              <div
+                                className={cn(
+                                  'flex h-8 w-8 items-center justify-center rounded-lg',
+                                  isActive ? 'bg-sidebar-background text-sidebar-foreground' : 'bg-transparent text-sidebar-foreground/70'
+                                )}
+                              >
+                                <section.icon className="h-4 w-4" />
+                              </div>
+                              <div className="min-w-0 flex-1 pr-2 text-[1rem] font-semibold leading-5">
+                                {section.shortTitle}
+                              </div>
+                              {section.quickActions.length > 0 &&
+                                (isExpanded ? (
+                                  <ChevronDown className="h-4 w-4 text-sidebar-foreground/55" />
+                                ) : (
+                                  <ChevronRight className="h-4 w-4 text-sidebar-foreground/55" />
+                                ))}
+                            </button>
 
-              {/* Sub-buttons */}
-              {isExpanded && !isCollapsed && !section.isPlaceholder && (
-                <div className="ml-6 mt-1 space-y-1">
-                  {section.quickActions.map((action, index) => {
-                    // Check if this action is currently active in the navigation flow
-                    const isCurrentStep = navigationFlow && 
-                      navigationFlow.sectionId === section.id && 
-                      navigationFlow.currentStep === index;
-                    
-                    // Check if this step is completed
-                    const isCompleted = navigationFlow && 
-                      navigationFlow.sectionId === section.id && 
-                      navigationFlow.currentStep > index;
-                    
-                    return (
-                      <div key={action.id}>
-                        <button
-                          className={cn(
-                            "group transition-all duration-200 cursor-pointer rounded-lg p-3 text-sm w-full text-left",
-                            "bg-card border border-border hover:bg-muted/60",
-                            "flex items-center space-x-3",
-                            isCurrentStep && "bg-blue-50 border-blue-200",
-                            isCompleted && "bg-green-50 border-green-200"
-                          )}
-                          onClick={() => handleQuickActionClick(section.id, action.id)}
-                        >
-                          <div className={cn(
-                            "w-6 h-6 rounded flex items-center justify-center",
-                            isCurrentStep ? "bg-blue-100" : 
-                            isCompleted ? "bg-green-100" : 
-                            "bg-muted"
-                          )}>
-                            {isCompleted ? (
-                              <CheckCircle className="w-3 h-3 text-green-600" />
-                            ) : (
-                              <action.icon className={cn(
-                                "w-3 h-3", 
-                                isCurrentStep ? "text-blue-700" : "text-muted-foreground"
-                              )} />
+                            {isExpanded && section.quickActions.length > 0 && (
+                              <div className="ml-5 mt-1 space-y-1 border-l border-sidebar-border pl-4">
+                                {section.quickActions.map((action, index) => {
+                                  const isCurrentStep =
+                                    navigationFlow &&
+                                    navigationFlow.sectionId === section.id &&
+                                    navigationFlow.currentStep === index;
+
+                                  const isCompleted =
+                                    navigationFlow &&
+                                    navigationFlow.sectionId === section.id &&
+                                    navigationFlow.currentStep > index;
+
+                                  return (
+                                    <button
+                                      key={action.id}
+                                      className={cn(
+                                        'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition',
+                                        isCurrentStep
+                                          ? 'bg-sidebar-accent text-sidebar-foreground'
+                                          : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
+                                        isCompleted && 'text-sidebar-foreground/90'
+                                      )}
+                                      onClick={() => handleQuickActionClick(section.id, action.id)}
+                                    >
+                                      <div
+                                        className={cn(
+                                          'flex h-7 w-7 items-center justify-center rounded-md',
+                                          isCurrentStep ? 'bg-sidebar-background' : 'bg-sidebar-background/70'
+                                        )}
+                                      >
+                                        <action.icon className="h-3.5 w-3.5" />
+                                      </div>
+                                      <span className="truncate font-medium">{action.title}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
                             )}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <div className={cn(
-                              "font-medium text-sm",
-                              isCurrentStep ? "text-blue-900" : 
-                              isCompleted ? "text-green-900" : 
-                              "text-foreground"
-                            )}>
-                              {action.title}
-                            </div>
-                          </div>
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
 
-
-
-        {/* System Status */}
-        {!isCollapsed && (
-          <div className="mt-4">
-            <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-200 hover:shadow-sm transition-all duration-300">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <div className="w-2.5 h-2.5 bg-green-400 rounded-full animate-pulse shadow-lg shadow-green-400/50" />
-                  <span className="text-sm font-semibold text-green-800">System Online</span>
-                </div>
-                <Activity className="w-4 h-4 text-green-600" />
-              </div>
-              <div className="text-xs text-green-600 mt-1 font-medium">All services operational</div>
+                {Object.keys(groupedSections).length === 0 && (
+                  <div className="rounded-xl border border-sidebar-border bg-sidebar-accent px-4 py-5 text-sm text-sidebar-foreground/60">
+                    No matching sections found.
+                  </div>
+                )}
+              </SidebarContent>
             </div>
           </div>
         )}
-      </SidebarContent>
+      </div>
 
-      <SidebarRail />
+      {isCollapsed && (
+        <button
+          onClick={toggleSidebar}
+          className="absolute left-[84px] top-6 z-20 flex h-9 w-9 items-center justify-center rounded-xl border border-sidebar-border bg-sidebar text-sidebar-foreground/70 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
+          title="Expand sidebar"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      )}
+
+      <SidebarRail className="hidden" />
     </Sidebar>
   );
 }

@@ -27,6 +27,9 @@ const App = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    const savedTheme = localStorage.getItem('qfast-theme');
+    document.documentElement.classList.toggle('dark', savedTheme === 'dark');
+
     // Check if user is already logged in (from localStorage)
     const savedUser = localStorage.getItem('qfast_user');
     if (savedUser) {

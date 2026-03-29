@@ -57,10 +57,11 @@ interface RequirementsAnalysisDashboardProps {
   onBack?: () => void;
   onNext?: () => void;
   onFunctionSelect?: (func: any) => void;
+  initialPage?: 'blocks' | 'authorize-users' | 'authorize-functions' | 'brd-upload' | 'brd-upload-document' | 'brd-upload-pdf' | 'brd-upload-excel' | 'test-analysis' | 'execution-list' | 'execution-log-analysis';
 }
 
-const RequirementsAnalysisDashboard: React.FC<RequirementsAnalysisDashboardProps> = ({ onBack, onNext, onFunctionSelect }) => {
-  const [currentPage, setCurrentPage] = useState<'blocks' | 'authorize-users' | 'authorize-functions' | 'brd-upload' | 'brd-upload-document' | 'brd-upload-pdf' | 'brd-upload-excel' | 'test-analysis' | 'execution-list' | 'execution-log-analysis'>('blocks');
+const RequirementsAnalysisDashboard: React.FC<RequirementsAnalysisDashboardProps> = ({ onBack, onNext, onFunctionSelect, initialPage = 'blocks' }) => {
+  const [currentPage, setCurrentPage] = useState<'blocks' | 'authorize-users' | 'authorize-functions' | 'brd-upload' | 'brd-upload-document' | 'brd-upload-pdf' | 'brd-upload-excel' | 'test-analysis' | 'execution-list' | 'execution-log-analysis'>(initialPage);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [uploadStatus, setUploadStatus] = useState<{[key: string]: 'idle' | 'uploading' | 'success' | 'error'}>({
     document: 'idle',
@@ -105,6 +106,10 @@ const RequirementsAnalysisDashboard: React.FC<RequirementsAnalysisDashboardProps
       }
     }
   }, []);
+
+  useEffect(() => {
+    setCurrentPage(initialPage);
+  }, [initialPage]);
 
   // Load uploaded files when component mounts or current user changes
   useEffect(() => {

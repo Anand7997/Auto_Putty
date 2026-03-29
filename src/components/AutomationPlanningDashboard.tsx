@@ -126,7 +126,7 @@ const AutomationPlanningDashboard: React.FC<AutomationPlanningDashboardProps> = 
   };
 
   const renderOverview = () => (
-    <div className="space-y-6">
+    <div className="automation-planning-theme space-y-6">
       <Card className="bg-white backdrop-blur-sm border-gray-200">
         <CardHeader>
           <div className="flex items-center space-x-3">
@@ -143,7 +143,7 @@ const AutomationPlanningDashboard: React.FC<AutomationPlanningDashboardProps> = 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Projects Card */}
             <Card 
-              className="cursor-pointer hover:shadow-lg transition-all duration-300 bg-gradient-to-br from-blue-50 to-indigo-100 border-blue-200 hover:border-blue-300"
+              className="cursor-pointer hover:shadow-lg transition-all duration-300 bg-gradient-to-br from-blue-50 to-indigo-100 border-blue-200 hover:border-blue-300 dark:from-slate-900 dark:to-slate-800 dark:border-blue-900/60 dark:hover:border-blue-700/70"
               onClick={() => setCurrentView('projects')}
             >
               <CardHeader className="pb-3">
@@ -165,7 +165,7 @@ const AutomationPlanningDashboard: React.FC<AutomationPlanningDashboardProps> = 
             </Card>
 
             {/* Modules Card */}
-            <Card className="bg-gradient-to-br from-green-50 to-emerald-100 border-green-200">
+            <Card className="bg-gradient-to-br from-green-50 to-emerald-100 border-green-200 dark:from-slate-900 dark:to-slate-800 dark:border-emerald-900/60">
               <CardHeader className="pb-3">
                 <div className="flex items-center space-x-3">
                   <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center">
@@ -185,7 +185,7 @@ const AutomationPlanningDashboard: React.FC<AutomationPlanningDashboardProps> = 
             </Card>
 
             {/* Test Cases Card */}
-            <Card className="bg-gradient-to-br from-purple-50 to-violet-100 border-purple-200">
+            <Card className="bg-gradient-to-br from-purple-50 to-violet-100 border-purple-200 dark:from-slate-900 dark:to-slate-800 dark:border-violet-900/60">
               <CardHeader className="pb-3">
                 <div className="flex items-center space-x-3">
                   <div className="w-10 h-10 bg-purple-500 rounded-lg flex items-center justify-center">

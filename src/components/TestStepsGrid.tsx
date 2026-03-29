@@ -791,7 +791,7 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
   };
 
   return (
-    <Card className="bg-white backdrop-blur-sm border-gray-200">
+    <Card className="test-steps-theme bg-white backdrop-blur-sm border-gray-200 dark:bg-card dark:border-border">
       <CardHeader>
         <CardTitle className="text-lg text-gray-900 flex items-center justify-between">
           <span>Test Steps Grid ({testSteps.length} steps)</span>

@@ -12,7 +12,6 @@ import {
   Settings,
   ArrowRight,
   Target,
-  Users,
   AlertTriangle,
   Lock
 } from 'lucide-react';
@@ -128,19 +127,6 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ onFunctionSelect }) => {
         <h1 className="text-3xl md:text-4xl font-bold text-foreground tracking-tight">Automation Pro Suite</h1>
         <p className="text-base md:text-lg text-muted-foreground">Comprehensive Test Automation Lifecycle Management</p>
       </div>
-
-      {/* User Dashboard Button */}
-      {currentUser && (
-        <div className="flex justify-end mt-4">
-          <Button
-            onClick={() => window.location.href = `${window.location.origin}/dashboard`}
-            className="px-6 py-2 rounded-md flex items-center space-x-2"
-          >
-            <Users className="w-4 h-4" />
-            <span>My Dashboard</span>
-          </Button>
-        </div>
-      )}
 
       {/* Main Navigation Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

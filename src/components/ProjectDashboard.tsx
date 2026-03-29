@@ -289,7 +289,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="project-dashboard-theme space-y-6">
       {/* Header Section */}
       <Card className="bg-white backdrop-blur-sm border-gray-200">
         <CardHeader>
@@ -399,8 +399,8 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
             className={`
               cursor-pointer transition-all duration-200 hover:scale-105
               ${selectedProject?.id === project.id 
-                ? 'bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border-blue-400' 
-                : 'bg-white hover:bg-gray-50 border-gray-200'
+                ? 'bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border-blue-400 dark:from-blue-950/60 dark:to-slate-800 dark:border-blue-700' 
+                : 'bg-white hover:bg-gray-50 border-gray-200 dark:bg-card dark:hover:bg-accent dark:border-border'
               }
               backdrop-blur-sm
             `}
@@ -462,7 +462,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
       {/* Proceed Button */}
       {selectedProject && onNext && (
         <div className="flex justify-center">
-          <Card className="bg-white backdrop-blur-sm border-gray-200 p-4">
+          <Card className="bg-white backdrop-blur-sm border-gray-200 p-4 dark:bg-card dark:border-border">
             <div className="flex items-center space-x-4">
               <div className="text-gray-900">
                 <p className="font-medium">Selected Project: {selectedProject.name}</p>
@@ -483,7 +483,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
       {/* Back Button */}
       {showBackButton && onBack && (
         <div className="flex justify-start">
-          <Button variant="outline" onClick={onBack} className="border-gray-200 text-gray-600">
+          <Button variant="outline" onClick={onBack} className="border-gray-200 text-gray-600 dark:border-border dark:text-foreground">
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back
           </Button>
