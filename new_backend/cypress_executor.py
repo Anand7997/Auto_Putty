@@ -11,9 +11,11 @@ import tempfile
 import shutil
 import sys
 from time import localtime, strftime
+import random
+import string
 
 class CypressTestExecutor:
-    def __init__(self, enable_isolation=True, server_execution=False, vnc_session=None, display_id=None, headless=False):
+    def __init__(self, enable_isolation=True, server_execution=False, vnc_session=None, display_id=None, headless=False, browser_name=None):
         self.setup_allure_results_directory()
         self.current_test_attachments = []
         self.enable_isolation = enable_isolation
@@ -21,8 +23,11 @@ class CypressTestExecutor:
         self.vnc_session = vnc_session
         self.display_id = display_id  # VNC-assigned display ID
         self.headless = headless  # Headless mode setting (default: False = window opens)
+        normalized_browser = str(browser_name or "chrome").strip().lower()
+        self.browser_name = normalized_browser if normalized_browser in {"chrome", "edge", "firefox"} else "chrome"
         self.default_wait_timeout = int(os.getenv("CYPRESS_WAIT_TIMEOUT_SECONDS", "15"))
         self.default_step_timeout = int(os.getenv("CYPRESS_STEP_TIMEOUT_SECONDS", "45"))
+        self._runtime_generated_values = {}
 
         # If VNC/display is set, force headed mode for VNC streaming (like Selenium)
         if self.display_id or self.vnc_session:
@@ -38,6 +43,7 @@ class CypressTestExecutor:
             print(f"[DISPLAY] Using VNC-assigned display {self.display_id}")
 
         print(f"[INIT] Cypress Test Executor initialized with isolation mode: {'ENABLED' if enable_isolation else 'DISABLED'}")
+        print(f"[INIT] Browser target: {self.browser_name}")
         print(f"[INIT] Server execution mode: {'ENABLED' if server_execution else 'DISABLED'}")
         print(f"[INIT] VNC session: {'AVAILABLE' if vnc_session else 'NONE'}")
         print(f"[INIT] Headless mode: {'DISABLED - Window will open' if not self.headless else 'ENABLED'}")
@@ -60,7 +66,7 @@ class CypressTestExecutor:
             self.allure_results_path = allure_results_path
             env_file = os.path.join(allure_results_path, 'environment.properties')
             with open(env_file, 'w') as f:
-                f.write("Browser=Chrome\n")
+                f.write(f"Browser={self.browser_name.capitalize()}\n")
                 f.write("Platform=Windows\n")
                 f.write("Base_URL=https://www.ixigo.com\n")
                 f.write("Database=Ixigo_TestAutomation\n")
@@ -719,7 +725,17 @@ describe('{testcase_name}', () => {{
 
                 # Generate Cypress command based on action type
                 timeout_seconds = self._resolve_step_timeout_seconds(step)
-                cypress_command = self.generate_cypress_command(action_type, xpath, element_name, test_data, i, timeout_seconds, assertion_type)
+                cypress_command = self.generate_cypress_command(
+                    action_type,
+                    xpath,
+                    element_name,
+                    test_data,
+                    i,
+                    timeout_seconds,
+                    assertion_type,
+                    step.get('secondary_action', ''),
+                    step.get('secondary_value', '')
+                )
                 print(f"[CYPRESS_GEN] Generated command: {cypress_command[:100]}")
                 test_content += f"    {cypress_command}\n"
 
@@ -806,8 +822,29 @@ describe('{testcase_name}', () => {{
             "SWITCH_FRAME": "SWITCH_TO_IFRAME",
             "SWITCH_TO_FRAME": "SWITCH_TO_IFRAME",
             "SWITCH_IFRAME": "SWITCH_TO_IFRAME",
+            "HANDLE_ALERT": "HANDLE_ALERT_DIALOG",
+            "HANDLE_DIALOG": "HANDLE_ALERT_DIALOG",
+            "HANDLE_POPUP": "HANDLE_ALERT_DIALOG",
+            "HANDLE_CONFIRM": "HANDLE_CONFIRMATION",
+            "HANDLE_CONFIRM_BOX": "HANDLE_CONFIRMATION",
+            "HANDLE_CONFIRMATION_BOX": "HANDLE_CONFIRMATION",
+            "HANDLE_NOTIFICATION_TOAST": "HANDLE_NOTIFICATION",
+            "HANDLE_TOAST": "HANDLE_NOTIFICATION",
+            "HANDLE_NOTIFICATIONS": "HANDLE_NOTIFICATION",
+            "HANDLE_OS_DIALOGS": "HANDLE_OS_DIALOG",
+            "HANDLE_FILE_CHOOSER": "HANDLE_OS_DIALOG",
+            "HANDLE_PRINT_DIALOG": "HANDLE_OS_DIALOG",
         }
         return alias_map.get(normalized, normalized)
+
+    def resolve_action_type(self, action_type, assertion_type=None):
+        normalized = self.normalize_action_type(action_type)
+        if normalized != "HANDLE":
+            return normalized
+        handle_type = re.sub(r"[\s\-/]+", "_", str(assertion_type or "").upper().strip())
+        if handle_type in {"HANDLE_ALERT_DIALOG", "HANDLE_CONFIRMATION", "HANDLE_NOTIFICATION", "HANDLE_OS_DIALOG"}:
+            return handle_type
+        return "HANDLE_ALERT_DIALOG"
 
     def normalize_assertion_type(self, assertion_type):
         normalized = re.sub(r"[\s\-/]+", "_", str(assertion_type or "").upper().strip())
@@ -934,10 +971,25 @@ describe('{testcase_name}', () => {{
         selector = self.escape_string_for_js(self.clean_xpath(raw))
         return f"cy.xpathOrCSS('{selector}', true)"
 
-    def generate_cypress_command(self, action_type, xpath, element_name, test_data, step_number, timeout_seconds=None, assertion_type=None):
+    def append_secondary_action(self, command, step_number, secondary_action=None, secondary_value=None):
+        """Append an optional secondary Cypress action after the primary command."""
+        normalized = str(secondary_action or '').strip().upper()
+        message = self.escape_string_for_js(str(secondary_value or ''))
+
+        if not normalized:
+            return command
+        if normalized == 'LOG_STEP':
+            log_message = message or f"Secondary log recorded after step {step_number}"
+            return f"{command}\ncy.log('{log_message}')"
+        if normalized == 'TAKE_SCREENSHOT':
+            return f"{command}\ncy.screenshot('step-{step_number}-secondary')"
+        return command
+
+    def generate_cypress_command(self, action_type, xpath, element_name, test_data, step_number, timeout_seconds=None, assertion_type=None, secondary_action=None, secondary_value=None):
         """Generate Cypress command for a specific action"""
         try:
-            action_type = self.normalize_action_type(action_type)
+            action_type = self.resolve_action_type(action_type, assertion_type)
+            test_data = self.resolve_runtime_test_data(action_type, test_data, element_name, xpath)
             timeout_seconds = int(timeout_seconds or self.default_step_timeout)
             timeout_ms = max(timeout_seconds, 1) * 1000
             
@@ -947,7 +999,7 @@ describe('{testcase_name}', () => {{
             test_data_text = str(test_data or "")
 
             if action_type == "OPEN_BROWSER":
-                return f"cy.visitStealth('{test_data_escaped}')"
+                return self.append_secondary_action(f"cy.visitStealth('{test_data_escaped}')", step_number, secondary_action, secondary_value)
 
             elif action_type == "CLICK_AND_SELECT":
                 # Handle different selection types
@@ -967,10 +1019,10 @@ describe('{testcase_name}', () => {{
                     return self.generate_generic_click_and_select_command(xpath, element_name, test_data, timeout_ms)
 
             elif action_type == "CLICK_AND_TYPE":
-                return f"{selector_cmd}.scrollIntoView().clear({{ force: true }}).type('{test_data_escaped}', {{ force: true, timeout: {timeout_ms} }})"
+                return self.append_secondary_action(f"{selector_cmd}.scrollIntoView().clear({{ force: true }}).type('{test_data_escaped}', {{ force: true, timeout: {timeout_ms} }})", step_number, secondary_action, secondary_value)
 
             elif action_type == "CLEAR_AND_TYPE":
-                return f"{selector_cmd}.scrollIntoView().clear({{ force: true }}).type('{test_data_escaped}', {{ force: true, timeout: {timeout_ms} }})"
+                return self.append_secondary_action(f"{selector_cmd}.scrollIntoView().clear({{ force: true }}).type('{test_data_escaped}', {{ force: true, timeout: {timeout_ms} }})", step_number, secondary_action, secondary_value)
 
             elif action_type == "CLICK":
                 if element_name.upper() == "TRAVELCLASS":
@@ -995,16 +1047,16 @@ describe('{testcase_name}', () => {{
                 elif test_data_text.upper() == "TOMORROW":
                     return f"cy.contains('Tomorrow').scrollIntoView().click({{ force: true }})"
                 else:
-                    return f"{selector_cmd}.scrollIntoView().click({{ force: true, timeout: {timeout_ms} }})"
+                    return self.append_secondary_action(f"{selector_cmd}.scrollIntoView().click({{ force: true, timeout: {timeout_ms} }})", step_number, secondary_action, secondary_value)
 
             elif action_type == "DOUBLE_CLICK":
-                return f"{selector_cmd}.scrollIntoView().dblclick({{ force: true, timeout: {timeout_ms} }})"
+                return self.append_secondary_action(f"{selector_cmd}.scrollIntoView().dblclick({{ force: true, timeout: {timeout_ms} }})", step_number, secondary_action, secondary_value)
 
             elif action_type == "RIGHT_CLICK":
-                return f"{selector_cmd}.scrollIntoView().rightclick({{ force: true, timeout: {timeout_ms} }})"
+                return self.append_secondary_action(f"{selector_cmd}.scrollIntoView().rightclick({{ force: true, timeout: {timeout_ms} }})", step_number, secondary_action, secondary_value)
 
             elif action_type == "MOUSE_OVER":
-                return f"{selector_cmd}.scrollIntoView().trigger('mouseover', {{ force: true, timeout: {timeout_ms} }})"
+                return self.append_secondary_action(f"{selector_cmd}.scrollIntoView().trigger('mouseover', {{ force: true, timeout: {timeout_ms} }})", step_number, secondary_action, secondary_value)
 
             elif action_type == "RADIO_BUTTON":
                 radio_value = str(test_data or '').strip()
@@ -1100,6 +1152,56 @@ describe('{testcase_name}', () => {{
                     "})"
                 )
 
+            elif action_type == "HANDLE_ALERT_DIALOG":
+                message_match = self.escape_string_for_js(str(test_data or "").split("contains=", 1)[1].split(";", 1)[0] if "contains=" in str(test_data or "") else "")
+                action_mode = "false" if any(token in str(test_data or "").lower() for token in ["dismiss", "reject", "cancel"]) else "true"
+                assertion_line = f"expect(String(text || '')).to.include('{message_match}'); " if message_match else ""
+                return (
+                    "cy.once('window:alert', (text) => { "
+                    f"{assertion_line}"
+                    "cy.log(`Alert handled: ${text}`); "
+                    "}); "
+                    "cy.once('window:confirm', (text) => { "
+                    f"{assertion_line}"
+                    f"return {action_mode}; "
+                    "})"
+                )
+
+            elif action_type == "HANDLE_CONFIRMATION":
+                message_match = self.escape_string_for_js(str(test_data or "").split("contains=", 1)[1].split(";", 1)[0] if "contains=" in str(test_data or "") else "")
+                action_mode = "false" if any(token in str(test_data or "").lower() for token in ["dismiss", "reject", "cancel"]) else "true"
+                assertion_line = f"expect(String(text || '')).to.include('{message_match}'); " if message_match else ""
+                return (
+                    "cy.once('window:confirm', (text) => { "
+                    f"{assertion_line}"
+                    f"return {action_mode}; "
+                    "})"
+                )
+
+            elif action_type == "HANDLE_NOTIFICATION":
+                expected_text = self.escape_string_for_js(str(test_data or "").split("contains=", 1)[1].split(";", 1)[0] if "contains=" in str(test_data or "") else (test_data_text if "=" not in test_data_text else ""))
+                dismiss_requested = any(token in test_data_text.lower() for token in ["dismiss", "close"])
+                wait_gone = any(token in test_data_text.lower() for token in ["wait_gone", "gone"])
+                notification_selector = self.escape_string_for_js(xpath if str(xpath or "").strip() else "[role=\"alert\"], [role=\"status\"], .toast, .notification, .snackbar, [data-testid*=\"toast\"], [class*=\"toast\"], [class*=\"notification\"]")
+                command = f"cy.get('{notification_selector}', {{ timeout: {timeout_ms} }}).first()"
+                if expected_text:
+                    command += f".should('contain.text', '{expected_text}')"
+                else:
+                    command += ".should('be.visible')"
+                if dismiss_requested:
+                    command += ".within(() => { cy.get('button, [aria-label*=close i], [class*=close]').first().click({ force: true }) })"
+                if wait_gone:
+                    command += f"; cy.get('{notification_selector}', {{ timeout: {timeout_ms} }}).should('not.exist')"
+                return command
+
+            elif action_type == "HANDLE_OS_DIALOG":
+                raw_lower = test_data_text.lower()
+                is_print = raw_lower in ["print", "print_dialog", "print_preview"] or "type=print" in raw_lower
+                if is_print:
+                    return "cy.window().then((win) => { cy.stub(win, 'print').as('printDialog'); win.print(); }); cy.get('@printDialog').should('have.been.called')"
+                file_path = self.escape_string_for_js(str(test_data or "").split("file=", 1)[1].split(";", 1)[0] if "file=" in str(test_data or "") else test_data_text)
+                return f"{selector_cmd}.selectFile('{file_path}', {{ force: true, timeout: {timeout_ms} }})"
+
             elif action_type == "READ_TEXT":
                 assertion_js = f"expect(actual).to.contain('{test_data_escaped}')" if test_data_text else "cy.log(`READ_TEXT: ${actual}`)"
                 return f"{selector_cmd}.invoke('text').then((text) => {{ const actual = String(text || '').replace(/\\\\s+/g, ' ').trim(); {assertion_js}; }})"
@@ -1191,6 +1293,64 @@ describe('{testcase_name}', () => {{
         except Exception as e:
             print(f"[ERROR] Failed to generate Cypress command for {action_type}: {str(e)}")
             return f"// Error generating command for {action_type}"
+
+    def _build_runtime_value_key(self, action_type, element_name, xpath):
+        return f"{str(action_type or '').strip().upper()}|{str(element_name or '').strip().lower()}|{str(xpath or '').strip()}"
+
+    def _infer_random_value_from_element_name(self, element_name):
+        normalized_name = re.sub(r"[^a-z0-9]+", " ", str(element_name or "").lower()).strip()
+        if not normalized_name:
+            return None
+
+        timestamp_token = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%m%d%H%M%S")
+        short_token = ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
+        suffix = f"{timestamp_token}{short_token}"
+
+        if any(keyword in normalized_name for keyword in ["timestamp", "date time", "datetime", "time stamp", "created at", "updated at", "created on", "updated on"]):
+            return datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d %H:%M:%S")
+        if any(keyword in normalized_name for keyword in ["date", "booking date", "start date", "end date", "created date", "updated date"]):
+            return datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d")
+        if any(keyword in normalized_name for keyword in ["time", "start time", "end time", "login time"]):
+            return datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M:%S")
+        if any(keyword in normalized_name for keyword in ["email", "e mail", "mail id", "email id"]):
+            return f"autouser_{suffix}@example.com"
+        if any(keyword in normalized_name for keyword in ["username", "user name", "userid", "user id", "login id", "login"]):
+            return f"autouser_{suffix}"
+        if any(keyword in normalized_name for keyword in ["phone", "mobile", "contact number", "phone number", "mobile number"]):
+            return f"9{random.randint(100000000, 999999999)}"
+        if any(keyword in normalized_name for keyword in ["first name", "firstname", "given name"]):
+            return f"Auto{suffix[-6:]}"
+        if any(keyword in normalized_name for keyword in ["last name", "lastname", "surname", "family name"]):
+            return f"User{suffix[-6:]}"
+        if any(keyword in normalized_name for keyword in ["full name", "customer name", "display name", "name"]):
+            return f"Auto User {suffix[-4:]}"
+        if any(keyword in normalized_name for keyword in ["password", "passcode", "passwd", "pin"]):
+            return f"Qa@{suffix}!"
+        return None
+
+    def resolve_runtime_test_data(self, action_type, test_data, element_name, xpath=None):
+        normalized_action = self.resolve_action_type(action_type, None)
+        if normalized_action not in {"CLICK_AND_TYPE", "CLEAR_AND_TYPE"}:
+            return test_data
+
+        raw_value = "" if test_data is None else str(test_data)
+        stripped_value = raw_value.strip()
+        auto_tokens = {"", "auto", "random", "auto_generate", "autogenerate", "generate", "generate_random_data", "random_data"}
+        if stripped_value.lower() not in auto_tokens:
+            return test_data
+
+        cache_key = self._build_runtime_value_key(normalized_action, element_name, xpath)
+        cached_value = self._runtime_generated_values.get(cache_key)
+        if cached_value:
+            return cached_value
+
+        generated_value = self._infer_random_value_from_element_name(element_name)
+        if generated_value is None:
+            return test_data
+
+        self._runtime_generated_values[cache_key] = generated_value
+        print(f"[AUTO_DATA] Generated runtime value for {element_name}: {generated_value}")
+        return generated_value
 
     def generate_generic_click_and_select_command(self, xpath, element_name, test_data, timeout_ms):
         """Generate control-aware CLICK_AND_SELECT command similar to Selenium fallback strategy."""
@@ -2000,7 +2160,7 @@ describe('{testcase_name}', () => {{
                 cmd_parts = [
                     "npx", "cypress", "run",
                     "--spec", f"cypress/e2e/{execution_id}.cy.js",
-                    "--browser", "chrome",
+                    "--browser", self.browser_name,
                     "--headless"
                 ]
                 print("[CYPRESS] Running in HEADLESS mode (no window)")
@@ -2010,7 +2170,7 @@ describe('{testcase_name}', () => {{
                 cmd_parts = [
                     "npx", "cypress", "run",
                     "--spec", f"cypress/e2e/{execution_id}.cy.js",
-                    "--browser", "chrome",
+                    "--browser", self.browser_name,
                     "--headed"  # This is supported in newer Cypress versions
                 ]
                 print("[CYPRESS] Running in INTERACTIVE mode (window will open for viewing)")
@@ -2277,7 +2437,7 @@ describe('{testcase_name}', () => {{
             'end_time': None,
             'error_message': '',
             'step_results': [],
-            'browser_info': 'Cypress/Chrome'
+            'browser_info': f"Cypress/{self.browser_name.capitalize()}"
         }
 
         if test_metadata:

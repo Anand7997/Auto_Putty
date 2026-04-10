@@ -22,13 +22,28 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 import json
 import allure
 import base64
+import importlib.util
+from pathlib import Path
 
-import os
+def _load_execution_display():
+    module_path = Path(__file__).with_name("vnc_session_manager.py")
+    if not module_path.exists():
+        return 16
 
-try:
-    from vnc_session_manager import EXECUTION_DISPLAY
-except Exception:
-    EXECUTION_DISPLAY = 16
+    try:
+        spec = importlib.util.spec_from_file_location("local_vnc_session_manager", module_path)
+        if spec is None or spec.loader is None:
+            return 16
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return int(getattr(module, "EXECUTION_DISPLAY", getattr(module, "BASE_DISPLAY", 16)))
+    except Exception as exc:
+        print(f"[WARNING] Could not load vnc_session_manager: {exc}")
+        return 16
+
+
+EXECUTION_DISPLAY = _load_execution_display()
 
 class SeleniumTestExecutor:
     # Canonical element-name aliases used across Selenium step handling.

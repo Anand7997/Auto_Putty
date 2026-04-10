@@ -17,6 +17,8 @@ interface TestStep {
   element_name: string;
   action_type: string;
   assertion_type?: string;
+  secondary_action?: string;
+  secondary_value?: string;
   xpath: string;
   values: string;
 }
@@ -65,6 +67,7 @@ const ACTION_TYPES = [
   'PASTE',
   'UPLOAD_FILE',
   'DOWNLOAD_FILE',
+  'HANDLE',
   'VISUAL_ASSERTION',
   'TYPE',
   'SELECT',
@@ -111,6 +114,13 @@ const ASSERTION_OPTIONS = [
   'WAIT_FOR_LOADER_DISAPPEARS',
 ];
 
+const HANDLE_OPTIONS = [
+  'HANDLE_ALERT_DIALOG',
+  'HANDLE_CONFIRMATION',
+  'HANDLE_NOTIFICATION',
+  'HANDLE_OS_DIALOG',
+];
+
 const LEGACY_TO_CURRENT_ACTION: Record<string, string> = {
   CLICK_AND_SELECT_DATE: 'CLICK_AND_SELECT',
   CLICK_QUICK_DATE: 'CLICK_AND_SELECT',
@@ -129,6 +139,22 @@ const LEGACY_TO_CURRENT_ACTION: Record<string, string> = {
   HANDLE_RADIO: 'RADIO_BUTTON',
   DRAGDROP: 'DRAG_AND_DROP',
   'DRAG_&_DROP': 'DRAG_AND_DROP',
+  HANDLE_ALERT_DIALOG: 'HANDLE',
+  HANDLE_CONFIRMATION: 'HANDLE',
+  HANDLE_NOTIFICATION: 'HANDLE',
+  HANDLE_OS_DIALOG: 'HANDLE',
+  HANDLE_ALERT: 'HANDLE_ALERT_DIALOG',
+  HANDLE_DIALOG: 'HANDLE_ALERT_DIALOG',
+  HANDLE_POPUP: 'HANDLE_ALERT_DIALOG',
+  HANDLE_CONFIRM: 'HANDLE_CONFIRMATION',
+  HANDLE_CONFIRM_BOX: 'HANDLE_CONFIRMATION',
+  HANDLE_CONFIRMATION_BOX: 'HANDLE_CONFIRMATION',
+  HANDLE_NOTIFICATION_TOAST: 'HANDLE_NOTIFICATION',
+  HANDLE_TOAST: 'HANDLE_NOTIFICATION',
+  HANDLE_NOTIFICATIONS: 'HANDLE_NOTIFICATION',
+  HANDLE_OS_DIALOGS: 'HANDLE_OS_DIALOG',
+  HANDLE_FILE_CHOOSER: 'HANDLE_OS_DIALOG',
+  HANDLE_PRINT_DIALOG: 'HANDLE_OS_DIALOG',
   SWITCH_FRAME: 'SWITCH_TO_IFRAME',
   SWITCH_TO_FRAME: 'SWITCH_TO_IFRAME',
   SWITCH_IFRAME: 'SWITCH_TO_IFRAME',
@@ -143,7 +169,146 @@ const normalizeActionType = (actionType?: string): string => {
 
 const isPressKeyAction = (actionType?: string): boolean => normalizeActionType(actionType) === 'PRESS_KEY';
 const isAssertionAction = (actionType?: string): boolean => normalizeActionType(actionType) === 'ASSERTION';
+const isHandleAction = (actionType?: string): boolean => normalizeActionType(actionType) === 'HANDLE';
+const isAutoGenTypingAction = (actionType?: string): boolean => ['CLICK_AND_TYPE', 'CLEAR_AND_TYPE', 'TYPE'].includes(normalizeActionType(actionType));
+const SECONDARY_ACTION_OPTIONS = ['', 'LOG_STEP', 'AUTO_GENERATE_VALUE', 'TAKE_SCREENSHOT'];
+const DATE_TIME_FORMAT_OPTIONS = [
+  'YYYY-MM-DD',
+  'DD/MM/YYYY',
+  'MM/DD/YYYY',
+  'YYYY-MM-DD HH:mm:ss',
+  'DD/MM/YYYY HH:mm:ss',
+  'HH:mm:ss',
+  'hh:mm A',
+];
 const getAssertionLabel = (assertionType?: string): string => assertionType || 'ELEMENT_VISIBLE';
+const getHandleLabel = (actionType?: string, handleType?: string): string => {
+  const rawAction = (actionType || '').toUpperCase().trim().replace(/[\s\-/]+/g, '_');
+  if (HANDLE_OPTIONS.includes(rawAction)) return rawAction;
+  const normalizedHandle = (handleType || '').toUpperCase().trim().replace(/[\s\-/]+/g, '_');
+  return HANDLE_OPTIONS.includes(normalizedHandle) ? normalizedHandle : 'HANDLE_ALERT_DIALOG';
+};
+
+const getHandleDisplayLabel = (handleType?: string): string => {
+  switch (getHandleLabel(undefined, handleType)) {
+    case 'HANDLE_ALERT_DIALOG':
+      return 'Handle Alerts / Pop-ups / Dialogs';
+    case 'HANDLE_CONFIRMATION':
+      return 'Handle Confirmation Boxes';
+    case 'HANDLE_NOTIFICATION':
+      return 'Handle Notifications / Toasts';
+    case 'HANDLE_OS_DIALOG':
+      return 'Interact with OS-level dialogs';
+    default:
+      return getHandleLabel(undefined, handleType);
+  }
+};
+
+const getSecondaryActionDisplayLabel = (secondaryAction?: string): string => {
+  switch ((secondaryAction || '').toUpperCase().trim()) {
+    case 'LOG_STEP':
+      return 'Log Step';
+    case 'AUTO_GENERATE_VALUE':
+      return 'Auto-Generate Value';
+    case 'TAKE_SCREENSHOT':
+      return 'Take Screenshot';
+    default:
+      return 'None';
+  }
+};
+
+const inferAutoGenTemporalKind = (elementName?: string): 'datetime' | 'date' | 'time' | null => {
+  const normalized = String(elementName || '').toLowerCase();
+  if (!normalized.trim()) return null;
+  if (['timestamp', 'date time', 'datetime', 'time stamp', 'created at', 'updated at', 'created on', 'updated on'].some((keyword) => normalized.includes(keyword))) {
+    return 'datetime';
+  }
+  if (['start time', 'end time', 'login time', 'time'].some((keyword) => normalized.includes(keyword))) {
+    return 'time';
+  }
+  if (['date', 'booking date', 'start date', 'end date', 'created date', 'updated date'].some((keyword) => normalized.includes(keyword))) {
+    return 'date';
+  }
+  return null;
+};
+
+const formatDateToken = (date: Date, format: string): string => {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const hours24 = date.getHours();
+  const hours12 = hours24 % 12 || 12;
+  const replacements: Record<string, string> = {
+    YYYY: String(date.getFullYear()),
+    MM: pad(date.getMonth() + 1),
+    DD: pad(date.getDate()),
+    HH: pad(hours24),
+    hh: pad(hours12),
+    mm: pad(date.getMinutes()),
+    ss: pad(date.getSeconds()),
+    A: hours24 >= 12 ? 'PM' : 'AM',
+  };
+  return format.replace(/YYYY|MM|DD|HH|hh|mm|ss|A/g, (token) => replacements[token] || token);
+};
+
+const generateTemporalValue = (format: string): string => {
+  const now = new Date();
+  const randomFutureOffsetDays = Math.floor(Math.random() * 365);
+  const randomSeconds = Math.floor(Math.random() * 24 * 60 * 60);
+  const generated = new Date(now.getTime() + (randomFutureOffsetDays * 24 * 60 * 60 * 1000) + (randomSeconds * 1000));
+  return formatDateToken(generated, format);
+};
+
+const getTemporalFormatOptions = (elementName?: string): string[] => {
+  const kind = inferAutoGenTemporalKind(elementName);
+  if (kind === 'time') return ['HH:mm:ss', 'hh:mm A'];
+  if (kind === 'date') return ['YYYY-MM-DD', 'DD/MM/YYYY', 'MM/DD/YYYY'];
+  if (kind === 'datetime') return ['YYYY-MM-DD HH:mm:ss', 'DD/MM/YYYY HH:mm:ss', 'YYYY-MM-DD', 'HH:mm:ss'];
+  return DATE_TIME_FORMAT_OPTIONS;
+};
+
+const generateSmartAutoValue = (elementName?: string): string => {
+  const normalized = String(elementName || '').toLowerCase().trim();
+  const now = new Date();
+  const stamp = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+  const token = Math.random().toString(36).slice(2, 6);
+
+  if (inferAutoGenTemporalKind(elementName)) {
+    const format = getTemporalFormatOptions(elementName)[0];
+    return generateTemporalValue(format);
+  }
+  if (['email', 'e mail', 'mail id', 'email id'].some((keyword) => normalized.includes(keyword))) {
+    return `autouser_${stamp}${token}@example.com`;
+  }
+  if (['username', 'user name', 'userid', 'user id', 'login id', 'login'].some((keyword) => normalized.includes(keyword))) {
+    return `autouser_${stamp}${token}`;
+  }
+  if (['phone', 'mobile', 'contact number', 'phone number', 'mobile number'].some((keyword) => normalized.includes(keyword))) {
+    return `9${Math.floor(100000000 + Math.random() * 900000000)}`;
+  }
+  if (['first name', 'firstname', 'given name'].some((keyword) => normalized.includes(keyword))) {
+    return `Auto${stamp.slice(-6)}`;
+  }
+  if (['last name', 'lastname', 'surname', 'family name'].some((keyword) => normalized.includes(keyword))) {
+    return `User${stamp.slice(-6)}`;
+  }
+  if (['full name', 'customer name', 'display name', 'name'].some((keyword) => normalized.includes(keyword))) {
+    return `Auto User ${stamp.slice(-4)}`;
+  }
+  if (['password', 'passcode', 'passwd', 'pin'].some((keyword) => normalized.includes(keyword))) {
+    return `Qa@${stamp}${token}!`;
+  }
+  return `Auto${stamp}${token}`;
+};
+
+const getSecondaryActionDisplayLabel = (secondaryAction?: string): string => {
+  switch ((secondaryAction || '').toUpperCase()) {
+    case 'LOG_STEP':
+      return 'Log Step';
+    case 'TAKE_SCREENSHOT':
+      return 'Take Screenshot';
+    default:
+      return 'None';
+  }
+};
 
 const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({ 
   selectedTestCase, 
@@ -162,6 +327,9 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
   const [showGrid, setShowGrid] = useState(false);
   const [gridSteps, setGridSteps] = useState<TestStep[]>([]);
   const [openPressKeyPicker, setOpenPressKeyPicker] = useState<string | number | null>(null);
+  const [openAutoGenFormatPicker, setOpenAutoGenFormatPicker] = useState<string | number | null>(null);
+  const [openSecondaryLogEditor, setOpenSecondaryLogEditor] = useState<string | number | null>(null);
+  const [secondaryLogDraft, setSecondaryLogDraft] = useState('');
   const [formData, setFormData] = useState({
     tc_id: '',
     step_no: 1,
@@ -169,6 +337,8 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
     element_name: '',
     action_type: 'CLICK',
     assertion_type: '',
+    secondary_action: '',
+    secondary_value: '',
     xpath: '',
     values: ''
   });
@@ -216,6 +386,8 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
       element_name: '',
       action_type: 'CLICK',
       assertion_type: '',
+      secondary_action: '',
+      secondary_value: '',
       xpath: '',
       values: ''
     });
@@ -234,6 +406,8 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
       element_name: '',
       action_type: 'CLICK',
       assertion_type: '',
+      secondary_action: '',
+      secondary_value: '',
       xpath: '',
       values: ''
     };
@@ -247,13 +421,84 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
             ...step,
             [field]: field === 'action_type' ? normalizeActionType(String(value)) : value,
             ...(field === 'action_type' && normalizeActionType(String(value)) === 'PRESS_KEY' && !step.values ? { values: 'ENTER' } : {}),
-            ...(field === 'action_type' && normalizeActionType(String(value)) === 'ASSERTION' && !step.assertion_type ? { assertion_type: 'ELEMENT_VISIBLE' } : {})
+            ...(field === 'action_type' && normalizeActionType(String(value)) === 'ASSERTION' && !step.assertion_type ? { assertion_type: 'ELEMENT_VISIBLE' } : {}),
+            ...(field === 'action_type' && normalizeActionType(String(value)) === 'HANDLE' ? { assertion_type: getHandleLabel(String(value), step.assertion_type) } : {})
           }
         : step
     ));
     if (field === 'action_type') {
       const normalizedAction = normalizeActionType(String(value));
-      setOpenPressKeyPicker((normalizedAction === 'PRESS_KEY' || normalizedAction === 'ASSERTION') ? stepId : null);
+      setOpenPressKeyPicker((normalizedAction === 'PRESS_KEY' || normalizedAction === 'ASSERTION' || normalizedAction === 'HANDLE') ? stepId : null);
+    }
+  };
+
+  const updateGridStepFields = (stepId: number, updates: Partial<TestStep>) => {
+    setGridSteps((prev) => prev.map((step) => (
+      step.id === stepId ? { ...step, ...updates } : step
+    )));
+  };
+
+  const applyFormSecondaryAction = (nextAction: string) => {
+    if (nextAction === 'AUTO_GENERATE_VALUE') {
+      if (inferAutoGenTemporalKind(formData.element_name)) {
+        setFormData((prev) => ({
+          ...prev,
+          secondary_action: 'AUTO_GENERATE_VALUE',
+          secondary_value: ''
+        }));
+        setOpenAutoGenFormatPicker('form');
+      } else {
+        setFormData((prev) => ({
+          ...prev,
+          values: generateSmartAutoValue(prev.element_name),
+          secondary_action: 'AUTO_GENERATE_VALUE',
+          secondary_value: ''
+        }));
+      }
+      setOpenSecondaryLogEditor(null);
+      return;
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      secondary_action: nextAction,
+      secondary_value: nextAction === 'TAKE_SCREENSHOT' ? '' : prev.secondary_value
+    }));
+
+    if (nextAction === 'LOG_STEP') {
+      setSecondaryLogDraft(formData.secondary_value || '');
+      setOpenSecondaryLogEditor('form');
+    } else {
+      setOpenSecondaryLogEditor(null);
+    }
+  };
+
+  const applyGridSecondaryAction = (stepId: number, nextAction: string, elementName: string, currentSecondaryValue: string) => {
+    if (nextAction === 'AUTO_GENERATE_VALUE') {
+      if (inferAutoGenTemporalKind(elementName)) {
+        updateGridStepFields(stepId, {
+          secondary_action: 'AUTO_GENERATE_VALUE',
+          secondary_value: ''
+        });
+        setOpenAutoGenFormatPicker(stepId);
+      } else {
+        updateGridStepFields(stepId, {
+          values: generateSmartAutoValue(elementName),
+          secondary_action: 'AUTO_GENERATE_VALUE',
+          secondary_value: ''
+        });
+      }
+      return;
+    }
+
+    updateGridStepFields(stepId, {
+      secondary_action: nextAction,
+      secondary_value: nextAction === 'TAKE_SCREENSHOT' ? '' : currentSecondaryValue
+    });
+
+    if (nextAction === 'LOG_STEP') {
+      setSecondaryLogDraft(currentSecondaryValue || '');
+      setOpenSecondaryLogEditor(stepId);
     }
   };
 
@@ -314,6 +559,8 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
         element_name: formData.element_name,
         action_type: formData.action_type,
         assertion_type: formData.assertion_type || '',
+        secondary_action: formData.secondary_action || '',
+        secondary_value: formData.secondary_value || '',
         xpath: formData.xpath,
         values: formData.values
       };
@@ -355,7 +602,9 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
       test_step_description: step.test_step_description,
       element_name: step.element_name,
       action_type: normalizeActionType(step.action_type),
-      assertion_type: step.assertion_type || '',
+      assertion_type: normalizeActionType(step.action_type) === 'HANDLE' ? getHandleLabel(step.action_type, step.assertion_type) : (step.assertion_type || ''),
+      secondary_action: step.secondary_action || '',
+      secondary_value: step.secondary_value || '',
       xpath: step.xpath,
       values: step.values
     });
@@ -406,6 +655,8 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
       element_name: '',
       action_type: 'CLICK',
       assertion_type: '',
+      secondary_action: '',
+      secondary_value: '',
       xpath: '',
       values: ''
     };
@@ -434,6 +685,8 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
       element_name: '',
       action_type: 'CLICK',
       assertion_type: '',
+      secondary_action: '',
+      secondary_value: '',
       xpath: '',
       values: ''
     });
@@ -614,9 +867,14 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                   ...formData,
                   action_type: e.target.value,
                   values: normalizeActionType(e.target.value) === 'PRESS_KEY' ? (formData.values || 'ENTER') : formData.values,
-                  assertion_type: normalizeActionType(e.target.value) === 'ASSERTION' ? (formData.assertion_type || 'ELEMENT_VISIBLE') : formData.assertion_type
+                  assertion_type:
+                    normalizeActionType(e.target.value) === 'ASSERTION'
+                      ? (formData.assertion_type || 'ELEMENT_VISIBLE')
+                      : normalizeActionType(e.target.value) === 'HANDLE'
+                        ? getHandleLabel(e.target.value, formData.assertion_type)
+                        : formData.assertion_type
                 })}
-                onClick={() => (isPressKeyAction(formData.action_type) || isAssertionAction(formData.action_type)) && setOpenPressKeyPicker('form')}
+                onClick={() => (isPressKeyAction(formData.action_type) || isAssertionAction(formData.action_type) || isHandleAction(formData.action_type)) && setOpenPressKeyPicker('form')}
                 className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-gray-900"
               >
                 {ACTION_TYPES.map(action => (
@@ -633,27 +891,58 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                   Assertion: {getAssertionLabel(formData.assertion_type)}
                 </div>
               )}
-              {(isPressKeyAction(formData.action_type) || isAssertionAction(formData.action_type)) && openPressKeyPicker === 'form' && (
+              {isHandleAction(formData.action_type) && (
+                <div className="mt-1 text-xs font-medium text-emerald-700">
+                  Handle: {getHandleDisplayLabel(formData.assertion_type)}
+                </div>
+              )}
+              {(isPressKeyAction(formData.action_type) || isAssertionAction(formData.action_type) || isHandleAction(formData.action_type)) && openPressKeyPicker === 'form' && (
                 <div className="absolute bottom-0 left-full z-20 ml-2 w-48 rounded-md border border-gray-200 bg-white p-1 shadow-lg">
-                  {(isPressKeyAction(formData.action_type) ? PRESS_KEY_OPTIONS : ASSERTION_OPTIONS).map((option) => (
+                  {(isPressKeyAction(formData.action_type) ? PRESS_KEY_OPTIONS : isAssertionAction(formData.action_type) ? ASSERTION_OPTIONS : HANDLE_OPTIONS).map((option) => (
                     <button
                       key={option}
                       type="button"
                       onClick={() => {
-                        setFormData(isPressKeyAction(formData.action_type)
-                          ? { ...formData, values: option }
-                          : { ...formData, assertion_type: option });
+                        setFormData(
+                          isPressKeyAction(formData.action_type)
+                            ? { ...formData, values: option }
+                            : { ...formData, assertion_type: option }
+                        );
                         setOpenPressKeyPicker(null);
                       }}
                       className={`block w-full rounded px-3 py-2 text-left text-sm ${
                         (isPressKeyAction(formData.action_type)
                           ? (formData.values || 'ENTER')
-                          : getAssertionLabel(formData.assertion_type)) === option
+                          : isAssertionAction(formData.action_type)
+                            ? getAssertionLabel(formData.assertion_type)
+                            : getHandleLabel(formData.action_type, formData.assertion_type)) === option
                           ? 'bg-purple-100 text-purple-700'
                           : 'text-gray-700 hover:bg-purple-50'
                       }`}
                     >
-                      {option}
+                      {isHandleAction(formData.action_type) ? getHandleDisplayLabel(option) : option}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {openAutoGenFormatPicker === 'form' && (
+                <div className="absolute bottom-0 left-full z-20 ml-52 w-56 rounded-md border border-sky-200 bg-white p-1 shadow-lg">
+                  {getTemporalFormatOptions(formData.element_name).map((format) => (
+                    <button
+                      key={format}
+                      type="button"
+                      onClick={() => {
+                        setFormData((prev) => ({
+                          ...prev,
+                          values: generateTemporalValue(format),
+                          secondary_action: 'AUTO_GENERATE_VALUE',
+                          secondary_value: ''
+                        }));
+                        setOpenAutoGenFormatPicker(null);
+                      }}
+                      className="block w-full rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-sky-50"
+                    >
+                      {format}
                     </button>
                   ))}
                 </div>
@@ -665,8 +954,8 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                 {normalizeActionType(formData.action_type) === 'INCREMENT' && 'Use Values as step count (default 1) to increase counters.'}
                 {normalizeActionType(formData.action_type) === 'DECREMENT' && 'Use Values as step count (default 1) to decrease counters.'}
                 {normalizeActionType(formData.action_type) === 'CLICK' && 'Use for pure click actions where no selection/input is needed.'}
-                {normalizeActionType(formData.action_type) === 'CLICK_AND_TYPE' && 'Clicks the element and types the text from Values.'}
-                {normalizeActionType(formData.action_type) === 'CLEAR_AND_TYPE' && 'Clears existing/default value, then types Values.'}
+                {normalizeActionType(formData.action_type) === 'CLICK_AND_TYPE' && 'Clicks the element and types the text from Values. Auto-GenValue can insert smart text, or open a date/time format picker for temporal fields.'}
+                {normalizeActionType(formData.action_type) === 'CLEAR_AND_TYPE' && 'Clears existing/default value, then types Values. Auto-GenValue can insert smart text, or open a date/time format picker for temporal fields.'}
                 {normalizeActionType(formData.action_type) === 'READ_TEXT' && 'Reads visible text from the target. Optionally put expected text in Values.'}
                 {normalizeActionType(formData.action_type) === 'READ_VALUE' && 'Reads the input value from the target. Optionally put expected value in Values.'}
                 {normalizeActionType(formData.action_type) === 'READ_TOOLTIP' && 'Reads tooltip/title/aria-label text. Optionally put expected tooltip in Values.'}
@@ -675,6 +964,10 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                 {normalizeActionType(formData.action_type) === 'PASTE' && 'Pastes clipboard contents into the target, or pastes the text from Values when provided.'}
                 {normalizeActionType(formData.action_type) === 'UPLOAD_FILE' && 'Use Values as the file path to upload.'}
                 {normalizeActionType(formData.action_type) === 'DOWNLOAD_FILE' && 'Clicks the target to download a file. Optionally use Values as expected filename text.'}
+                {normalizeActionType(formData.action_type) === 'HANDLE' && getHandleLabel(formData.action_type, formData.assertion_type) === 'HANDLE_ALERT_DIALOG' && 'Use Values like accept, dismiss, contains=message, or text=prompt value.'}
+                {normalizeActionType(formData.action_type) === 'HANDLE' && getHandleLabel(formData.action_type, formData.assertion_type) === 'HANDLE_CONFIRMATION' && 'Use Values like accept or dismiss, and optionally contains=message to verify the confirmation text.'}
+                {normalizeActionType(formData.action_type) === 'HANDLE' && getHandleLabel(formData.action_type, formData.assertion_type) === 'HANDLE_NOTIFICATION' && 'Use XPath for a specific toast if available, or Values like contains=Saved, dismiss, or wait_gone.'}
+                {normalizeActionType(formData.action_type) === 'HANDLE' && getHandleLabel(formData.action_type, formData.assertion_type) === 'HANDLE_OS_DIALOG' && 'Use Values like file=C:\\\\path\\\\file.ext for chooser flows, or print / type=print for print dialog flows.'}
                 {normalizeActionType(formData.action_type) === 'VISUAL_ASSERTION' && 'Use Values like baseline=login_page;threshold=0.01 to compare the current screenshot with a stored baseline.'}
                 {normalizeActionType(formData.action_type) === 'DOUBLE_CLICK' && 'Performs a double click on the target element.'}
                 {normalizeActionType(formData.action_type) === 'RIGHT_CLICK' && 'Performs a context (right) click on the target element.'}
@@ -683,8 +976,46 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                 {normalizeActionType(formData.action_type) === 'DRAG_AND_DROP' && 'Use XPath as source and Values as target locator (or target=...).'}
                 {normalizeActionType(formData.action_type) === 'HANDLE_CHECKBOX' && 'Use Values: true/false, yes/no, or 1/0.'}
                 {normalizeActionType(formData.action_type) === 'PRESS_KEY' && 'Choose a key action from the dropdown. It will be stored in Values automatically.'}
+                {normalizeActionType(formData.action_type) === 'HANDLE' && 'Choose the handle target from the popup. Values stay available for dialog text, toast text, file path, or print mode.'}
                 {normalizeActionType(formData.action_type) === 'ASSERTION' && 'Choose an assertion type from the popup. Use Values for the expected text, URL, title, or attribute=value when needed.'}
               </p>
+            </div>
+            <div className="relative">
+              <label className="text-sm font-medium text-gray-600">Secondary Action</label>
+              <select
+                value={formData.secondary_action || ''}
+                onChange={(e) => applyFormSecondaryAction(e.target.value)}
+                className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-gray-900"
+              >
+                {SECONDARY_ACTION_OPTIONS.map((action) => (
+                  <option key={action || 'none'} value={action}>
+                    {getSecondaryActionDisplayLabel(action)}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-1 text-xs font-medium text-rose-700">
+                {formData.secondary_action === 'LOG_STEP'
+                  ? `Saved Log: ${formData.secondary_value || 'Click "Edit Log" to add message'}`
+                  : formData.secondary_action === 'AUTO_GENERATE_VALUE'
+                    ? 'Generates a matching value directly into the Values box.'
+                  : formData.secondary_action === 'TAKE_SCREENSHOT'
+                    ? 'A screenshot will be captured after the primary action finishes.'
+                    : 'Optional follow-up action after the main step.'}
+              </div>
+              {formData.secondary_action === 'LOG_STEP' && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 border-rose-200 text-rose-700 hover:bg-rose-50"
+                  onClick={() => {
+                    setSecondaryLogDraft(formData.secondary_value || '');
+                    setOpenSecondaryLogEditor('form');
+                  }}
+                >
+                  Edit Log
+                </Button>
+              )}
             </div>
             <div className="col-span-2">
               <label className="text-sm font-medium text-gray-600">Locator (XPath/CSS/ID)</label>
@@ -703,7 +1034,7 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
               <Input
                 value={formData.values}
                 onChange={(e) => setFormData({ ...formData, values: e.target.value })}
-                placeholder={isPressKeyAction(formData.action_type) ? "Selected from key dropdown" : isAssertionAction(formData.action_type) ? "Expected text / URL / title / attribute=value" : "Enter values if needed"}
+                placeholder={isPressKeyAction(formData.action_type) ? "Selected from key dropdown" : isAssertionAction(formData.action_type) ? "Expected text / URL / title / attribute=value" : isHandleAction(formData.action_type) ? "accept; contains=... / file=... / print" : "Enter values if needed"}
                 className="bg-gray-50 border-gray-200 text-gray-900"
                 disabled={isPressKeyAction(formData.action_type)}
               />
@@ -717,6 +1048,70 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
               </Button>
               <Button onClick={handleCreateStep} className="bg-gradient-to-r from-blue-500 to-indigo-500">
                 {editingStep ? 'Update Step' : 'Add Step'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={openSecondaryLogEditor === 'form'} onOpenChange={(open) => {
+        if (!open) {
+          setOpenSecondaryLogEditor(null);
+          setSecondaryLogDraft('');
+        }
+      }}>
+        <DialogContent className="bg-white border-gray-200 max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-gray-900">Log Step Message</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Textarea
+              value={secondaryLogDraft}
+              onChange={(e) => setSecondaryLogDraft(e.target.value)}
+              placeholder="Type the custom message to save after the main action completes"
+              className="min-h-[140px] bg-gray-50 border-gray-200 text-gray-900"
+            />
+            <div className="flex justify-end space-x-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-red-200 text-red-600 hover:bg-red-50"
+                onClick={() => {
+                  setFormData({
+                    ...formData,
+                    secondary_action: '',
+                    secondary_value: ''
+                  });
+                  setOpenSecondaryLogEditor(null);
+                  setSecondaryLogDraft('');
+                }}
+              >
+                Delete
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setOpenSecondaryLogEditor(null);
+                  setSecondaryLogDraft('');
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="bg-gradient-to-r from-rose-500 to-orange-500"
+                onClick={() => {
+                  setFormData({
+                    ...formData,
+                    secondary_action: 'LOG_STEP',
+                    secondary_value: secondaryLogDraft
+                  });
+                  setOpenSecondaryLogEditor(null);
+                  setSecondaryLogDraft('');
+                }}
+              >
+                Save Log
               </Button>
             </div>
           </div>
@@ -811,7 +1206,7 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                           <select
                                   value={normalizeActionType(step.action_type)}
                                   onChange={(e) => updateGridStep(step.id, 'action_type', e.target.value)}
-                            onClick={() => (isPressKeyAction(step.action_type) || isAssertionAction(step.action_type)) && setOpenPressKeyPicker(step.id)}
+                            onClick={() => (isPressKeyAction(step.action_type) || isAssertionAction(step.action_type) || isHandleAction(step.action_type)) && setOpenPressKeyPicker(step.id)}
                             className="w-full h-8 text-xs bg-white border border-gray-200 rounded-md px-2"
                           >
                             {ACTION_TYPES.map(action => (
@@ -828,9 +1223,14 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                               Assertion: {getAssertionLabel(step.assertion_type)}
                             </div>
                           )}
-                          {(isPressKeyAction(step.action_type) || isAssertionAction(step.action_type)) && openPressKeyPicker === step.id && (
+                          {isHandleAction(step.action_type) && (
+                            <div className="mt-1 text-[11px] font-medium text-emerald-700">
+                              Handle: {getHandleLabel(step.action_type, step.assertion_type)}
+                            </div>
+                          )}
+                          {(isPressKeyAction(step.action_type) || isAssertionAction(step.action_type) || isHandleAction(step.action_type)) && openPressKeyPicker === step.id && (
                             <div className="absolute bottom-0 left-full z-20 ml-2 w-44 rounded-md border border-gray-200 bg-white p-1 shadow-lg">
-                              {(isPressKeyAction(step.action_type) ? PRESS_KEY_OPTIONS : ASSERTION_OPTIONS).map((option) => (
+                              {(isPressKeyAction(step.action_type) ? PRESS_KEY_OPTIONS : isAssertionAction(step.action_type) ? ASSERTION_OPTIONS : HANDLE_OPTIONS).map((option) => (
                                 <button
                                   key={option}
                                   type="button"
@@ -845,7 +1245,9 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                                   className={`block w-full rounded px-2 py-1.5 text-left text-xs ${
                                     (isPressKeyAction(step.action_type)
                                       ? (step.values || 'ENTER')
-                                      : getAssertionLabel(step.assertion_type)) === option
+                                      : isAssertionAction(step.action_type)
+                                        ? getAssertionLabel(step.assertion_type)
+                                        : getHandleLabel(step.action_type, step.assertion_type)) === option
                                       ? 'bg-purple-100 text-purple-700'
                                       : 'text-gray-700 hover:bg-purple-50'
                                   }`}
@@ -853,6 +1255,40 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                                   {option}
                                 </button>
                               ))}
+                            </div>
+                          )}
+                          <select
+                            value={step.secondary_action || ''}
+                            onChange={(e) => applyGridSecondaryAction(step.id, e.target.value, step.element_name, step.secondary_value || '')}
+                            className="mt-2 w-full h-8 text-xs bg-white border border-rose-200 rounded-md px-2 text-gray-900"
+                          >
+                            {SECONDARY_ACTION_OPTIONS.map((action) => (
+                              <option key={action || 'none'} value={action}>
+                                {getSecondaryActionDisplayLabel(action)}
+                              </option>
+                            ))}
+                          </select>
+                          {step.secondary_action === 'LOG_STEP' && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="mt-2 h-7 border-rose-200 px-2 text-[11px] text-rose-700 hover:bg-rose-50"
+                              onClick={() => {
+                                setSecondaryLogDraft(step.secondary_value || '');
+                                setOpenSecondaryLogEditor(step.id);
+                              }}
+                            >
+                              {step.secondary_value ? 'Edit Log' : 'Add Log'}
+                            </Button>
+                          )}
+                          {step.secondary_action && (
+                            <div className="mt-1 text-[11px] font-medium text-rose-700">
+                              {step.secondary_action === 'LOG_STEP'
+                                ? (step.secondary_value || 'No log message saved yet')
+                                : step.secondary_action === 'AUTO_GENERATE_VALUE'
+                                  ? 'Generates a matching value directly into the Values box'
+                                : 'Screenshot will be taken after the main action'}
                             </div>
                           )}
                         </div>
@@ -870,7 +1306,7 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
                           value={step.values}
                           onChange={(e) => updateGridStep(step.id, 'values', e.target.value)}
                           className="h-8 text-xs"
-                          placeholder={isPressKeyAction(step.action_type) ? "Selected from key dropdown" : "Values"}
+                          placeholder={isPressKeyAction(step.action_type) ? "Selected from key dropdown" : isHandleAction(step.action_type) ? "accept; contains=... / file=... / print" : "Values"}
                           disabled={isPressKeyAction(step.action_type)}
                         />
                       </td>
@@ -988,6 +1424,68 @@ const TestConfigDashboard: React.FC<TestConfigDashboardProps> = ({
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={typeof openSecondaryLogEditor === 'number'} onOpenChange={(open) => {
+        if (!open) {
+          setOpenSecondaryLogEditor(null);
+          setSecondaryLogDraft('');
+        }
+      }}>
+        <DialogContent className="bg-white border-gray-200 max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-gray-900">Grid Log Step Message</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Textarea
+              value={secondaryLogDraft}
+              onChange={(e) => setSecondaryLogDraft(e.target.value)}
+              placeholder="Type the custom message to save after the main action completes"
+              className="min-h-[140px] bg-gray-50 border-gray-200 text-gray-900"
+            />
+            <div className="flex justify-end space-x-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-red-200 text-red-600 hover:bg-red-50"
+                onClick={() => {
+                  if (typeof openSecondaryLogEditor === 'number') {
+                    updateGridStep(openSecondaryLogEditor, 'secondary_action', '');
+                    updateGridStep(openSecondaryLogEditor, 'secondary_value', '');
+                  }
+                  setOpenSecondaryLogEditor(null);
+                  setSecondaryLogDraft('');
+                }}
+              >
+                Delete
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setOpenSecondaryLogEditor(null);
+                  setSecondaryLogDraft('');
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="bg-gradient-to-r from-rose-500 to-orange-500"
+                onClick={() => {
+                  if (typeof openSecondaryLogEditor === 'number') {
+                    updateGridStep(openSecondaryLogEditor, 'secondary_action', 'LOG_STEP');
+                    updateGridStep(openSecondaryLogEditor, 'secondary_value', secondaryLogDraft);
+                  }
+                  setOpenSecondaryLogEditor(null);
+                  setSecondaryLogDraft('');
+                }}
+              >
+                Save Log
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Navigation */}
       <div className="flex justify-between items-center">

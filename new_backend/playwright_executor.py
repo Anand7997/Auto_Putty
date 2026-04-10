@@ -9,11 +9,13 @@ import os
 import sys
 import json
 import allure
+import random
+import string
 
 import os
 
 class PlaywrightTestExecutor:
-    def __init__(self, enable_isolation=True, safe_field_interaction=True, server_execution=False, vnc_session=None, display_id=None):
+    def __init__(self, enable_isolation=True, safe_field_interaction=True, server_execution=False, vnc_session=None, display_id=None, browser_name=None):
         self.playwright: Playwright = None
         self.browser: Browser = None
         self.context: BrowserContext = None
@@ -27,6 +29,8 @@ class PlaywrightTestExecutor:
         self.server_execution = server_execution
         self.vnc_session = vnc_session
         self.display_id = display_id  # VNC-assigned display ID
+        normalized_browser = str(browser_name or "chromium").strip().lower()
+        self.browser_name = normalized_browser if normalized_browser in {"chromium", "firefox", "webkit"} else "chromium"
         
         # Set DISPLAY environment variable using VNC-assigned display
         if self.display_id:
@@ -42,12 +46,16 @@ class PlaywrightTestExecutor:
         self._last_count_action_state = None
         self._last_drag_drop_state = None
         self._last_read_result = None
+        self._active_dialog = None
+        self._last_dialog_details = None
+        self._runtime_generated_values = {}
         self.download_dir = os.path.join(os.getcwd(), "downloads", "playwright")
         os.makedirs(self.download_dir, exist_ok=True)
         self.visual_baseline_dir = os.path.join(os.getcwd(), "visual-baselines", "playwright")
         os.makedirs(self.visual_baseline_dir, exist_ok=True)
 
         print(f"[INIT] Playwright Test Executor initialized with isolation mode: {'ENABLED' if enable_isolation else 'DISABLED'}")
+        print(f"[INIT] Browser target: {self.browser_name}")
         print(f"[INIT] Safe field interaction mode: {'ENABLED' if safe_field_interaction else 'DISABLED'}")
         print(f"[INIT] VNC session: {'AVAILABLE' if vnc_session else 'NONE'}")
         print(f"[INIT] Default wait timeout: {self.default_wait_timeout}s")
@@ -224,7 +232,7 @@ class PlaywrightTestExecutor:
             print(f"[ALLURE_HISTORY] Error managing allure results: {str(e)}")
 
     def launch_browser(self):
-        """Launch Chromium browser using Playwright."""
+        """Launch the configured Playwright browser."""
         if self.browser and self.browser.is_connected():
             print("[BROWSER] Browser already running and connected.")
             return True
@@ -239,7 +247,7 @@ class PlaywrightTestExecutor:
                 print(f"[INIT] Headless DISABLED because VNC/streaming is enabled")
             else:
                 headless_mode = self.server_execution
-            print(f"[ROCKET] Launching Chromium browser (headless={headless_mode})...")
+            print(f"[ROCKET] Launching {self.browser_name} browser (headless={headless_mode})...")
 
             launch_args = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
             if headless_mode:
@@ -277,7 +285,8 @@ class PlaywrightTestExecutor:
             else:
                 launch_args.append("--window-size=1280,720")
 
-            self.browser = self.playwright.chromium.launch(
+            browser_launcher = getattr(self.playwright, self.browser_name)
+            self.browser = browser_launcher.launch(
                 headless=headless_mode,
                 args=launch_args,
                 downloads_path=self.download_dir,
@@ -297,8 +306,10 @@ class PlaywrightTestExecutor:
             self.page.set_default_timeout(self.default_wait_timeout * 1000)
             self.page.set_default_navigation_timeout(self.default_step_timeout * 1000)
             self.initial_page = self.page
+            self._attach_page_handlers(self.page)
+            self.context.on("page", self._handle_new_page)
 
-            print("[SUCCESS] Playwright browser launched successfully!")
+            print(f"[SUCCESS] Playwright {self.browser_name} browser launched successfully!")
             return True
 
         except Exception as e:
@@ -363,6 +374,39 @@ class PlaywrightTestExecutor:
             print(f"[ERROR] Failed to save screenshot: {str(e)}")
             return None
 
+    def execute_secondary_action(self, step, step_number, step_result):
+        """Execute an optional follow-up action after the primary step succeeds."""
+        secondary_action = str(step.get('secondary_action', '') or '').strip().upper()
+        secondary_value = str(step.get('secondary_value', '') or '').strip()
+        step_result['secondary_action'] = secondary_action
+        step_result['secondary_value'] = secondary_value
+
+        if not secondary_action:
+            return
+
+        try:
+            if secondary_action == 'LOG_STEP':
+                message = secondary_value or f"Secondary log recorded after step {step_number}"
+                print(f"[SECONDARY_LOG] Step {step_number}: {message}")
+                allure.attach(
+                    message,
+                    name=f"Secondary Log Step {step_number}",
+                    attachment_type=allure.attachment_type.TEXT
+                )
+                step_result['secondary_status'] = 'PASS'
+            elif secondary_action == 'TAKE_SCREENSHOT':
+                screenshot = self.save_screenshot(f"After_Step_{step_number}_SECONDARY", step_number, "secondary")
+                if screenshot:
+                    step_result['secondary_screenshot'] = screenshot.get('source')
+                step_result['secondary_status'] = 'PASS'
+            else:
+                step_result['secondary_status'] = 'SKIPPED'
+                step_result['secondary_error'] = f"Unsupported secondary action: {secondary_action}"
+        except Exception as secondary_error:
+            step_result['secondary_status'] = 'FAIL'
+            step_result['secondary_error'] = str(secondary_error)
+            print(f"[SECONDARY_ERROR] Step {step_number} secondary action failed: {secondary_error}")
+
     @allure.feature("Test Execution")
     def execute_test_case(self, testcase_name, test_steps, test_metadata=None):
         """Execute a test case with the provided steps and metadata using Playwright."""
@@ -386,7 +430,7 @@ class PlaywrightTestExecutor:
             'end_time': None,
             'error_message': '',
             'step_results': [],
-            'browser_info': 'Playwright/Chromium'
+            'browser_info': f"Playwright/{self.browser_name.capitalize()}"
         }
         
         if test_metadata:
@@ -506,6 +550,8 @@ class PlaywrightTestExecutor:
             'action_type': normalized_action_type,
             'xpath': step.get('xpath', ''),
             'values': step.get('values', ''),
+            'secondary_action': step.get('secondary_action', ''),
+            'secondary_value': step.get('secondary_value', ''),
             'status': 'UNKNOWN',
             'error': '',
             'error_message': '',
@@ -545,6 +591,7 @@ class PlaywrightTestExecutor:
                 validation = self.validate_action_result(action_type, test_data, xpath, element_name, assertion_type)
                 if validation.get('success', False):
                     step_result['status'] = 'PASS'
+                    self.execute_secondary_action(step, step_number, step_result)
                     print(f"[SUCCESS] Step {step_number} completed successfully")
                 else:
                     raise Exception(validation.get('message', 'Action post-validation failed'))
@@ -581,8 +628,9 @@ class PlaywrightTestExecutor:
 
     def execute_action(self, action_type, test_data, xpath, element_name, assertion_type=None):
         """Execute a specific action using Playwright."""
-        action_type = self.normalize_action_type(action_type)
+        action_type = self.resolve_action_type(action_type, assertion_type)
         element_name = element_name or ""
+        test_data = self.resolve_runtime_test_data(action_type, test_data, element_name, xpath)
         test_data_text = str(test_data or "")
         print(f"[ACTION] Executing: {action_type} on '{element_name}' with data: '{test_data}'")
 
@@ -734,6 +782,18 @@ class PlaywrightTestExecutor:
         elif action_type in ["PRESS_KEY", "KEY"]:
             self.handle_press_key_action(test_data)
 
+        elif action_type == "HANDLE_ALERT_DIALOG":
+            self.handle_browser_dialog_action(test_data, expected_types={"alert", "beforeunload", "prompt"})
+
+        elif action_type == "HANDLE_CONFIRMATION":
+            self.handle_browser_dialog_action(test_data, expected_types={"confirm"})
+
+        elif action_type == "HANDLE_NOTIFICATION":
+            self.handle_notification_action(xpath, test_data, element_name)
+
+        elif action_type == "HANDLE_OS_DIALOG":
+            self.handle_os_dialog_action(xpath, test_data, element_name)
+
         elif action_type == "ASSERTION":
             print(f"[ACTION] Assertion step prepared for {element_name} ({self.normalize_assertion_type(assertion_type)})")
 
@@ -810,8 +870,238 @@ class PlaywrightTestExecutor:
             "SWITCH_TO_DEFAULT_FRAME": "SWITCH_TO_DEFAULT_CONTENT",
             "SWITCH_TO_MAIN_CONTENT": "SWITCH_TO_DEFAULT_CONTENT",
             "SWITCH_DEFAULT_CONTENT": "SWITCH_TO_DEFAULT_CONTENT",
+            "HANDLE_ALERT": "HANDLE_ALERT_DIALOG",
+            "HANDLE_DIALOG": "HANDLE_ALERT_DIALOG",
+            "HANDLE_POPUP": "HANDLE_ALERT_DIALOG",
+            "HANDLE_CONFIRM": "HANDLE_CONFIRMATION",
+            "HANDLE_CONFIRM_BOX": "HANDLE_CONFIRMATION",
+            "HANDLE_CONFIRMATION_BOX": "HANDLE_CONFIRMATION",
+            "HANDLE_NOTIFICATION_TOAST": "HANDLE_NOTIFICATION",
+            "HANDLE_TOAST": "HANDLE_NOTIFICATION",
+            "HANDLE_NOTIFICATIONS": "HANDLE_NOTIFICATION",
+            "HANDLE_OS_DIALOGS": "HANDLE_OS_DIALOG",
+            "HANDLE_FILE_CHOOSER": "HANDLE_OS_DIALOG",
+            "HANDLE_PRINT_DIALOG": "HANDLE_OS_DIALOG",
         }
         return alias_map.get(normalized, normalized)
+
+    def resolve_action_type(self, action_type, assertion_type=None):
+        normalized = self.normalize_action_type(action_type)
+        if normalized != "HANDLE":
+            return normalized
+        handle_type = re.sub(r"[\s\-/]+", "_", str(assertion_type or "").upper().strip())
+        if handle_type in {"HANDLE_ALERT_DIALOG", "HANDLE_CONFIRMATION", "HANDLE_NOTIFICATION", "HANDLE_OS_DIALOG"}:
+            return handle_type
+        return "HANDLE_ALERT_DIALOG"
+
+    def _attach_page_handlers(self, page):
+        try:
+            page.on("dialog", self._capture_dialog_event)
+        except Exception as handler_error:
+            print(f"[DIALOG] Failed to attach dialog handler: {handler_error}")
+
+    def _handle_new_page(self, page):
+        try:
+            self._attach_page_handlers(page)
+        except Exception as page_error:
+            print(f"[PAGE] Failed to attach handlers to new page: {page_error}")
+
+    def _capture_dialog_event(self, dialog):
+        try:
+            self._active_dialog = dialog
+            self._last_dialog_details = {
+                "type": dialog.type,
+                "message": dialog.message or "",
+                "default_value": dialog.default_value or "",
+            }
+            print(f"[DIALOG] Captured {dialog.type} dialog: {dialog.message}")
+        except Exception as dialog_error:
+            print(f"[DIALOG] Failed to capture dialog details: {dialog_error}")
+
+    def _parse_action_directives(self, raw_value):
+        directives = {}
+        text = str(raw_value or "").strip()
+        if not text:
+            return directives
+        for part in [segment.strip() for segment in text.split(";") if segment.strip()]:
+            if "=" in part:
+                key, value = part.split("=", 1)
+                directives[key.strip().lower()] = value.strip()
+            else:
+                directives[part.strip().lower()] = True
+        return directives
+
+    def handle_browser_dialog_action(self, test_data, expected_types=None):
+        directives = self._parse_action_directives(test_data)
+        action_mode = "dismiss" if any(key in directives for key in ["dismiss", "reject", "cancel"]) else "accept"
+        expected_text = directives.get("contains") or directives.get("message")
+        prompt_text = directives.get("text") or directives.get("prompt")
+        wait_seconds = int(directives.get("timeout", self.default_wait_timeout) or self.default_wait_timeout)
+
+        deadline = time.time() + max(wait_seconds, 1)
+        while time.time() < deadline and not self._active_dialog:
+            self.page.wait_for_timeout(200)
+
+        dialog = self._active_dialog
+        if not dialog:
+            raise Exception("No active browser dialog found")
+
+        dialog_type = (dialog.type or "").lower()
+        if expected_types and dialog_type not in expected_types:
+            raise Exception(f"Expected dialog type {expected_types}, found {dialog_type}")
+
+        message = dialog.message or ""
+        if expected_text and expected_text.lower() not in message.lower():
+            raise Exception(f'Dialog text mismatch. Expected "{expected_text}" in "{message}"')
+
+        if action_mode == "dismiss":
+            dialog.dismiss()
+        elif dialog_type == "prompt" and prompt_text is not None:
+            dialog.accept(prompt_text)
+        else:
+            dialog.accept()
+
+        self._last_dialog_details = {
+            "type": dialog_type,
+            "message": message,
+            "action": action_mode,
+            "prompt_text": prompt_text or "",
+        }
+        self._active_dialog = None
+        print(f"[DIALOG] {action_mode.title()}ed {dialog_type} dialog: {message}")
+
+    def handle_notification_action(self, xpath, test_data, element_name):
+        directives = self._parse_action_directives(test_data)
+        notification_text = directives.get("contains") or directives.get("text") or (str(test_data or "").strip() if "=" not in str(test_data or "") else "")
+        dismiss_requested = any(key in directives for key in ["dismiss", "close"])
+        wait_gone = "wait_gone" in directives or "gone" in directives
+
+        selectors = []
+        if str(xpath or "").strip() and str(xpath).strip().upper() != "NA":
+            selectors.append(self.normalize_selector(xpath))
+        selectors.extend([
+            "[role='alert']",
+            "[role='status']",
+            ".toast",
+            ".notification",
+            ".snackbar",
+            "[data-testid*='toast']",
+            "[class*='toast']",
+            "[class*='notification']",
+        ])
+
+        locator = None
+        for selector in selectors:
+            candidate = self._locator(selector).first
+            try:
+                candidate.wait_for(state="visible", timeout=2000)
+                locator = candidate
+                break
+            except Exception:
+                continue
+
+        if not locator:
+            if wait_gone:
+                print(f"[NOTIFICATION] No visible notification for {element_name}; treated as already gone")
+                return
+            raise Exception(f'Notification/toast not found for "{element_name}"')
+
+        content = (locator.inner_text(timeout=2000) or "").strip()
+        if notification_text and notification_text.lower() not in content.lower():
+            raise Exception(f'Notification text mismatch. Expected "{notification_text}" in "{content}"')
+
+        if dismiss_requested:
+            close_button = locator.locator("button,[aria-label*='close' i],[data-dismiss],[class*='close']").first
+            if close_button.count() > 0:
+                close_button.click(force=True, timeout=3000)
+            else:
+                self.page.keyboard.press("Escape")
+
+        if wait_gone or dismiss_requested:
+            locator.wait_for(state="hidden", timeout=self.default_wait_timeout * 1000)
+
+        self._last_read_result = {"type": "notification", "value": content}
+        print(f"[NOTIFICATION] Handled notification for {element_name}: {content}")
+
+    def handle_os_dialog_action(self, xpath, test_data, element_name):
+        directives = self._parse_action_directives(test_data)
+        raw_value = str(test_data or "").strip()
+        dialog_type = (directives.get("type") or "").lower()
+        file_path = directives.get("file") or (raw_value if raw_value and "=" not in raw_value and raw_value.lower() not in ["print", "print_dialog", "print_preview"] else "")
+
+        if dialog_type in ["print", "print_dialog", "print_preview"] or raw_value.lower() in ["print", "print_dialog", "print_preview"]:
+            self.page.evaluate("window.__printDialogRequested = true; window.print();")
+            self._last_read_result = {"type": "os_dialog", "value": "print_dialog_requested"}
+            print(f"[OS_DIALOG] Triggered print dialog flow for {element_name}")
+            return
+
+        if file_path:
+            target = self.find_element_with_advanced_wait(xpath)
+            self._upload_file_to_locator(target, file_path)
+            self._last_read_result = {"type": "os_dialog", "value": file_path}
+            print(f"[OS_DIALOG] Handled file chooser for {element_name}: {file_path}")
+            return
+
+        raise Exception("HANDLE_OS_DIALOG requires Values like file=path or print")
+
+    def _build_runtime_value_key(self, action_type, element_name, xpath):
+        return f"{str(action_type or '').strip().upper()}|{str(element_name or '').strip().lower()}|{str(xpath or '').strip()}"
+
+    def _infer_random_value_from_element_name(self, element_name):
+        normalized_name = re.sub(r"[^a-z0-9]+", " ", str(element_name or "").lower()).strip()
+        if not normalized_name:
+            return None
+
+        timestamp_token = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%m%d%H%M%S")
+        short_token = ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
+        suffix = f"{timestamp_token}{short_token}"
+
+        if any(keyword in normalized_name for keyword in ["timestamp", "date time", "datetime", "time stamp", "created at", "updated at", "created on", "updated on"]):
+            return datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d %H:%M:%S")
+        if any(keyword in normalized_name for keyword in ["date", "booking date", "start date", "end date", "created date", "updated date"]):
+            return datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d")
+        if any(keyword in normalized_name for keyword in ["time", "start time", "end time", "login time"]):
+            return datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M:%S")
+        if any(keyword in normalized_name for keyword in ["email", "e mail", "mail id", "email id"]):
+            return f"autouser_{suffix}@example.com"
+        if any(keyword in normalized_name for keyword in ["username", "user name", "userid", "user id", "login id", "login"]):
+            return f"autouser_{suffix}"
+        if any(keyword in normalized_name for keyword in ["phone", "mobile", "contact number", "phone number", "mobile number"]):
+            return f"9{random.randint(100000000, 999999999)}"
+        if any(keyword in normalized_name for keyword in ["first name", "firstname", "given name"]):
+            return f"Auto{suffix[-6:]}"
+        if any(keyword in normalized_name for keyword in ["last name", "lastname", "surname", "family name"]):
+            return f"User{suffix[-6:]}"
+        if any(keyword in normalized_name for keyword in ["full name", "customer name", "display name", "name"]):
+            return f"Auto User {suffix[-4:]}"
+        if any(keyword in normalized_name for keyword in ["password", "passcode", "passwd", "pin"]):
+            return f"Qa@{suffix}!"
+        return None
+
+    def resolve_runtime_test_data(self, action_type, test_data, element_name, xpath=None):
+        normalized_action = self.resolve_action_type(action_type, None)
+        if normalized_action not in {"CLICK_AND_TYPE", "CLEAR_AND_TYPE"}:
+            return test_data
+
+        raw_value = "" if test_data is None else str(test_data)
+        stripped_value = raw_value.strip()
+        auto_tokens = {"", "auto", "random", "auto_generate", "autogenerate", "generate", "generate_random_data", "random_data"}
+        if stripped_value.lower() not in auto_tokens:
+            return test_data
+
+        cache_key = self._build_runtime_value_key(normalized_action, element_name, xpath)
+        cached_value = self._runtime_generated_values.get(cache_key)
+        if cached_value:
+            return cached_value
+
+        generated_value = self._infer_random_value_from_element_name(element_name)
+        if generated_value is None:
+            return test_data
+
+        self._runtime_generated_values[cache_key] = generated_value
+        self._last_read_result = {"type": "generated_input", "value": generated_value}
+        print(f"[AUTO_DATA] Generated runtime value for {element_name}: {generated_value}")
+        return generated_value
 
     def _normalize_press_key_value(self, key_value):
         raw = str(key_value or "").strip()
@@ -3485,8 +3775,9 @@ class PlaywrightTestExecutor:
 
     def validate_action_result(self, action_type, test_data, xpath, element_name, assertion_type=None):
         """Best-effort post-action validation for key interaction types."""
-        action_type = self.normalize_action_type(action_type)
+        action_type = self.resolve_action_type(action_type, assertion_type)
         element_name = element_name or "unnamed_element"
+        test_data = self.resolve_runtime_test_data(action_type, test_data, element_name, xpath)
         try:
             if action_type in ["OPEN_BROWSER", "NAVIGATE_TO_URL", "REFRESH_PAGE", "GO_BACK", "GO_FORWARD"]:
                 if self.page and self.page.url:
@@ -3621,6 +3912,24 @@ class PlaywrightTestExecutor:
                     return {'success': True, 'message': f'{action_type} completed for "{element_name}"'}
                 return {'success': False, 'message': f'{action_type} produced no readable value for "{element_name}"'}
 
+            if action_type in ["HANDLE_ALERT_DIALOG", "HANDLE_CONFIRMATION"]:
+                dialog_details = self._last_dialog_details or {}
+                message = dialog_details.get("message", "")
+                expected = str(test_data or "").strip()
+                if "contains=" in expected:
+                    expected = expected.split("contains=", 1)[1].split(";", 1)[0].strip()
+                if expected and "=" not in expected and expected.lower() not in ["accept", "dismiss", "cancel", "reject"] and expected.lower() not in message.lower():
+                    return {'success': False, 'message': f'Expected dialog text containing "{expected}", but found "{message}"'}
+                return {'success': True, 'message': f'{action_type} handled: {message or "dialog processed"}'}
+
+            if action_type == "HANDLE_NOTIFICATION":
+                value = ((self._last_read_result or {}).get("value") or "").strip()
+                return {'success': True, 'message': f'Notification handled for "{element_name}": {value or "toast processed"}'}
+
+            if action_type == "HANDLE_OS_DIALOG":
+                value = ((self._last_read_result or {}).get("value") or "").strip()
+                return {'success': True, 'message': f'OS dialog workflow completed for "{element_name}": {value or "processed"}'}
+
             if action_type in ["CLICK", "DOUBLE_CLICK", "RIGHT_CLICK", "MOUSE_OVER"]:
                 transient_click_targets = {"DONE", "DONEBUTTON", "TRAVELCLASS", "CLASS"}
                 if action_type == "CLICK" and element_name.upper() in transient_click_targets:
@@ -3698,8 +4007,9 @@ class PlaywrightTestExecutor:
 
     def pre_validate_action(self, action_type, test_data, xpath, element_name, assertion_type=None):
         """Validate action inputs before execution with generic selector checks."""
-        action_type = self.normalize_action_type(action_type)
+        action_type = self.resolve_action_type(action_type, assertion_type)
         element_name = (element_name or "").strip() or "unnamed_element"
+        test_data = self.resolve_runtime_test_data(action_type, test_data, element_name, xpath)
         try:
             if not action_type:
                 return {'success': False, 'message': f'Action type is empty for "{element_name}"'}
@@ -3727,6 +4037,9 @@ class PlaywrightTestExecutor:
                 "DOWNLOAD_FILE",
                 "VISUAL_ASSERTION",
             ]
+
+            if action_type in ["HANDLE_NOTIFICATION", "HANDLE_OS_DIALOG"] and str(xpath or "").strip() and str(xpath).strip().upper() != "NA":
+                locator_required_actions.append(action_type)
 
             if action_type == "ASSERTION" and self._assertion_requires_locator(self.normalize_assertion_type(assertion_type)):
                 locator_required_actions.append("ASSERTION")
@@ -3759,6 +4072,14 @@ class PlaywrightTestExecutor:
 
             if action_type == "UPLOAD_FILE" and test_data in [None, ""]:
                 return {'success': False, 'message': f'UPLOAD_FILE requires a file path for "{element_name}"'}
+
+            if action_type == "HANDLE_OS_DIALOG":
+                directives = self._parse_action_directives(test_data)
+                raw_value = str(test_data or "").strip().lower()
+                file_path = directives.get("file") or (str(test_data or "").strip() if str(test_data or "").strip() and "=" not in str(test_data or "") and raw_value not in ["print", "print_dialog", "print_preview"] else "")
+                is_print = directives.get("type", "").lower() in ["print", "print_dialog", "print_preview"] or raw_value in ["print", "print_dialog", "print_preview"]
+                if not file_path and not is_print:
+                    return {'success': False, 'message': f'HANDLE_OS_DIALOG requires file=path or print for "{element_name}"'}
 
             if action_type == "DRAG_AND_DROP":
                 target_locator = self._parse_drag_drop_target_locator(test_data)

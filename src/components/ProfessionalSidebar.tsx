@@ -79,7 +79,7 @@ const automationSections = [
     shortTitle: 'Automation Development',
     group: 'Dashboard Types',
     icon: Code,
-    railIcon: FolderOpen,
+    railIcon: Code,
     isPlaceholder: false,
     quickActions: [
       { id: 'dev-projects', title: 'Projects', icon: Database },
@@ -112,7 +112,9 @@ const automationSections = [
     isPlaceholder: false,
     quickActions: [
       { id: 'execution-history', title: 'Execution History', icon: History },
+      { id: 'custom-dashboard', title: 'Overall Reports', icon: LayoutDashboard },
       { id: 'allure-reports', title: 'Allure Reports', icon: FileText },
+      { id: 'extent-reports', title: 'Extent Reports', icon: FileSearch },
       { id: 'analytics', title: 'Analytics', icon: TrendingUp },
     ],
   },
@@ -161,8 +163,8 @@ export function ProfessionalSidebar({
   const isCollapsed = state === 'collapsed';
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [searchQuery, setSearchQuery] = useState('');
-  const [expandedSections, setExpandedSections] = useState<string[]>(['requirements']);
-  const [activeSections, setActiveSections] = useState<string[]>(['requirements']);
+  const [expandedSections, setExpandedSections] = useState<string[]>([]);
+  const [activeSections, setActiveSections] = useState<string[]>([]);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('qfast-theme');
@@ -220,7 +222,6 @@ export function ProfessionalSidebar({
   };
 
   const railItems = [
-    { id: 'home', icon: Home, onClick: () => onHomeClick?.(), active: false, label: 'Home' },
     ...automationSections.map((section) => ({
       id: section.id,
       icon: section.railIcon,
@@ -254,7 +255,7 @@ export function ProfessionalSidebar({
             onClick={() => onHomeClick?.()}
             title="Dashboard home"
           >
-            <LayoutDashboard className="h-5 w-5" />
+            <Home className="h-5 w-5" />
           </button>
 
           <div className="flex flex-1 flex-col items-center gap-3">

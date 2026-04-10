@@ -65,6 +65,7 @@ class ServerExecutionManager:
         test_cases,
         selected_suites,
         executor_type="selenium",
+        browser_name="",
         enable_isolation=True,
         enable_parallel=False,
         max_concurrent=3,
@@ -76,6 +77,7 @@ class ServerExecutionManager:
         self.test_cases = test_cases
         self.selected_suites = selected_suites
         self.executor_type = executor_type
+        self.browser_name = str(browser_name or "").strip().lower()
         self.enable_isolation = enable_isolation
         self.enable_parallel = enable_parallel
         self.max_concurrent = max_concurrent
@@ -269,6 +271,7 @@ class ServerExecutionManager:
                 server_execution=True,
                 vnc_session=self.vnc_session if (self.enable_streaming and not self.vnc_failed) else None,
                 display_id=display_id,
+                browser_name=self.browser_name,
             )
 
         elif self.executor_type == "cypress":
@@ -277,6 +280,7 @@ class ServerExecutionManager:
                 server_execution=True,
                 vnc_session=self.vnc_session if (self.enable_streaming and not self.vnc_failed) else None,
                 display_id=display_id,
+                browser_name=self.browser_name,
             )
 
         else:
@@ -287,6 +291,7 @@ class ServerExecutionManager:
                 headless=True if self.vnc_failed else None,
                 vnc_session=self.vnc_session if (self.enable_streaming and not self.vnc_failed) else None,
                 display_id=display_id,
+                browser_name=self.browser_name,
             )
 
         if self.enable_parallel:
@@ -390,6 +395,7 @@ class ServerExecutionManager:
                 "testrun_id": testrun_id,
                 "result_id": result_id,
                 "run_id": test_case.get("run_id"),
+                "browser_name": self.browser_name,
             }
 
             result = self.executor.execute_test_case(
@@ -422,6 +428,7 @@ class ServerExecutionManager:
 
             result["execution_id"] = self.execution_id
             result["executor_type"] = self.executor_type
+            result["browser_name"] = self.browser_name
             result["suite_type"] = suite_type
             result["module_name"] = module_name
             result["project_name"] = project_name
@@ -455,6 +462,7 @@ class ServerExecutionManager:
                 "error": str(e),
                 "execution_id": self.execution_id,
                 "executor_type": self.executor_type,
+                "browser_name": self.browser_name,
                 "vnc_status": {
                     "vnc_failed": self.vnc_failed,
                     "running_headless": self.running_headless,

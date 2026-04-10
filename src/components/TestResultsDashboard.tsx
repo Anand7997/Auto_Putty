@@ -23,6 +23,11 @@ interface StepResult {
     before_screenshot?: string;
     after_screenshot?: string;
     screenshot_status?: 'success' | 'error' | 'timeout';
+    secondary_action?: string;
+    secondary_value?: string;
+    secondary_status?: 'PASS' | 'FAIL' | 'SKIPPED';
+    secondary_error?: string;
+    secondary_screenshot?: string;
 }
 
 interface TestResult {
@@ -183,6 +188,15 @@ const TestResultsDashboard: React.FC<TestResultsDashboardProps> = ({
     };
 
     const summary = calculateSummary();
+
+    const openScreenshot = (screenshotPath?: string) => {
+        if (!screenshotPath) return;
+        const isFullPath = screenshotPath.includes('/') || screenshotPath.includes('\\');
+        const url = isFullPath
+            ? screenshotPath
+            : buildApiUrl(`/allure-results/${screenshotPath}`);
+        window.open(url, '_blank');
+    };
 
     const handleExportResults = () => {
         toast({
@@ -508,31 +522,36 @@ const TestResultsDashboard: React.FC<TestResultsDashboardProps> = ({
                                                 </div>
                                             </td>
                                             <td className="py-3 px-2">
-                                                <div className="flex items-center space-x-2">
-                                                    {step.status === 'FAIL' && step.after_screenshot ? (
-                                                        <div className="flex flex-col space-y-1">
-                                                            <button 
-                                                                onClick={() => {
-                                                                    // If value already looks like a full path, open directly
-                                                                    const isFullPath = step.after_screenshot?.includes('/') || step.after_screenshot?.includes('\\');
-                                                                    const url = isFullPath
-                                                                        ? step.after_screenshot
-                                                                        : buildApiUrl(`/allure-results/${step.after_screenshot}`);
-                                                                    window.open(url, '_blank');
-                                                                }}
-                                                                className="text-xs px-2 py-1 bg-red-500/20 text-red-600 rounded hover:bg-red-500/30 transition-colors"
-                                                                title="View Failure Screenshot"
-                                                            >
-                                                                Failure Screenshot
-                                                            </button>
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-gray-400 text-xs">No failure screenshot</span>
+                                                <div className="flex flex-col items-start space-y-1">
+                                                    {step.after_screenshot && (
+                                                        <button
+                                                            onClick={() => openScreenshot(step.after_screenshot)}
+                                                            className={`text-xs px-2 py-1 rounded transition-colors ${
+                                                                step.status === 'FAIL'
+                                                                    ? 'bg-red-500/20 text-red-600 hover:bg-red-500/30'
+                                                                    : 'bg-slate-500/20 text-slate-700 hover:bg-slate-500/30'
+                                                            }`}
+                                                            title={step.status === 'FAIL' ? 'View Failure Screenshot' : 'View Step Screenshot'}
+                                                        >
+                                                            {step.status === 'FAIL' ? 'Failure Screenshot' : 'Step Screenshot'}
+                                                        </button>
+                                                    )}
+                                                    {step.secondary_screenshot && (
+                                                        <button
+                                                            onClick={() => openScreenshot(step.secondary_screenshot)}
+                                                            className="text-xs px-2 py-1 bg-blue-500/20 text-blue-700 rounded hover:bg-blue-500/30 transition-colors"
+                                                            title="View Secondary Action Screenshot"
+                                                        >
+                                                            Secondary Screenshot
+                                                        </button>
+                                                    )}
+                                                    {!step.after_screenshot && !step.secondary_screenshot && (
+                                                        <span className="text-gray-400 text-xs">No screenshots</span>
                                                     )}
                                                 </div>
                                             </td>
                                             <td className="py-3 px-2">
-                                                <div className="flex items-center space-x-2">
+                                                <div className="flex flex-col items-start space-y-1">
                                                     <Badge className={
                                                         step.status === 'PASS'
                                                             ? 'bg-green-500/20 text-green-600'
@@ -540,9 +559,25 @@ const TestResultsDashboard: React.FC<TestResultsDashboardProps> = ({
                                                     }>
                                                         {step.status}
                                                     </Badge>
+                                                    {step.secondary_action && (
+                                                        <Badge className={
+                                                            step.secondary_status === 'FAIL'
+                                                                ? 'bg-orange-500/20 text-orange-700'
+                                                                : step.secondary_status === 'PASS'
+                                                                    ? 'bg-blue-500/20 text-blue-700'
+                                                                    : 'bg-slate-500/20 text-slate-700'
+                                                        }>
+                                                            {`${step.secondary_action}${step.secondary_status ? `: ${step.secondary_status}` : ''}`}
+                                                        </Badge>
+                                                    )}
                                                     {step.error && (
                                                         <span className="text-red-600 text-xs italic truncate max-w-xs" title={step.error}>
                                                             {step.error}
+                                                        </span>
+                                                    )}
+                                                    {step.secondary_error && (
+                                                        <span className="text-orange-700 text-xs italic truncate max-w-xs" title={step.secondary_error}>
+                                                            {step.secondary_error}
                                                         </span>
                                                     )}
                                                 </div>

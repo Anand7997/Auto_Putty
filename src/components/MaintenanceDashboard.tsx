@@ -368,7 +368,7 @@ export function MaintenanceDashboard() {
   const systemAlerts = getSecurityAlerts(securityStatus);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/30 p-6 text-foreground dark:[&_.bg-white]:bg-card dark:[&_.bg-gray-50]:bg-muted/40 dark:[&_.bg-gray-200]:bg-muted dark:[&_.text-gray-900]:text-foreground dark:[&_.text-gray-600]:text-muted-foreground dark:[&_.text-gray-500]:text-muted-foreground dark:[&_.text-gray-400]:text-muted-foreground/80 dark:[&_.border-gray-200]:border-border dark:[&_.border-blue-200]:border-blue-500/30 dark:[&_.border-green-200]:border-green-500/30 dark:[&_.border-yellow-200]:border-yellow-500/30 dark:[&_.border-purple-200]:border-purple-500/30 dark:[&_.border-red-200]:border-red-500/30 dark:[&_.border-orange-200]:border-orange-500/30 dark:[&_.from-gray-50]:from-card dark:[&_.to-gray-100]:to-muted/30 dark:[&_.from-blue-50]:from-blue-950/30 dark:[&_.to-indigo-50]:to-indigo-950/20 dark:[&_.from-green-50]:from-green-950/25 dark:[&_.to-emerald-50]:to-emerald-950/20 dark:[&_.from-yellow-50]:from-yellow-950/25 dark:[&_.to-orange-50]:to-orange-950/20 dark:[&_.from-purple-50]:from-purple-950/25 dark:[&_.to-violet-50]:to-violet-950/20 dark:[&_.to-pink-50]:to-pink-950/20 dark:[&_.from-red-50]:from-red-950/25 dark:[&_.to-cyan-50]:to-cyan-950/20">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -408,7 +408,7 @@ export function MaintenanceDashboard() {
         </div>
 
         {/* Main Content */}
-        <div className="bg-white shadow rounded-lg">
+        <div className="rounded-lg border border-border bg-card shadow">
           {/* Overview Page - Block-based Navigation */}
           {currentPage === 'overview' && (
             <div className="p-8">

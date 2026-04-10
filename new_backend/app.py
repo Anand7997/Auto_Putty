@@ -447,6 +447,8 @@ def migrate_test_steps(source_testcase_name: str, target_testcase_name: str, con
                 element_name NVARCHAR(MAX),
                 action_type NVARCHAR(MAX),
                 assertion_type NVARCHAR(MAX) NULL,
+                secondary_action NVARCHAR(MAX) NULL,
+                secondary_value NVARCHAR(MAX) NULL,
                 xpath NVARCHAR(MAX),
                 [values] NVARCHAR(MAX),
                 expected_result NVARCHAR(MAX),
@@ -458,6 +460,8 @@ def migrate_test_steps(source_testcase_name: str, target_testcase_name: str, con
         ensure_test_steps_columns_unlimited(cursor, target_table)
         ensure_assertion_type_column_exists(cursor, source_table)
         ensure_assertion_type_column_exists(cursor, target_table)
+        ensure_secondary_action_columns_exist(cursor, source_table)
+        ensure_secondary_action_columns_exist(cursor, target_table)
         
         # Get the proper testcase_id for the target test case
         cursor.execute("SELECT testcase_id FROM TestCases WHERE name = ?", (target_testcase_name,))
@@ -470,8 +474,8 @@ def migrate_test_steps(source_testcase_name: str, target_testcase_name: str, con
         
         # Copy all test steps from source to target with proper testcase_id
         cursor.execute(f"""
-            INSERT INTO [{target_table}] (tc_id, step_no, test_step_description, element_name, action_type, assertion_type, xpath, [values])
-            SELECT ?, step_no, test_step_description, element_name, action_type, COALESCE(assertion_type, ''), xpath, [values]
+            INSERT INTO [{target_table}] (tc_id, step_no, test_step_description, element_name, action_type, assertion_type, secondary_action, secondary_value, xpath, [values])
+            SELECT ?, step_no, test_step_description, element_name, action_type, COALESCE(assertion_type, ''), COALESCE(secondary_action, ''), COALESCE(secondary_value, ''), xpath, [values]
             FROM [{source_table}]
             ORDER BY step_no
         """, (target_testcase_id,))
@@ -1399,6 +1403,1057 @@ def generate_html_report(allure_results_path, result_files):
     except Exception as e:
         print(f"[ERROR] Failed to generate HTML report: {str(e)}")
         return f"<html><body><h1>Error generating report</h1><p>{str(e)}</p></body></html>"
+
+def resolve_project_root():
+    current_dir = os.getcwd()
+    if current_dir.endswith('new_backend'):
+        return os.path.dirname(current_dir)
+    return current_dir
+
+def normalize_publish_targets(publish_targets=None):
+    allowed_targets = {'allure', 'extent', 'custom_dashboard'}
+
+    if not publish_targets:
+        return ['allure']
+
+    if isinstance(publish_targets, str):
+        publish_targets = [publish_targets]
+
+    normalized = []
+    for target in publish_targets:
+        if not target:
+            continue
+        normalized_target = str(target).strip().lower()
+        if normalized_target in allowed_targets and normalized_target not in normalized:
+            normalized.append(normalized_target)
+
+    return normalized or ['allure']
+
+def get_publish_target_paths(project_root=None):
+    root = project_root or resolve_project_root()
+    return {
+        'allure_results': os.path.join(root, 'allure-results-new'),
+        'allure_report': os.path.join(root, 'allure-report'),
+        'extent_report': os.path.join(root, 'extent-report'),
+        'custom_dashboard': os.path.join(root, 'published-results', 'custom-dashboard')
+    }
+
+def build_publish_report_urls():
+    host = get_allure_report_host()
+    return {
+        'allure': f"http://{host}/allure-report/index.html",
+        'extent': f"http://{host}/extent-report/index.html",
+        'custom_dashboard': f"http://{host}/published-results/custom-dashboard/index.html"
+    }
+
+def fetch_recent_results_for_publishing(limit=100):
+    try:
+        create_selenium_results_table()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(f"""
+            SELECT TOP {int(limit)}
+                testcase_name, projectname, modulename, testsuitename, status,
+                total_steps, passed_steps, failed_steps, skipped_steps, execution_time,
+                start_time, end_time, error_message, step_details, browser_info,
+                testcase_id, testrun_id, result_id, username, role, executor_type
+            FROM selenium_results
+            ORDER BY id DESC
+        """)
+
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        results = []
+        for row in rows:
+            step_details_raw = row[13]
+            try:
+                step_results = json.loads(step_details_raw) if step_details_raw else []
+            except Exception:
+                step_results = []
+
+            results.append({
+                'testcase_name': row[0],
+                'project_name': row[1] or '',
+                'module_name': row[2] or '',
+                'suite_type': row[3] or '',
+                'status': row[4] or 'UNKNOWN',
+                'total_steps': row[5] or 0,
+                'passed_steps': row[6] or 0,
+                'failed_steps': row[7] or 0,
+                'skipped_steps': row[8] or 0,
+                'execution_time': row[9] or '',
+                'start_time': row[10],
+                'end_time': row[11],
+                'error_message': row[12] or '',
+                'step_results': step_results,
+                'browser_info': row[14] or '',
+                'testcase_id': row[15] or '',
+                'testrun_id': row[16] or '',
+                'result_id': row[17] or '',
+                'username': row[18] or '',
+                'role': row[19] or '',
+                'executor_type': row[20] or 'selenium',
+            })
+
+        return results
+    except Exception as e:
+        print(f"[PUBLISH] Failed to fetch recent results: {str(e)}")
+        return []
+
+def _safe_html(value):
+    import html
+    return html.escape(str(value if value is not None else ''))
+
+def generate_extent_report_legacy(execution_results, output_dir, execution_context=None):
+    os.makedirs(output_dir, exist_ok=True)
+
+    normalized_results = execution_results or []
+    total = len(normalized_results)
+    passed = sum(1 for item in normalized_results if str(item.get('status', '')).upper() == 'PASS')
+    failed = sum(1 for item in normalized_results if str(item.get('status', '')).upper() == 'FAIL')
+    skipped = sum(1 for item in normalized_results if str(item.get('status', '')).upper() in ('SKIP', 'SKIPPED'))
+    partial = sum(1 for item in normalized_results if str(item.get('status', '')).upper() == 'PARTIAL_PASS')
+    other = total - passed - failed - skipped - partial
+    pass_rate = round((passed / total) * 100, 1) if total else 0
+    generated_at = datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%Y-%m-%d %H:%M:%S')
+    context = execution_context or {}
+    title = context.get('title') or 'Extent Report'
+    execution_label = context.get('execution_id') or context.get('testrun_id') or 'Latest Execution'
+
+    # Build per-suite breakdown
+    suites = {}
+    for item in normalized_results:
+        suite = item.get('suite_type') or item.get('testsuitename') or 'Default Suite'
+        suites.setdefault(suite, {'pass': 0, 'fail': 0, 'other': 0, 'total': 0})
+        suites[suite]['total'] += 1
+        st = str(item.get('status', '')).upper()
+        if st == 'PASS':
+            suites[suite]['pass'] += 1
+        elif st == 'FAIL':
+            suites[suite]['fail'] += 1
+        else:
+            suites[suite]['other'] += 1
+
+    # Build category breakdown (by project)
+    categories = {}
+    for item in normalized_results:
+        cat = item.get('project_name') or item.get('projectname') or 'Uncategorized'
+        categories.setdefault(cat, {'pass': 0, 'fail': 0, 'total': 0})
+        categories[cat]['total'] += 1
+        st = str(item.get('status', '')).upper()
+        if st == 'PASS':
+            categories[cat]['pass'] += 1
+        else:
+            categories[cat]['fail'] += 1
+
+    # Build test rows with expandable step details
+    test_cards_html = []
+    for index, item in enumerate(normalized_results, start=1):
+        status = str(item.get('status', 'UNKNOWN')).upper()
+        status_class = 'pass' if status == 'PASS' else ('fail' if status == 'FAIL' else 'skip')
+        tc_name = _safe_html(item.get('testcase_name') or item.get('testCase') or 'Unknown Test')
+        suite = _safe_html(item.get('suite_type') or item.get('testsuitename') or 'Default Suite')
+        executor = _safe_html(item.get('executor_type') or 'selenium')
+        browser = _safe_html(item.get('browser_info') or item.get('browser_name') or '')
+        duration = _safe_html(item.get('execution_time') or '')
+        error_msg = _safe_html(item.get('error_message') or item.get('error') or '')
+        username = _safe_html(item.get('username') or '')
+        start_time = _safe_html(str(item.get('start_time') or ''))
+        end_time = _safe_html(str(item.get('end_time') or ''))
+        step_results = item.get('step_results') or []
+        total_steps = item.get('total_steps') or len(step_results)
+        passed_steps = item.get('passed_steps') or 0
+        failed_steps = item.get('failed_steps') or 0
+
+        # Build step detail rows
+        steps_html = ''
+        if step_results:
+            step_rows = []
+            for si, step in enumerate(step_results, 1):
+                if isinstance(step, dict):
+                    s_status = str(step.get('status', 'UNKNOWN')).upper()
+                    s_class = 'pass' if s_status == 'PASS' else ('fail' if s_status == 'FAIL' else 'skip')
+                    s_name = _safe_html(step.get('step_name') or step.get('action') or step.get('description') or f'Step {si}')
+                    s_detail = _safe_html(step.get('actual_result') or step.get('message') or step.get('error') or '')
+                    s_xpath = _safe_html(step.get('xpath') or step.get('locator') or '')
+                    s_time = _safe_html(step.get('timestamp') or step.get('execution_time') or '')
+                    failure_screenshot = step.get('after_screenshot') or step.get('screenshot') or ''
+                    secondary_screenshot = step.get('secondary_screenshot') or ''
+                    screenshot_links = []
+                    if failure_screenshot:
+                        screenshot_links.append(
+                            f'<a href="{_safe_html(failure_screenshot)}" target="_blank" class="screenshot-link" title="Step screenshot">&#128247;</a>'
+                        )
+                    if secondary_screenshot:
+                        screenshot_links.append(
+                            f'<a href="{_safe_html(secondary_screenshot)}" target="_blank" class="screenshot-link" title="Secondary screenshot">&#128248;</a>'
+                        )
+                    screenshot_html = ' '.join(screenshot_links)
+                    step_rows.append(f'''<tr class="step-row {s_class}">
+                        <td class="step-num">{si}</td>
+                        <td>{s_name}</td>
+                        <td>{s_xpath}</td>
+                        <td><span class="pill {s_class}">{s_status}</span></td>
+                        <td class="step-detail">{s_detail}</td>
+                        <td>{s_time} {screenshot_html}</td>
+                    </tr>''')
+                else:
+                    step_rows.append(f'<tr class="step-row"><td>{si}</td><td colspan="5">{_safe_html(str(step))}</td></tr>')
+
+            steps_html = f'''<div class="steps-panel" id="steps-{index}">
+                <table class="steps-table">
+                    <thead><tr><th>#</th><th>Step</th><th>Locator</th><th>Status</th><th>Detail</th><th>Time</th></tr></thead>
+                    <tbody>{''.join(step_rows)}</tbody>
+                </table>
+            </div>'''
+
+        has_steps = ' has-steps' if step_results else ''
+        chevron = '<span class="chevron">&#9654;</span>' if step_results else ''
+
+        error_row = f'<div class="error-block"><strong>Error:</strong> {error_msg}</div>' if error_msg and status == 'FAIL' else ''
+
+        test_cards_html.append(f'''
+        <div class="test-card {status_class}" data-status="{status}" data-suite="{suite}" data-category="{_safe_html(item.get('project_name') or item.get('projectname') or 'Uncategorized')}">
+            <div class="test-header{has_steps}" onclick="toggleSteps({index})">
+                {chevron}
+                <span class="test-index">{index}</span>
+                <span class="test-name">{tc_name}</span>
+                <div class="test-meta">
+                    <span class="meta-tag suite-tag">{suite}</span>
+                    <span class="meta-tag">{executor}</span>
+                    {f'<span class="meta-tag">{browser}</span>' if browser else ''}
+                    <span class="meta-tag">Steps: {total_steps}</span>
+                    <span class="meta-tag">{duration}</span>
+                    {f'<span class="meta-tag user-tag">{username}</span>' if username else ''}
+                </div>
+                <span class="pill {status_class}">{status}</span>
+            </div>
+            {error_row}
+            {steps_html}
+        </div>''')
+
+    # Suite chart data
+    suite_bars_html = ''
+    for sname, sdata in suites.items():
+        p_pct = round((sdata['pass'] / sdata['total']) * 100) if sdata['total'] else 0
+        f_pct = round((sdata['fail'] / sdata['total']) * 100) if sdata['total'] else 0
+        o_pct = 100 - p_pct - f_pct
+        suite_bars_html += f'''<div class="suite-row">
+            <div class="suite-name">{_safe_html(sname)}</div>
+            <div class="suite-bar">
+                <div class="bar-pass" style="width:{p_pct}%"></div>
+                <div class="bar-fail" style="width:{f_pct}%"></div>
+                <div class="bar-other" style="width:{o_pct}%"></div>
+            </div>
+            <div class="suite-counts">{sdata['pass']}P / {sdata['fail']}F / {sdata['total']}T</div>
+        </div>'''
+
+    # Category list
+    cat_items_html = ''
+    for cname, cdata in categories.items():
+        cat_items_html += f'''<div class="cat-item">
+            <span class="cat-name">{_safe_html(cname)}</span>
+            <span class="cat-counts">{cdata['pass']}&#10003; {cdata['fail']}&#10007; ({cdata['total']})</span>
+        </div>'''
+
+    # Environment info
+    env_rows = ''
+    env_info = {
+        'Execution': execution_label,
+        'Generated': generated_at,
+        'Platform': context.get('platform') or 'Auto-detected',
+    }
+    if normalized_results:
+        browsers = set(item.get('browser_info') or item.get('browser_name') or '' for item in normalized_results)
+        browsers.discard('')
+        if browsers:
+            env_info['Browsers'] = ', '.join(browsers)
+        executors = set(item.get('executor_type') or '' for item in normalized_results)
+        executors.discard('')
+        if executors:
+            env_info['Executors'] = ', '.join(executors)
+    for k, v in env_info.items():
+        env_rows += f'<tr><td class="env-key">{_safe_html(k)}</td><td>{_safe_html(v)}</td></tr>'
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{_safe_html(title)}</title>
+    <style>
+        *,*::before,*::after{{box-sizing:border-box}}
+        body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;margin:0;background:#0b1120;color:#e2e8f0;min-height:100vh}}
+        /* Layout */
+        .shell{{display:flex;min-height:100vh}}
+        .sidebar{{width:260px;background:#0f172a;border-right:1px solid #1e293b;padding:20px 0;position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:10}}
+        .sidebar .logo{{padding:16px 20px;font-size:20px;font-weight:800;color:#818cf8;letter-spacing:-0.5px;border-bottom:1px solid #1e293b;margin-bottom:8px}}
+        .sidebar .logo span{{color:#4ade80}}
+        .nav-item{{display:flex;align-items:center;gap:10px;padding:11px 20px;cursor:pointer;color:#94a3b8;font-size:14px;transition:all .15s}}
+        .nav-item:hover,.nav-item.active{{background:rgba(99,102,241,.1);color:#e2e8f0;border-right:3px solid #6366f1}}
+        .nav-icon{{width:18px;text-align:center}}
+        .main{{margin-left:260px;flex:1;padding:28px 32px 60px}}
+        /* Tabs / views */
+        .view{{display:none}}.view.active{{display:block}}
+        /* Header */
+        .page-header{{margin-bottom:24px}}
+        .page-header h1{{margin:0 0 6px;font-size:28px;font-weight:700}}
+        .page-header p{{margin:0;color:#64748b;font-size:14px}}
+        /* Summary cards */
+        .summary-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:28px}}
+        .summary-card{{background:rgba(15,23,42,.7);border:1px solid #1e293b;border-radius:14px;padding:16px 18px;text-align:center;transition:transform .15s}}
+        .summary-card:hover{{transform:translateY(-2px)}}
+        .summary-card .lbl{{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-bottom:6px}}
+        .summary-card .val{{font-size:26px;font-weight:700}}
+        .val.green{{color:#4ade80}}.val.red{{color:#f87171}}.val.yellow{{color:#fbbf24}}.val.blue{{color:#60a5fa}}.val.purple{{color:#a78bfa}}
+        /* Donut chart */
+        .chart-section{{display:flex;gap:24px;margin-bottom:28px;flex-wrap:wrap}}
+        .donut-wrap{{background:rgba(15,23,42,.7);border:1px solid #1e293b;border-radius:14px;padding:24px;flex:0 0 280px;display:flex;flex-direction:column;align-items:center}}
+        .donut-wrap h3{{margin:0 0 16px;font-size:15px;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em}}
+        .donut-svg{{width:180px;height:180px}}
+        .donut-legend{{display:flex;flex-wrap:wrap;gap:12px;margin-top:16px}}
+        .legend-item{{display:flex;align-items:center;gap:6px;font-size:13px;color:#94a3b8}}
+        .legend-dot{{width:10px;height:10px;border-radius:50%}}
+        /* Suite bars */
+        .suites-wrap{{background:rgba(15,23,42,.7);border:1px solid #1e293b;border-radius:14px;padding:24px;flex:1;min-width:300px}}
+        .suites-wrap h3{{margin:0 0 16px;font-size:15px;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em}}
+        .suite-row{{display:flex;align-items:center;gap:12px;margin-bottom:10px}}
+        .suite-name{{width:140px;font-size:13px;color:#cbd5e1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+        .suite-bar{{flex:1;height:20px;background:#1e293b;border-radius:10px;display:flex;overflow:hidden}}
+        .bar-pass{{background:#22c55e}}.bar-fail{{background:#ef4444}}.bar-other{{background:#475569}}
+        .suite-counts{{font-size:12px;color:#64748b;width:100px;text-align:right}}
+        /* Categories */
+        .cat-panel{{background:rgba(15,23,42,.7);border:1px solid #1e293b;border-radius:14px;padding:24px;margin-bottom:28px}}
+        .cat-panel h3{{margin:0 0 14px;font-size:15px;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em}}
+        .cat-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}}
+        .cat-item{{display:flex;justify-content:space-between;padding:10px 14px;background:rgba(30,41,59,.5);border-radius:10px}}
+        .cat-name{{color:#e2e8f0;font-size:14px}}.cat-counts{{color:#64748b;font-size:13px}}
+        /* Filters */
+        .filter-bar{{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;align-items:center}}
+        .filter-btn{{padding:7px 14px;border-radius:8px;border:1px solid #334155;background:transparent;color:#94a3b8;cursor:pointer;font-size:13px;transition:all .15s}}
+        .filter-btn:hover,.filter-btn.active{{background:#6366f1;color:#fff;border-color:#6366f1}}
+        .search-input{{padding:7px 14px;border-radius:8px;border:1px solid #334155;background:rgba(15,23,42,.5);color:#e2e8f0;font-size:13px;min-width:200px}}
+        .search-input::placeholder{{color:#475569}}
+        /* Test cards */
+        .test-list{{display:flex;flex-direction:column;gap:8px}}
+        .test-card{{background:rgba(15,23,42,.7);border:1px solid #1e293b;border-radius:12px;overflow:hidden;transition:border-color .15s}}
+        .test-card.pass{{border-left:4px solid #22c55e}}.test-card.fail{{border-left:4px solid #ef4444}}.test-card.skip{{border-left:4px solid #64748b}}
+        .test-header{{display:flex;align-items:center;gap:12px;padding:14px 18px;cursor:default}}
+        .test-header.has-steps{{cursor:pointer}}.test-header.has-steps:hover{{background:rgba(30,41,59,.4)}}
+        .chevron{{font-size:10px;color:#64748b;transition:transform .2s;width:14px}}
+        .test-card.expanded .chevron{{transform:rotate(90deg)}}
+        .test-index{{color:#475569;font-size:13px;font-weight:600;min-width:28px}}
+        .test-name{{font-weight:600;font-size:14px;color:#e2e8f0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+        .test-meta{{display:flex;gap:6px;flex-wrap:wrap;align-items:center}}
+        .meta-tag{{background:rgba(30,41,59,.6);color:#94a3b8;padding:3px 8px;border-radius:6px;font-size:11px;white-space:nowrap}}
+        .suite-tag{{background:rgba(99,102,241,.15);color:#a5b4fc}}
+        .user-tag{{background:rgba(168,85,247,.15);color:#c4b5fd}}
+        .pill{{padding:4px 12px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap}}
+        .pill.pass{{background:rgba(34,197,94,.18);color:#4ade80}}.pill.fail{{background:rgba(248,113,113,.18);color:#fca5a5}}.pill.skip{{background:rgba(100,116,139,.18);color:#94a3b8}}
+        /* Error block */
+        .error-block{{padding:10px 18px;background:rgba(248,113,113,.08);border-top:1px solid rgba(248,113,113,.15);font-size:13px;color:#fca5a5;word-break:break-word}}
+        /* Steps panel */
+        .steps-panel{{display:none;border-top:1px solid #1e293b}}
+        .test-card.expanded .steps-panel{{display:block}}
+        .steps-table{{width:100%;border-collapse:collapse;font-size:13px}}
+        .steps-table th{{background:#111827;padding:8px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em}}
+        .steps-table td{{padding:8px 12px;border-bottom:1px solid rgba(30,41,59,.5);vertical-align:top}}
+        .step-num{{color:#475569;width:30px}}.step-detail{{max-width:300px;word-break:break-word;color:#94a3b8}}
+        .step-row.pass td{{background:rgba(34,197,94,.04)}}.step-row.fail td{{background:rgba(248,113,113,.04)}}
+        .screenshot-link{{text-decoration:none;font-size:16px}}
+        /* Environment table */
+        .env-panel{{background:rgba(15,23,42,.7);border:1px solid #1e293b;border-radius:14px;padding:24px;margin-bottom:28px}}
+        .env-panel h3{{margin:0 0 14px;font-size:15px;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em}}
+        .env-table{{width:100%;border-collapse:collapse}}.env-table td{{padding:8px 14px;border-bottom:1px solid #1e293b;font-size:14px}}.env-key{{color:#64748b;width:160px;font-weight:600}}
+        /* Timeline */
+        .timeline-list{{display:flex;flex-direction:column;gap:6px}}
+        .tl-item{{display:flex;align-items:center;gap:14px;padding:10px 16px;background:rgba(15,23,42,.7);border:1px solid #1e293b;border-radius:10px}}
+        .tl-dot{{width:12px;height:12px;border-radius:50%;flex-shrink:0}}
+        .tl-dot.pass{{background:#22c55e}}.tl-dot.fail{{background:#ef4444}}.tl-dot.skip{{background:#64748b}}
+        .tl-name{{flex:1;font-size:14px;color:#e2e8f0}}.tl-time{{font-size:12px;color:#64748b}}
+        /* Responsive */
+        @media(max-width:900px){{.sidebar{{width:60px}}.sidebar .logo{{font-size:0;padding:12px}}.sidebar .logo::after{{content:'E';font-size:20px;font-weight:800;color:#818cf8}}.nav-item span:last-child{{display:none}}.main{{margin-left:60px;padding:20px 16px}}}}
+        @media(max-width:600px){{.sidebar{{display:none}}.main{{margin-left:0}}}}
+    </style>
+</head>
+<body>
+<div class="shell">
+    <aside class="sidebar">
+        <div class="logo">Extent<span>Report</span></div>
+        <div class="nav-item active" onclick="showView('dashboard')"><span class="nav-icon">&#9632;</span><span>Dashboard</span></div>
+        <div class="nav-item" onclick="showView('tests')"><span class="nav-icon">&#9654;</span><span>Tests</span></div>
+        <div class="nav-item" onclick="showView('categories')"><span class="nav-icon">&#9733;</span><span>Categories</span></div>
+        <div class="nav-item" onclick="showView('timeline')"><span class="nav-icon">&#8986;</span><span>Timeline</span></div>
+        <div class="nav-item" onclick="showView('environment')"><span class="nav-icon">&#9881;</span><span>Environment</span></div>
+    </aside>
+    <main class="main">
+
+        <!-- Dashboard View -->
+        <div class="view active" id="view-dashboard">
+            <div class="page-header">
+                <h1>{_safe_html(title)}</h1>
+                <p>{_safe_html(execution_label)} &bull; Generated {generated_at}</p>
+            </div>
+            <div class="summary-grid">
+                <div class="summary-card"><div class="lbl">Total</div><div class="val blue">{total}</div></div>
+                <div class="summary-card"><div class="lbl">Passed</div><div class="val green">{passed}</div></div>
+                <div class="summary-card"><div class="lbl">Failed</div><div class="val red">{failed}</div></div>
+                <div class="summary-card"><div class="lbl">Skipped</div><div class="val yellow">{skipped + partial + other}</div></div>
+                <div class="summary-card"><div class="lbl">Pass Rate</div><div class="val purple">{pass_rate}%</div></div>
+            </div>
+            <div class="chart-section">
+                <div class="donut-wrap">
+                    <h3>Status Distribution</h3>
+                    <svg class="donut-svg" viewBox="0 0 42 42">
+                        <circle cx="21" cy="21" r="15.9" fill="none" stroke="#1e293b" stroke-width="5"/>
+                        {_build_donut_segments(passed, failed, skipped + partial + other, total)}
+                    </svg>
+                    <div class="donut-legend">
+                        <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div>Passed ({passed})</div>
+                        <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div>Failed ({failed})</div>
+                        <div class="legend-item"><div class="legend-dot" style="background:#64748b"></div>Other ({skipped + partial + other})</div>
+                    </div>
+                </div>
+                <div class="suites-wrap">
+                    <h3>Suite Breakdown</h3>
+                    {suite_bars_html if suite_bars_html else '<p style="color:#475569">No suite data available</p>'}
+                </div>
+            </div>
+        </div>
+
+        <!-- Tests View -->
+        <div class="view" id="view-tests">
+            <div class="page-header">
+                <h1>Test Details</h1>
+                <p>{total} tests executed</p>
+            </div>
+            <div class="filter-bar">
+                <button class="filter-btn active" onclick="filterTests('ALL')">All ({total})</button>
+                <button class="filter-btn" onclick="filterTests('PASS')">Passed ({passed})</button>
+                <button class="filter-btn" onclick="filterTests('FAIL')">Failed ({failed})</button>
+                <button class="filter-btn" onclick="filterTests('OTHER')">Other ({skipped + partial + other})</button>
+                <input class="search-input" type="text" placeholder="Search tests..." oninput="searchTests(this.value)"/>
+            </div>
+            <div class="test-list">
+                {''.join(test_cards_html) if test_cards_html else '<p style="color:#475569">No test results available.</p>'}
+            </div>
+        </div>
+
+        <!-- Categories View -->
+        <div class="view" id="view-categories">
+            <div class="page-header">
+                <h1>Categories</h1>
+                <p>Grouped by project</p>
+            </div>
+            <div class="cat-panel">
+                <h3>Project Breakdown</h3>
+                <div class="cat-grid">{cat_items_html if cat_items_html else '<p style="color:#475569">No category data</p>'}</div>
+            </div>
+        </div>
+
+        <!-- Timeline View -->
+        <div class="view" id="view-timeline">
+            <div class="page-header">
+                <h1>Execution Timeline</h1>
+                <p>Chronological order of test execution</p>
+            </div>
+            <div class="timeline-list">
+                {''.join(_build_timeline_items(normalized_results))}
+            </div>
+        </div>
+
+        <!-- Environment View -->
+        <div class="view" id="view-environment">
+            <div class="page-header">
+                <h1>Environment</h1>
+                <p>Execution environment details</p>
+            </div>
+            <div class="env-panel">
+                <h3>Configuration</h3>
+                <table class="env-table"><tbody>{env_rows}</tbody></table>
+            </div>
+        </div>
+
+    </main>
+</div>
+<script>
+function showView(name){{
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+    var el=document.getElementById('view-'+name);
+    if(el)el.classList.add('active');
+    var navs=document.querySelectorAll('.nav-item');
+    var map={{dashboard:0,tests:1,categories:2,timeline:3,environment:4}};
+    if(navs[map[name]])navs[map[name]].classList.add('active');
+}}
+function toggleSteps(idx){{
+    var card=document.querySelector('#steps-'+idx);
+    if(!card)return;
+    card.closest('.test-card').classList.toggle('expanded');
+}}
+function filterTests(status){{
+    document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+    event.target.classList.add('active');
+    document.querySelectorAll('.test-card').forEach(c=>{{
+        if(status==='ALL'){{c.style.display='';return}}
+        var s=c.getAttribute('data-status');
+        if(status==='OTHER'){{c.style.display=(s!=='PASS'&&s!=='FAIL')?'':'none'}}
+        else{{c.style.display=s===status?'':'none'}}
+    }});
+}}
+function searchTests(q){{
+    var lower=q.toLowerCase();
+    document.querySelectorAll('.test-card').forEach(c=>{{
+        var name=c.querySelector('.test-name');
+        c.style.display=(!q||name.textContent.toLowerCase().includes(lower))?'':'none';
+    }});
+}}
+</script>
+</body>
+</html>"""
+
+    report_path = os.path.join(output_dir, 'index.html')
+    with open(report_path, 'w', encoding='utf-8') as report_file:
+        report_file.write(html_content)
+
+    return report_path
+
+
+def _build_donut_segments(passed, failed, other, total):
+    """Build SVG donut chart segments for the extent report."""
+    if total == 0:
+        return ''
+    segments = []
+    circumference = 100
+    offset = 25  # start at 12 o'clock
+    parts = [
+        (passed, '#22c55e'),
+        (failed, '#ef4444'),
+        (other, '#64748b'),
+    ]
+    for count, color in parts:
+        if count == 0:
+            continue
+        pct = (count / total) * circumference
+        segments.append(
+            f'<circle cx="21" cy="21" r="15.9" fill="none" stroke="{color}" '
+            f'stroke-width="5" stroke-dasharray="{pct} {circumference - pct}" '
+            f'stroke-dashoffset="{offset}"/>'
+        )
+        offset -= pct
+    return '\n'.join(segments)
+
+
+def _build_timeline_items(results):
+    """Build timeline HTML items for the extent report."""
+    items = []
+    for item in results:
+        status = str(item.get('status', 'UNKNOWN')).upper()
+        dot_class = 'pass' if status == 'PASS' else ('fail' if status == 'FAIL' else 'skip')
+        name = _safe_html(item.get('testcase_name') or item.get('testCase') or 'Unknown Test')
+        duration = _safe_html(item.get('execution_time') or '')
+        start = _safe_html(str(item.get('start_time') or ''))
+        items.append(f'''<div class="tl-item">
+            <div class="tl-dot {dot_class}"></div>
+            <div class="tl-name">{name}</div>
+            <div class="tl-time">{start} &bull; {duration}</div>
+            <span class="pill {dot_class}">{status}</span>
+        </div>''')
+    if not items:
+        items.append('<p style="color:#475569">No timeline data available.</p>')
+    return items
+
+def compile_extent_report_generator(project_root):
+    tools_root = os.path.join(project_root, 'tools', 'extentreports')
+    source_file = os.path.join(tools_root, 'src', 'ExtentReportGenerator.java')
+    bin_dir = os.path.join(tools_root, 'bin')
+    lib_dir = os.path.join(tools_root, 'lib')
+    class_file = os.path.join(bin_dir, 'ExtentReportGenerator.class')
+
+    if not os.path.exists(source_file):
+        raise FileNotFoundError(f"ExtentReportGenerator.java not found at {source_file}")
+
+    os.makedirs(bin_dir, exist_ok=True)
+
+    needs_compile = True
+    if os.path.exists(class_file):
+        needs_compile = os.path.getmtime(class_file) < os.path.getmtime(source_file)
+
+    if not needs_compile:
+        return {'bin_dir': bin_dir, 'lib_dir': lib_dir}
+
+    compile_cmd = [
+        'javac',
+        '-cp',
+        f"{lib_dir}\\*",
+        '-d',
+        bin_dir,
+        source_file
+    ]
+    result = subprocess.run(compile_cmd, capture_output=True, text=True, check=True, timeout=60)
+    print(f"[EXTENT] Java generator compiled successfully: {result.stdout}")
+    return {'bin_dir': bin_dir, 'lib_dir': lib_dir}
+
+def generate_extent_report(execution_results, output_dir, execution_context=None):
+    project_root = resolve_project_root()
+    os.makedirs(output_dir, exist_ok=True)
+
+    generator_info = compile_extent_report_generator(project_root)
+    report_path = os.path.join(output_dir, 'index.html')
+    payload_path = os.path.join(output_dir, 'extent-input.json')
+    payload = {
+        'generatedAt': datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%Y-%m-%d %H:%M:%S'),
+        'context': execution_context or {},
+        'results': execution_results or []
+    }
+
+    with open(payload_path, 'w', encoding='utf-8') as payload_file:
+        json.dump(payload, payload_file, indent=2, default=str)
+
+    run_cmd = [
+        'java',
+        '-cp',
+        f"{generator_info['bin_dir']};{generator_info['lib_dir']}\\*",
+        'ExtentReportGenerator',
+        payload_path,
+        report_path
+    ]
+    result = subprocess.run(run_cmd, capture_output=True, text=True, check=True, timeout=120)
+    print(f"[EXTENT] Report generated successfully: {result.stdout}")
+    return report_path
+
+def generate_custom_dashboard_assets(execution_results, output_dir, execution_context=None):
+    os.makedirs(output_dir, exist_ok=True)
+
+    normalized_results = execution_results or []
+    total = len(normalized_results)
+    passed = sum(1 for item in normalized_results if str(item.get('status', '')).upper() == 'PASS')
+    failed = sum(1 for item in normalized_results if str(item.get('status', '')).upper() == 'FAIL')
+    partial = sum(1 for item in normalized_results if str(item.get('status', '')).upper() == 'PARTIAL_PASS')
+    skipped = sum(1 for item in normalized_results if str(item.get('status', '')).upper() in ('SKIP', 'SKIPPED'))
+    other = total - passed - failed - partial - skipped
+    total_steps = sum(int(item.get('total_steps') or 0) for item in normalized_results)
+    passed_steps = sum(int(item.get('passed_steps') or 0) for item in normalized_results)
+    failed_steps = sum(int(item.get('failed_steps') or 0) for item in normalized_results)
+    generated_at = datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%Y-%m-%d %H:%M:%S')
+    context = execution_context or {}
+
+    suite_summary = {}
+    executor_summary = {}
+    browser_summary = {}
+    recent_results = []
+
+    for item in normalized_results:
+        status = str(item.get('status', '')).upper() or 'UNKNOWN'
+        suite = item.get('suite_type') or item.get('testsuitename') or 'General'
+        executor = item.get('executor_type') or 'selenium'
+        browser = item.get('browser_name') or item.get('browser_info') or 'unknown'
+
+        suite_summary.setdefault(suite, {'total': 0, 'pass': 0, 'fail': 0, 'other': 0})
+        suite_summary[suite]['total'] += 1
+        if status == 'PASS':
+            suite_summary[suite]['pass'] += 1
+        elif status == 'FAIL':
+            suite_summary[suite]['fail'] += 1
+        else:
+            suite_summary[suite]['other'] += 1
+
+        executor_summary[executor] = executor_summary.get(executor, 0) + 1
+        browser_summary[browser] = browser_summary.get(browser, 0) + 1
+
+        recent_results.append({
+            'testcase_name': item.get('testcase_name') or item.get('testCase') or 'Unknown Test',
+            'status': status,
+            'suite_type': suite,
+            'executor_type': executor,
+            'browser_name': browser,
+            'execution_time': item.get('execution_time') or '',
+            'error_message': item.get('error_message') or item.get('error') or '',
+            'start_time': str(item.get('start_time') or ''),
+            'end_time': str(item.get('end_time') or ''),
+            'total_steps': int(item.get('total_steps') or 0),
+            'passed_steps': int(item.get('passed_steps') or 0),
+            'failed_steps': int(item.get('failed_steps') or 0),
+            'username': item.get('username') or '',
+            'project_name': item.get('project_name') or item.get('projectname') or '',
+            'module_name': item.get('module_name') or item.get('modulename') or '',
+            'step_results': item.get('step_results') or []
+        })
+
+    payload = {
+        'generated_at': generated_at,
+        'summary': {
+            'total': total,
+            'passed': passed,
+            'failed': failed,
+            'partial': partial,
+            'skipped': skipped,
+            'other': other,
+            'pass_rate': round((passed / total) * 100, 2) if total else 0,
+            'total_steps': total_steps,
+            'passed_steps': passed_steps,
+            'failed_steps': failed_steps
+        },
+        'context': context,
+        'suite_summary': suite_summary,
+        'executor_summary': executor_summary,
+        'browser_summary': browser_summary,
+        'results': recent_results
+    }
+
+    json_path = os.path.join(output_dir, 'latest.json')
+    with open(json_path, 'w', encoding='utf-8') as json_file:
+        json.dump(payload, json_file, indent=2, default=str)
+
+    cards_html = ''.join([
+        f'<div class="metric"><span>{label}</span><strong>{value}</strong></div>'
+        for label, value in (
+            ('Total', total),
+            ('Passed', passed),
+            ('Failed', failed),
+            ('Partial', partial),
+            ('Steps', total_steps),
+            ('Pass Rate', f"{payload['summary']['pass_rate']}%")
+        )
+    ])
+
+    suite_rows_html = ''.join([
+        f"""
+        <div class="breakdown-row">
+            <div>
+                <div class="breakdown-title">{_safe_html(name)}</div>
+                <div class="breakdown-sub">{data['pass']} pass | {data['fail']} fail | {data['other']} other</div>
+            </div>
+            <div class="breakdown-bar">
+                <span class="segment pass" style="width:{(data['pass'] / data['total'] * 100) if data['total'] else 0}%"></span>
+                <span class="segment fail" style="width:{(data['fail'] / data['total'] * 100) if data['total'] else 0}%"></span>
+                <span class="segment other" style="width:{(data['other'] / data['total'] * 100) if data['total'] else 0}%"></span>
+            </div>
+            <strong>{data['total']}</strong>
+        </div>
+        """
+        for name, data in suite_summary.items()
+    ])
+
+    executor_chips_html = ''.join([
+        f'<div class="chip"><span>{_safe_html(name)}</span><strong>{count}</strong></div>'
+        for name, count in executor_summary.items()
+    ])
+
+    browser_chips_html = ''.join([
+        f'<div class="chip"><span>{_safe_html(name)}</span><strong>{count}</strong></div>'
+        for name, count in browser_summary.items()
+    ])
+
+    results_html = ''.join([
+        f"""
+        <article class="result-card">
+            <div class="top">
+                <div>
+                    <h3>{_safe_html(item['testcase_name'])}</h3>
+                    <div class="meta-line">{_safe_html(item['suite_type'])} | {_safe_html(item['project_name'] or 'Unknown Project')} | {_safe_html(item['module_name'] or 'Unknown Module')}</div>
+                </div>
+                <span class="pill {'pass' if item['status'] == 'PASS' else 'fail' if item['status'] == 'FAIL' else 'other'}">{_safe_html(item['status'])}</span>
+            </div>
+            <div class="detail-grid">
+                <div><span>Executor</span><strong>{_safe_html(item['executor_type'])}</strong></div>
+                <div><span>Browser</span><strong>{_safe_html(item['browser_name'])}</strong></div>
+                <div><span>Duration</span><strong>{_safe_html(item['execution_time'])}</strong></div>
+                <div><span>Owner</span><strong>{_safe_html(item['username'] or 'System')}</strong></div>
+            </div>
+            <div class="step-summary">
+                <div class="step-bar">
+                    <span class="segment pass" style="width:{(item['passed_steps'] / item['total_steps'] * 100) if item['total_steps'] else 0}%"></span>
+                    <span class="segment fail" style="width:{(item['failed_steps'] / item['total_steps'] * 100) if item['total_steps'] else 0}%"></span>
+                </div>
+                <div class="step-label">{item['passed_steps']} passed / {item['failed_steps']} failed / {item['total_steps']} total steps</div>
+            </div>
+            {f'<div class="error-box">{_safe_html(item["error_message"])}</div>' if item['error_message'] else ''}
+            <details class="details-panel">
+                <summary>Execution Details</summary>
+                <div class="timing-line">Start: {_safe_html(item['start_time'] or 'N/A')} | End: {_safe_html(item['end_time'] or 'N/A')}</div>
+                <div class="steps-list">
+                    {''.join([
+                        f'<div class="step-item {("pass" if str(step.get("status","")).upper() == "PASS" else "fail" if str(step.get("status","")).upper() == "FAIL" else "other")}">'
+                        f'<div class="step-head">{_safe_html(step.get("step_name") or step.get("description") or step.get("message") or f"Step {index + 1}")}</div>'
+                        f'<div class="step-body">{_safe_html(step.get("actual_result") or step.get("error") or step.get("message") or "")}</div>'
+                        f'</div>'
+                        for index, step in enumerate(item['step_results'][:10]) if isinstance(step, dict)
+                    ]) or '<div class="step-item other"><div class="step-body">No step detail available.</div></div>'}
+                </div>
+            </details>
+        </article>
+        """
+        for item in recent_results
+    ])
+
+    html_path = os.path.join(output_dir, 'index.html')
+    with open(html_path, 'w', encoding='utf-8') as html_file:
+        html_file.write(f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom Dashboard</title>
+    <style>
+        :root {{
+            --bg: #f4efe6;
+            --panel: rgba(255,255,255,0.8);
+            --text: #18230f;
+            --muted: #5d6b54;
+            --line: rgba(93,107,84,.2);
+            --pass: #2f6f3e;
+            --fail: #b03a2e;
+            --other: #9a7b38;
+            --accent: #d4a373;
+        }}
+        * {{ box-sizing: border-box; }}
+        body {{ margin: 0; font-family: Georgia, 'Trebuchet MS', serif; background:
+            radial-gradient(circle at top left, rgba(212,163,115,.22), transparent 28%),
+            radial-gradient(circle at bottom right, rgba(79,111,82,.18), transparent 26%),
+            linear-gradient(160deg, #f8f4ec 0%, #e8efe4 100%);
+            color: var(--text); }}
+        .wrap {{ max-width: 1320px; margin: 0 auto; padding: 34px 24px 64px; }}
+        .hero {{ display: grid; grid-template-columns: 1.4fr .9fr; gap: 20px; margin-bottom: 24px; }}
+        .hero-card, .overview, .results-panel {{ background: var(--panel); border: 1px solid var(--line); border-radius: 24px; backdrop-filter: blur(12px); box-shadow: 0 18px 45px rgba(24,35,15,.08); }}
+        .hero-card {{ padding: 26px; position: relative; overflow: hidden; }}
+        .hero-card::after {{ content:''; position:absolute; inset:auto -20px -20px auto; width:180px; height:180px; background: radial-gradient(circle, rgba(212,163,115,.25), transparent 65%); }}
+        .eyebrow {{ text-transform: uppercase; letter-spacing: .14em; font-size: 11px; color: var(--muted); margin-bottom: 10px; }}
+        .hero h1 {{ margin: 0 0 10px; font-size: 40px; line-height: 1.05; }}
+        .hero p {{ margin: 0; color: var(--muted); font-size: 15px; line-height: 1.6; }}
+        .hero-meta {{ margin-top: 18px; display: flex; flex-wrap: wrap; gap: 10px; }}
+        .meta-pill, .chip {{ border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px; background: rgba(255,255,255,.65); font-size: 13px; }}
+        .overview {{ padding: 22px; display: flex; flex-direction: column; justify-content: space-between; }}
+        .score {{ font-size: 64px; font-weight: 700; line-height: 1; margin: 8px 0; }}
+        .score-label {{ color: var(--muted); font-size: 14px; }}
+        .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }}
+        .metric {{ background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 18px; display:flex; flex-direction:column; gap:8px; box-shadow: 0 14px 30px rgba(24,35,15,.05); }}
+        .metric span {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }}
+        .metric strong {{ font-size: 30px; }}
+        .dashboard-grid {{ display: grid; grid-template-columns: 1.05fr .95fr; gap: 18px; margin-bottom: 24px; }}
+        .panel-title {{ font-size: 13px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin-bottom: 14px; }}
+        .overview {{ gap: 14px; }}
+        .breakdown-list {{ display: flex; flex-direction: column; gap: 12px; }}
+        .breakdown-row {{ display: grid; grid-template-columns: 1.2fr 1fr auto; gap: 14px; align-items: center; }}
+        .breakdown-title {{ font-size: 15px; font-weight: 700; }}
+        .breakdown-sub {{ font-size: 12px; color: var(--muted); margin-top: 4px; }}
+        .breakdown-bar, .step-bar {{ display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: rgba(93,107,84,.12); }}
+        .segment.pass {{ background: linear-gradient(90deg, #3f8f52, var(--pass)); }}
+        .segment.fail {{ background: linear-gradient(90deg, #d05c4d, var(--fail)); }}
+        .segment.other {{ background: linear-gradient(90deg, #cfb56b, var(--other)); }}
+        .chip-grid {{ display: flex; flex-wrap: wrap; gap: 10px; }}
+        .chip {{ display: flex; align-items: center; gap: 10px; }}
+        .chip strong {{ font-size: 16px; }}
+        .results-panel {{ padding: 22px; }}
+        .results-header {{ display: flex; justify-content: space-between; gap: 18px; align-items: end; margin-bottom: 18px; }}
+        .results-header h2 {{ margin: 0; font-size: 26px; }}
+        .results-sub {{ color: var(--muted); font-size: 14px; }}
+        .results {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }}
+        .result-card {{ background: rgba(255,255,255,.75); border: 1px solid var(--line); border-radius: 20px; padding: 18px; box-shadow: inset 0 1px 0 rgba(255,255,255,.65); }}
+        .top {{ display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }}
+        .top h3 {{ margin: 0; font-size: 20px; line-height: 1.2; }}
+        .meta-line {{ margin-top: 6px; font-size: 13px; color: var(--muted); }}
+        .pill {{ border-radius: 999px; padding: 6px 10px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }}
+        .pill.pass {{ background: rgba(47,111,62,.14); color: var(--pass); }}
+        .pill.fail {{ background: rgba(176,58,46,.14); color: var(--fail); }}
+        .pill.other {{ background: rgba(154,123,56,.15); color: var(--other); }}
+        .detail-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; margin: 16px 0 14px; }}
+        .detail-grid div {{ padding: 12px; border-radius: 16px; background: rgba(255,255,255,.55); border: 1px solid rgba(93,107,84,.12); }}
+        .detail-grid span {{ display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 6px; }}
+        .detail-grid strong {{ font-size: 15px; }}
+        .step-summary {{ margin-bottom: 14px; }}
+        .step-label {{ margin-top: 8px; color: var(--muted); font-size: 13px; }}
+        .error-box {{ margin-bottom: 14px; padding: 12px 14px; border-radius: 14px; background: rgba(176,58,46,.08); border: 1px solid rgba(176,58,46,.12); color: var(--fail); font-size: 13px; }}
+        .details-panel {{ border-top: 1px dashed rgba(93,107,84,.24); padding-top: 12px; }}
+        .details-panel summary {{ cursor: pointer; font-weight: 700; color: var(--text); }}
+        .timing-line {{ margin: 12px 0; color: var(--muted); font-size: 13px; }}
+        .steps-list {{ display: flex; flex-direction: column; gap: 10px; }}
+        .step-item {{ padding: 12px; border-radius: 14px; border: 1px solid rgba(93,107,84,.12); background: rgba(255,255,255,.48); }}
+        .step-item.pass {{ border-left: 4px solid var(--pass); }}
+        .step-item.fail {{ border-left: 4px solid var(--fail); }}
+        .step-item.other {{ border-left: 4px solid var(--other); }}
+        .step-head {{ font-weight: 700; margin-bottom: 6px; }}
+        .step-body {{ color: var(--muted); font-size: 13px; white-space: pre-wrap; word-break: break-word; }}
+        .empty {{ padding: 18px; border-radius: 18px; background: rgba(255,255,255,.55); color: var(--muted); border: 1px dashed var(--line); }}
+        @media (max-width: 980px) {{
+            .hero, .dashboard-grid {{ grid-template-columns: 1fr; }}
+        }}
+        @media (max-width: 720px) {{
+            .wrap {{ padding: 22px 14px 48px; }}
+            .hero h1 {{ font-size: 32px; }}
+            .results {{ grid-template-columns: 1fr; }}
+            .detail-grid {{ grid-template-columns: 1fr; }}
+            .breakdown-row {{ grid-template-columns: 1fr; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <section class="hero">
+            <div class="hero-card">
+                <div class="eyebrow">Custom Results Dashboard</div>
+                <h1>{_safe_html(context.get('title') or context.get('execution_id') or 'Latest Execution')}</h1>
+                <p>A richer execution story across suites, browsers, executors, and step-level outcomes. Generated {generated_at}.</p>
+                <div class="hero-meta">
+                    <div class="meta-pill">Execution: {_safe_html(context.get('execution_id') or 'Latest')}</div>
+                    <div class="meta-pill">Scope: {total} tests</div>
+                    <div class="meta-pill">Steps: {total_steps}</div>
+                </div>
+            </div>
+            <div class="overview">
+                <div>
+                    <div class="panel-title">Overall Pass Rate</div>
+                    <div class="score">{payload['summary']['pass_rate']}%</div>
+                    <div class="score-label">{passed} passed out of {total} total executions</div>
+                </div>
+                <div>
+                    <div class="panel-title">Executor Mix</div>
+                    <div class="chip-grid">{executor_chips_html or '<div class="empty">No executor data</div>'}</div>
+                </div>
+                <div>
+                    <div class="panel-title">Browser Mix</div>
+                    <div class="chip-grid">{browser_chips_html or '<div class="empty">No browser data</div>'}</div>
+                </div>
+            </div>
+        </section>
+        <section class="grid">{cards_html}</section>
+        <section class="dashboard-grid">
+            <div class="overview">
+                <div class="panel-title">Suite Breakdown</div>
+                <div class="breakdown-list">{suite_rows_html or '<div class="empty">No suite data available.</div>'}</div>
+            </div>
+            <div class="overview">
+                <div class="panel-title">Step Health</div>
+                <div class="score">{passed_steps}</div>
+                <div class="score-label">Passed steps with {failed_steps} failed out of {total_steps} total step executions</div>
+                <div class="step-summary">
+                    <div class="step-bar">
+                        <span class="segment pass" style="width:{(passed_steps / total_steps * 100) if total_steps else 0}%"></span>
+                        <span class="segment fail" style="width:{(failed_steps / total_steps * 100) if total_steps else 0}%"></span>
+                    </div>
+                    <div class="step-label">Detailed operational health across all executed steps.</div>
+                </div>
+            </div>
+        </section>
+        <section class="results-panel">
+            <div class="results-header">
+                <div>
+                    <div class="panel-title">Execution Cards</div>
+                    <h2>Detailed Results</h2>
+                </div>
+                <div class="results-sub">Showing {len(recent_results)} execution records with step-level context.</div>
+            </div>
+            <section class="results">{results_html or '<div class="empty">No execution results available.</div>'}</section>
+        </section>
+    </div>
+</body>
+</html>""")
+
+    return {'json_path': json_path, 'html_path': html_path}
+
+def publish_execution_results(publish_targets=None, execution_results=None, execution_context=None):
+    targets = normalize_publish_targets(publish_targets)
+    project_root = resolve_project_root()
+    paths = get_publish_target_paths(project_root)
+    urls = build_publish_report_urls()
+
+    normalized_results = execution_results or fetch_recent_results_for_publishing()
+    status = {}
+
+    if 'allure' in targets:
+        try:
+            success = auto_generate_allure_report()
+            status['allure'] = {
+                'success': bool(success),
+                'url': urls['allure'] if success else None,
+                'message': 'Allure report generated' if success else 'Allure report generation failed'
+            }
+        except Exception as e:
+            status['allure'] = {'success': False, 'url': None, 'message': str(e)}
+
+    if 'extent' in targets:
+        try:
+            report_path = generate_extent_report(normalized_results, paths['extent_report'], execution_context)
+            status['extent'] = {
+                'success': os.path.exists(report_path),
+                'url': urls['extent'],
+                'message': 'Extent report generated'
+            }
+        except Exception as e:
+            status['extent'] = {'success': False, 'url': None, 'message': str(e)}
+
+    if 'custom_dashboard' in targets:
+        try:
+            assets = generate_custom_dashboard_assets(normalized_results, paths['custom_dashboard'], execution_context)
+            status['custom_dashboard'] = {
+                'success': os.path.exists(assets['html_path']),
+                'url': urls['custom_dashboard'],
+                'json_url': f"http://{get_allure_report_host()}/published-results/custom-dashboard/latest.json",
+                'message': 'Custom dashboard generated'
+            }
+        except Exception as e:
+            status['custom_dashboard'] = {'success': False, 'url': None, 'message': str(e)}
+
+    return {
+        'targets': targets,
+        'status': status,
+        'generated_at': datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%Y-%m-%d %H:%M:%S')
+    }
+
+def get_publish_status():
+    project_root = resolve_project_root()
+    paths = get_publish_target_paths(project_root)
+    urls = build_publish_report_urls()
+
+    allure_results_path = paths['allure_results']
+    allure_report_path = paths['allure_report']
+    allure_result_files = []
+    if os.path.exists(allure_results_path):
+        allure_result_files = [f for f in os.listdir(allure_results_path) if f.endswith('.json')]
+
+    extent_index = os.path.join(paths['extent_report'], 'index.html')
+    custom_index = os.path.join(paths['custom_dashboard'], 'index.html')
+    custom_json = os.path.join(paths['custom_dashboard'], 'latest.json')
+    custom_dashboard_ready = False
+    custom_dashboard_legacy = False
+
+    if os.path.exists(custom_index):
+        try:
+            with open(custom_index, 'r', encoding='utf-8', errors='ignore') as custom_file:
+                custom_html = custom_file.read()
+            custom_dashboard_ready = (
+                'Custom Results Dashboard' in custom_html and
+                'Execution Cards' in custom_html and
+                'Detailed Results' in custom_html
+            )
+            custom_dashboard_legacy = not custom_dashboard_ready
+        except Exception:
+            custom_dashboard_ready = False
+            custom_dashboard_legacy = True
+
+    return {
+        'allure': {
+            'available': len(allure_result_files) > 0,
+            'report_ready': os.path.exists(os.path.join(allure_report_path, 'index.html')),
+            'result_files': len(allure_result_files),
+            'report_url': urls['allure'] if os.path.exists(os.path.join(allure_report_path, 'index.html')) else None,
+        },
+        'extent': {
+            'available': os.path.exists(extent_index),
+            'report_ready': os.path.exists(extent_index),
+            'report_url': urls['extent'] if os.path.exists(extent_index) else None,
+        },
+        'custom_dashboard': {
+            'available': os.path.exists(custom_json),
+            'report_ready': custom_dashboard_ready,
+            'report_url': urls['custom_dashboard'] if os.path.exists(custom_index) else None,
+            'json_url': f"http://{get_allure_report_host()}/published-results/custom-dashboard/latest.json" if os.path.exists(custom_json) else None,
+            'framework': 'custom-results-v2' if custom_dashboard_ready else None,
+            'legacy_detected': custom_dashboard_legacy,
+        }
+    }
 
 def store_selenium_results(testcase_name, result, user_email=None):
     """Store test execution results in selenium_results table"""
@@ -4591,6 +5646,8 @@ def create_testcase():
                     element_name NVARCHAR(MAX),
                     action_type NVARCHAR(MAX),
                     assertion_type NVARCHAR(MAX) NULL,
+                    secondary_action NVARCHAR(MAX) NULL,
+                    secondary_value NVARCHAR(MAX) NULL,
                     xpath NVARCHAR(MAX),
                     [values] NVARCHAR(MAX),
                     expected_result NVARCHAR(MAX),
@@ -4905,7 +5962,8 @@ def get_teststeps(testcase_name):
 
         ensure_page_column_exists(cursor, table_name)
         ensure_assertion_type_column_exists(cursor, table_name)
-        cursor.execute(f"SELECT id, tc_id, step_no, test_step_description, element_name, action_type, assertion_type, xpath, [values], page FROM [{table_name}] ORDER BY step_no")
+        ensure_secondary_action_columns_exist(cursor, table_name)
+        cursor.execute(f"SELECT id, tc_id, step_no, test_step_description, element_name, action_type, assertion_type, secondary_action, secondary_value, xpath, [values], page FROM [{table_name}] ORDER BY step_no")
 
         steps = []
         for row in cursor.fetchall():
@@ -4917,9 +5975,11 @@ def get_teststeps(testcase_name):
                 'element_name': row[4],
                 'action_type': row[5],
                 'assertion_type': row[6],
-                'xpath': row[7],
-                'values': row[8],
-                'page': row[9]
+                'secondary_action': row[7],
+                'secondary_value': row[8],
+                'xpath': row[9],
+                'values': row[10],
+                'page': row[11]
             })
 
         conn.close()
@@ -5002,12 +6062,13 @@ def create_teststep(testcase_name):
 
         ensure_page_column_exists(cursor, table_name)
         ensure_assertion_type_column_exists(cursor, table_name)
+        ensure_secondary_action_columns_exist(cursor, table_name)
         cursor.execute(f"""
-            INSERT INTO [{table_name}] (tc_id, step_no, test_step_description, element_name, action_type, assertion_type, xpath, [values], page)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO [{table_name}] (tc_id, step_no, test_step_description, element_name, action_type, assertion_type, secondary_action, secondary_value, xpath, [values], page)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             proper_testcase_id, data['step_no'], data['test_step_description'],
-            data['element_name'], data['action_type'], data.get('assertion_type', ''), data.get('xpath', ''), data.get('values', ''), data.get('page', None)
+            data['element_name'], data['action_type'], data.get('assertion_type', ''), data.get('secondary_action', ''), data.get('secondary_value', ''), data.get('xpath', ''), data.get('values', ''), data.get('page', None)
         ))
         step_id = cursor.execute("SELECT @@IDENTITY").fetchone()[0]
         conn.commit()
@@ -5071,6 +6132,8 @@ def create_teststeps_bulk(testcase_name):
                     element_name NVARCHAR(MAX),
                     action_type NVARCHAR(MAX),
                     assertion_type NVARCHAR(MAX) NULL,
+                    secondary_action NVARCHAR(MAX) NULL,
+                    secondary_value NVARCHAR(MAX) NULL,
                     xpath NVARCHAR(MAX),
                     [values] NVARCHAR(MAX),
                     expected_result NVARCHAR(MAX),
@@ -5097,6 +6160,8 @@ def create_teststeps_bulk(testcase_name):
                     element_name NVARCHAR(MAX),
                     action_type NVARCHAR(MAX),
                     assertion_type NVARCHAR(MAX) NULL,
+                    secondary_action NVARCHAR(MAX) NULL,
+                    secondary_value NVARCHAR(MAX) NULL,
                     xpath NVARCHAR(MAX),
                     [values] NVARCHAR(MAX),
                     expected_result NVARCHAR(MAX),
@@ -5109,6 +6174,7 @@ def create_teststeps_bulk(testcase_name):
         else:
             ensure_page_column_exists(cursor, table_name)
             ensure_assertion_type_column_exists(cursor, table_name)
+            ensure_secondary_action_columns_exist(cursor, table_name)
         ensure_test_steps_columns_unlimited(cursor, table_name)
 
         # Use the resolved testcase row so duplicate testcase names do not mix identifiers.
@@ -5122,8 +6188,8 @@ def create_teststeps_bulk(testcase_name):
         inserted_count = 0
         for step in steps:
             cursor.execute(f"""
-                INSERT INTO [{table_name}] (tc_id, step_no, test_step_description, element_name, action_type, assertion_type, xpath, [values], page)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO [{table_name}] (tc_id, step_no, test_step_description, element_name, action_type, assertion_type, secondary_action, secondary_value, xpath, [values], page)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 proper_testcase_id,
                 step['step_no'],
@@ -5131,6 +6197,8 @@ def create_teststeps_bulk(testcase_name):
                 step['element_name'],
                 step['action_type'],
                 step.get('assertion_type', ''),
+                step.get('secondary_action', ''),
+                step.get('secondary_value', ''),
                 step.get('xpath', ''),
                 step.get('values', ''),
                 step.get('page', None)
@@ -5158,6 +6226,17 @@ def ensure_assertion_type_column_exists(cursor, table_name):
         ALTER TABLE [{table_name}] ADD assertion_type NVARCHAR(MAX) NULL
     """, (table_name,))
 
+def ensure_secondary_action_columns_exist(cursor, table_name):
+    """Ensure the secondary action columns exist in the given test step table."""
+    cursor.execute(f"""
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ? AND COLUMN_NAME = 'secondary_action')
+        ALTER TABLE [{table_name}] ADD secondary_action NVARCHAR(MAX) NULL
+    """, (table_name,))
+    cursor.execute(f"""
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ? AND COLUMN_NAME = 'secondary_value')
+        ALTER TABLE [{table_name}] ADD secondary_value NVARCHAR(MAX) NULL
+    """, (table_name,))
+
 def ensure_test_steps_columns_unlimited(cursor, table_name):
     """Ensure test step text columns are NVARCHAR(MAX) to avoid length caps."""
     escaped_table_name = table_name.replace(']', ']]')
@@ -5166,6 +6245,8 @@ def ensure_test_steps_columns_unlimited(cursor, table_name):
         'element_name',
         'action_type',
         'assertion_type',
+        'secondary_action',
+        'secondary_value',
         'values',
         'expected_result',
         'actual_result',
@@ -6098,6 +7179,7 @@ def execute_server():
         test_cases = data.get('test_cases', [])
         selected_suites = data.get('selected_suites', [])
         executor_type = data.get('executor_type', 'selenium')
+        browser_name = str(data.get('browser_name') or data.get('browser') or '').strip().lower()
         enable_isolation = data.get('enable_isolation', True)
         enable_parallel = data.get('enable_parallel', False)
         max_concurrent = data.get('max_concurrent', 3)
@@ -6111,6 +7193,7 @@ def execute_server():
         print(f"[SERVER_EXECUTE] Params:")
         print(f"  execution_id={execution_id}")
         print(f"  executor={executor_type}")
+        print(f"  browser={browser_name or 'default'}")
         print(f"  streaming={enable_streaming}")
         print(f"  user={user_email}")
         
@@ -6188,6 +7271,7 @@ def execute_server():
             test_cases=test_cases,
             selected_suites=selected_suites,
             executor_type=executor_type,
+            browser_name=browser_name,
             enable_isolation=enable_isolation,
             enable_parallel=enable_parallel,
             max_concurrent=max_concurrent,
@@ -6202,6 +7286,7 @@ def execute_server():
             'user_email': user_email,
             'started_at': format_timestamp(datetime.now(pytz.timezone('Asia/Kolkata'))),
             'executor_type': executor_type,
+            'browser_name': browser_name or '',
             'test_cases_count': len(test_cases),
             'results': []
         }
@@ -6245,6 +7330,7 @@ def execute_server():
                     'started_at': execution_results.get(execution_id, {}).get('started_at'),
                     'completed_at': format_timestamp(datetime.now(pytz.timezone('Asia/Kolkata'))),
                     'executor_type': executor_type,
+                    'browser_name': browser_name or '',
                     'test_cases_count': len(test_cases),
                     'results': results,
                     'summary': {
@@ -6265,6 +7351,7 @@ def execute_server():
                     'started_at': execution_results.get(execution_id, {}).get('started_at'),
                     'completed_at': format_timestamp(datetime.now(pytz.timezone('Asia/Kolkata'))),
                     'executor_type': executor_type,
+                    'browser_name': browser_name or '',
                     'test_cases_count': len(test_cases),
                     'error': str(e),
                     'results': []
@@ -6288,6 +7375,7 @@ def execute_server():
             "execution_id": execution_id,
             "execution_mode": "server",
             "executor_type": executor_type,
+            "browser_name": browser_name or "",
             "test_cases_count": len(test_cases),
             "parallel_execution": enable_parallel,
             "max_concurrent": max_concurrent if enable_parallel else 1,
@@ -6339,6 +7427,7 @@ def get_execute_server_status(execution_id):
             'started_at': execution_data.get('started_at'),
             'completed_at': execution_data.get('completed_at'),
             'executor_type': execution_data.get('executor_type'),
+            'browser_name': execution_data.get('browser_name'),
             'test_cases_count': execution_data.get('test_cases_count', 0),
             'summary': execution_data.get('summary', {}),
             'results': execution_data.get('results', []),
@@ -6511,7 +7600,8 @@ def execute_single_testcase(testcase_name, request_data=None):
             }
 
         ensure_assertion_type_column_exists(cursor, table_name)
-        cursor.execute(f"SELECT tc_id, step_no, test_step_description, element_name, action_type, assertion_type, xpath, [values] FROM [{table_name}] ORDER BY step_no")
+        ensure_secondary_action_columns_exist(cursor, table_name)
+        cursor.execute(f"SELECT tc_id, step_no, test_step_description, element_name, action_type, assertion_type, secondary_action, secondary_value, xpath, [values] FROM [{table_name}] ORDER BY step_no")
 
         test_steps = []
         for row in cursor.fetchall():
@@ -6522,8 +7612,10 @@ def execute_single_testcase(testcase_name, request_data=None):
                 'element_name': row[3],
                 'action_type': row[4],
                 'assertion_type': row[5],
-                'xpath': row[6],
-                'values': row[7]
+                'secondary_action': row[6],
+                'secondary_value': row[7],
+                'xpath': row[8],
+                'values': row[9]
             })
 
         cursor.close()  # Close cursor before closing connection
@@ -6962,6 +8054,7 @@ def execute_single_testcase(testcase_name, request_data=None):
         # Keep the default aligned with Excel execution so normal TestStep runs
         # also execute in visible Chrome unless UI explicitly selects another executor.
         executor_type = request_data.get('executor_type', 'selenium').lower()
+        browser_name = str(request_data.get('browser_name') or request_data.get('browser') or '').strip().lower()
 
         # Determine if this is server execution (affects headless mode for Playwright)
         is_server_execution = request_data.get('server_execution', False) if request_data else False
@@ -7010,14 +8103,20 @@ def execute_single_testcase(testcase_name, request_data=None):
             'module_id': module_id,
             'project_id': project_id,
             'username': user_info['username'],
-            'role': user_info['role']
+            'role': user_info['role'],
+            'browser_name': browser_name
         }
 
         if executor_type == 'playwright':
             print("[PLAYWRIGHT] Creating PlaywrightTestExecutor instance...")
             from playwright_executor import PlaywrightTestExecutor
             display_id = vnc_session.get('display') if vnc_session else None
-            executor = PlaywrightTestExecutor(server_execution=is_server_execution, vnc_session=vnc_session, display_id=display_id)
+            executor = PlaywrightTestExecutor(
+                server_execution=is_server_execution,
+                vnc_session=vnc_session,
+                display_id=display_id,
+                browser_name=browser_name
+            )
             print(f"[PLAYWRIGHT] Starting test case execution (server_execution={is_server_execution})...")
             result = executor.execute_test_case(testcase_name, test_steps, test_metadata)
             print(f"[ALLURE_DEBUG] PlaywrightTestExecutor result status: {result.get('status')}")
@@ -7028,7 +8127,11 @@ def execute_single_testcase(testcase_name, request_data=None):
             # Get headless setting from request data, default to False (window opens)
             headless = request_data.get('headless', False) if request_data else False
             print(f"[CYPRESS] Headless mode: {headless} (Window will {'NOT ' if not headless else ''}open)")
-            executor = CypressTestExecutor(server_execution=is_server_execution, headless=headless)
+            executor = CypressTestExecutor(
+                server_execution=is_server_execution,
+                headless=headless,
+                browser_name=browser_name
+            )
             print(f"[CYPRESS] Starting test case execution (server_execution={is_server_execution})...")
             result = executor.execute_test_case(testcase_name, test_steps, test_metadata)
             print(f"[ALLURE_DEBUG] CypressTestExecutor result status: {result.get('status')}")
@@ -7043,7 +8146,8 @@ def execute_single_testcase(testcase_name, request_data=None):
             executor = SeleniumTestExecutor(
                 enable_isolation=selenium_isolation,
                 headless=selenium_headless,
-                server_execution=is_server_execution
+                server_execution=is_server_execution,
+                browser_name=browser_name
             )
 
             print("[SELENIUM] Starting test case execution...")
@@ -7056,22 +8160,33 @@ def execute_single_testcase(testcase_name, request_data=None):
 
         # Add executor_type to result for proper storage
         result['executor_type'] = executor_type
+        if browser_name:
+            result['browser_name'] = browser_name
 
         # Metadata is already included in result from executor
 
+        publish_targets = normalize_publish_targets(request_data.get('publish_targets'))
+
         # Store results in selenium_results table
         store_selenium_results(testcase_name, result, user_email)
-        
-        # Auto-generate Allure report after test execution
+
+        publish_summary = {}
         try:
-            print("[ALLURE] Auto-generating Allure report after test execution...")
-            success = auto_generate_allure_report()
-            if success:
-                print("[ALLURE] Auto-generation completed successfully")
-            else:
-                print("[ALLURE] Auto-generation failed or skipped")
+            print(f"[PUBLISH] Publishing execution outputs for targets: {publish_targets}")
+            publish_summary = publish_execution_results(
+                publish_targets=publish_targets,
+                execution_results=[result],
+                execution_context={
+                    'title': testcase_name,
+                    'execution_id': result.get('execution_id'),
+                    'testrun_id': result.get('testrun_id'),
+                    'executor_type': executor_type,
+                    'browser_name': browser_name,
+                    'suite_type': suite_type,
+                }
+            )
         except Exception as e:
-            print(f"[WARNING] Failed to auto-generate Allure report: {str(e)}")
+            print(f"[WARNING] Failed to publish execution outputs: {str(e)}")
             traceback.print_exc()
         
         # Transform result to match frontend expectations
@@ -7089,7 +8204,8 @@ def execute_single_testcase(testcase_name, request_data=None):
             'end_time': result.get('end_time'),
             'error_message': result.get('error_message'),
             'step_results': result.get('step_results'),
-            'browser_info': result.get('browser_info')
+            'browser_info': result.get('browser_info'),
+            'publish_reports': publish_summary.get('status', {})
         }
 
         if vnc_session:
@@ -7424,35 +8540,14 @@ def get_execution_analysis(execution_id: str):
 def allure_status():
     """Check if Allure results are available"""
     try:
-        # Get the project root directory (parent of new_backend)
-        current_dir = os.getcwd()
-        if current_dir.endswith('new_backend'):
-            project_root = os.path.dirname(current_dir)
-        else:
-            project_root = current_dir
-            
-        allure_results_path = os.path.join(project_root, 'allure-results-new')
-        allure_report_path = os.path.join(project_root, 'allure-report')
-        
-        if not os.path.exists(allure_results_path):
-            return jsonify({
-                'available': False,
-                'report_ready': False,
-                'message': 'No allure-results-new directory found'
-            })
-        
-        # Check if there are any result files
-        result_files = [f for f in os.listdir(allure_results_path) if f.endswith('.json')]
-        
-        # Check if report has been generated
-        report_ready = os.path.exists(allure_report_path) and os.path.exists(os.path.join(allure_report_path, 'index.html'))
-        
+        publish_status = get_publish_status()
+        allure_info = publish_status['allure']
         return jsonify({
-            'available': len(result_files) > 0,
-            'report_ready': report_ready,
-            'result_files': len(result_files),
-            'report_url': f"http://{get_allure_report_host()}/allure-report/index.html" if report_ready else None,
-            'path': allure_results_path
+            'available': allure_info['available'],
+            'report_ready': allure_info['report_ready'],
+            'result_files': allure_info['result_files'],
+            'report_url': allure_info['report_url'],
+            'publish_status': publish_status
         })
     
     except Exception as e:
@@ -7579,6 +8674,63 @@ def force_regenerate_allure():
         
     except Exception as e:
         print(f"[ERROR] Failed to force-regenerate Allure report: {str(e)}")
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/results/publish/status', methods=['GET'])
+def results_publish_status():
+    try:
+        return jsonify({
+            'success': True,
+            'reports': get_publish_status()
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/results/publish', methods=['GET', 'POST', 'OPTIONS'])
+@app.route('/api/results/publish/', methods=['GET', 'POST', 'OPTIONS'])
+def publish_results_endpoint():
+    try:
+        if request.method == 'OPTIONS':
+            return jsonify({'success': True}), 200
+
+        if request.method == 'GET':
+            publish_summary = publish_execution_results(
+                publish_targets=['allure'],
+                execution_context={'title': 'Reporting Dashboard'}
+            )
+            return jsonify({
+                'success': any(item.get('success') for item in publish_summary['status'].values()) if publish_summary['status'] else False,
+                'reports': publish_summary['status'],
+                'targets': publish_summary['targets'],
+                'generated_at': publish_summary['generated_at']
+            })
+
+        request_data = request.get_json(silent=True) or {}
+        publish_targets = request_data.get('publish_targets')
+        execution_results = request_data.get('execution_results')
+        execution_context = request_data.get('execution_context') or {}
+
+        publish_summary = publish_execution_results(
+            publish_targets=publish_targets,
+            execution_results=execution_results,
+            execution_context=execution_context
+        )
+
+        return jsonify({
+            'success': any(item.get('success') for item in publish_summary['status'].values()) if publish_summary['status'] else False,
+            'reports': publish_summary['status'],
+            'targets': publish_summary['targets'],
+            'generated_at': publish_summary['generated_at']
+        })
+    except Exception as e:
+        print(f"[PUBLISH] Failed to publish results: {str(e)}")
         traceback.print_exc()
         return jsonify({
             'success': False,
@@ -7720,6 +8872,158 @@ def allure_open():
             'success': False,
             'error': str(e)
         }), 500
+
+# ─── Extent Report API Routes (mirrors Allure pattern) ────────────────────────
+
+@app.route('/api/extent/status', methods=['GET'])
+def extent_status():
+    """Check if Extent report is available and ready"""
+    try:
+        project_root = resolve_project_root()
+        extent_report_dir = os.path.join(project_root, 'extent-report')
+        extent_index = os.path.join(extent_report_dir, 'index.html')
+        report_ready = os.path.exists(extent_index)
+        report_url = f"http://{get_allure_report_host()}/extent-report/index.html" if report_ready else None
+        framework = 'missing'
+        legacy_detected = False
+
+        if report_ready:
+            try:
+                with open(extent_index, 'r', encoding='utf-8', errors='ignore') as report_file:
+                    extent_html = report_file.read(5000)
+                if 'spark-style.css' in extent_html or 'extent-github-cdn' in extent_html:
+                    framework = 'extent-spark'
+                else:
+                    framework = 'legacy-html'
+                    legacy_detected = True
+            except Exception:
+                framework = 'unknown'
+
+        # Check if there are DB results available to generate from
+        has_results = False
+        count = 0
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM selenium_results")
+            count = cursor.fetchone()[0]
+            has_results = count > 0
+            cursor.close()
+            conn.close()
+        except Exception:
+            has_results = False
+
+        return jsonify({
+            'available': has_results,
+            'report_ready': report_ready and framework == 'extent-spark',
+            'report_url': report_url,
+            'result_count': count if has_results else 0,
+            'framework': framework,
+            'legacy_detected': legacy_detected
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/extent/generate', methods=['POST'])
+def extent_generate():
+    """Generate Extent report from database results and return URL"""
+    try:
+        print("[EXTENT] Generating Extent report...")
+        project_root = resolve_project_root()
+        extent_report_dir = os.path.join(project_root, 'extent-report')
+
+        request_data = request.get_json(silent=True) or {}
+        execution_context = request_data.get('execution_context') or {'title': 'Extent Report'}
+        limit = request_data.get('limit', 100)
+
+        results = fetch_recent_results_for_publishing(limit=int(limit))
+        if not results:
+            return jsonify({
+                'success': False,
+                'error': 'No test results available. Please run tests first.'
+            }), 400
+
+        report_path = generate_extent_report(results, extent_report_dir, execution_context)
+        report_url = f"http://{get_allure_report_host()}/extent-report/index.html"
+
+        print(f"[SUCCESS] Extent report generated at: {report_path}")
+        return jsonify({
+            'success': True,
+            'report_url': report_url,
+            'message': 'Extent report generated successfully',
+            'result_count': len(results)
+        })
+    except Exception as e:
+        print(f"[ERROR] Extent generation failed: {str(e)}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/extent/force-regenerate', methods=['POST'])
+def extent_force_regenerate():
+    """Force regeneration of Extent report (clears old report first)"""
+    try:
+        print("[EXTENT] Force regenerating Extent report...")
+        project_root = resolve_project_root()
+        extent_report_dir = os.path.join(project_root, 'extent-report')
+
+        # Clear old report
+        if os.path.exists(extent_report_dir):
+            shutil.rmtree(extent_report_dir)
+            print("[EXTENT] Cleared old extent report directory")
+
+        request_data = request.get_json(silent=True) or {}
+        execution_context = request_data.get('execution_context') or {'title': 'Extent Report'}
+        limit = request_data.get('limit', 100)
+
+        results = fetch_recent_results_for_publishing(limit=int(limit))
+        if not results:
+            return jsonify({
+                'success': False,
+                'error': 'No test results available. Please run tests first.'
+            }), 400
+
+        report_path = generate_extent_report(results, extent_report_dir, execution_context)
+        report_url = f"http://{get_allure_report_host()}/extent-report/index.html"
+
+        print(f"[SUCCESS] Extent report force-regenerated at: {report_path}")
+        return jsonify({
+            'success': True,
+            'report_url': report_url,
+            'message': 'Extent report force-regenerated successfully',
+            'result_count': len(results)
+        })
+    except Exception as e:
+        print(f"[ERROR] Failed to force-regenerate Extent report: {str(e)}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/extent/open', methods=['POST'])
+def extent_open():
+    """Generate and open Extent report in browser"""
+    try:
+        generate_response = extent_generate()
+        if generate_response.status_code != 200:
+            return generate_response
+
+        response_data = generate_response.get_json()
+        report_url = response_data.get('report_url')
+
+        if report_url:
+            import webbrowser
+            webbrowser.open(report_url)
+
+        return jsonify({
+            'success': True,
+            'message': 'Extent report opened in browser',
+            'report_url': report_url
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ─── End Extent Report API Routes ─────────────────────────────────────────────
 
 @app.route('/api/monitor/dashboard', methods=['GET'])
 def get_monitor_dashboard():
@@ -7909,6 +9213,32 @@ def serve_allure_report(filename):
     except Exception as e:
         return jsonify({'error': f'File not found: {str(e)}'}), 404
 
+@app.route('/extent-report/<path:filename>')
+def serve_extent_report(filename):
+    """Serve Extent report files"""
+    try:
+        extent_report_path = os.path.join(resolve_project_root(), 'extent-report')
+        response = send_from_directory(extent_report_path, filename)
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+    except Exception as e:
+        return jsonify({'error': f'File not found: {str(e)}'}), 404
+
+@app.route('/published-results/<path:filename>')
+def serve_published_results(filename):
+    """Serve generated custom dashboard assets"""
+    try:
+        published_results_path = os.path.join(resolve_project_root(), 'published-results')
+        response = send_from_directory(published_results_path, filename)
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+    except Exception as e:
+        return jsonify({'error': f'File not found: {str(e)}'}), 404
+
 # Remote Viewing API Endpoints
 @app.route('/api/remote-viewing/start', methods=['POST'])
 def start_remote_viewing():
@@ -7995,9 +9325,11 @@ def start_server_execution():
         test_cases = request_data.get('test_cases', [])
         selected_suites = request_data.get('selected_suites', [])
         executor_type = request_data.get('executor_type', 'selenium')
+        browser_name = request_data.get('browser_name', '')
         enable_isolation = request_data.get('enable_isolation', True)
         enable_parallel = request_data.get('enable_parallel', False)
         max_concurrent = request_data.get('max_concurrent', 3)
+        publish_targets = normalize_publish_targets(request_data.get('publish_targets'))
 
         # Generate unique execution ID
         execution_id = str(uuid.uuid4())
@@ -8031,6 +9363,7 @@ def start_server_execution():
             test_cases=test_cases,
             selected_suites=selected_suites,
             executor_type=executor_type,
+            browser_name=browser_name,
             enable_isolation=enable_isolation,
             enable_parallel=enable_parallel,
             max_concurrent=max_concurrent,
@@ -8045,13 +9378,37 @@ def start_server_execution():
                 print(f"[SERVER_EXEC] Starting test execution for {execution_id}")
                 results = server_manager.execute()
 
+                for result in results:
+                    try:
+                        testcase_name = result.get('testcase_name') or result.get('name')
+                        if testcase_name:
+                            store_selenium_results(testcase_name, result, current_user_email)
+                    except Exception as storage_error:
+                        print(f"[SERVER_EXEC] Failed to store server execution result: {storage_error}")
+
+                publish_summary = {}
+                try:
+                    publish_summary = publish_execution_results(
+                        publish_targets=publish_targets,
+                        execution_results=results,
+                        execution_context={
+                            'title': f"Server Execution {execution_id}",
+                            'execution_id': execution_id,
+                            'executor_type': executor_type,
+                            'browser_name': browser_name,
+                        }
+                    )
+                except Exception as publish_error:
+                    print(f"[SERVER_EXEC] Failed to publish server execution outputs: {publish_error}")
+
                 # Store execution results
                 execution_results[execution_id] = {
                     'results': results,
                     'completed_at': format_timestamp(datetime.now(pytz.timezone('Asia/Kolkata'))),
                     'status': 'completed',
                     'novnc_url': novnc_url,
-                    'vnc_session_info': session_info
+                    'vnc_session_info': session_info,
+                    'publish_reports': publish_summary.get('status', {})
                 }
 
                 # VNC session cleanup removed - keep VNC alive for remote viewing
@@ -8095,7 +9452,8 @@ def start_server_execution():
             'message': 'Server execution started with live streaming',
             'novnc_url': novnc_url,
             'vnc_session_id': session_info['session_id'],
-            'streaming_active': True
+            'streaming_active': True,
+            'publish_targets': publish_targets
         }), 200
 
     except Exception as e:
@@ -8572,7 +9930,8 @@ def handle_start_test_execution(data):
                     table_name = sanitize_table_name(testcase_name)
 
                 ensure_assertion_type_column_exists(cursor, table_name)
-                cursor.execute(f"SELECT tc_id, step_no, test_step_description, element_name, action_type, assertion_type, xpath, [values] FROM [{table_name}] ORDER BY step_no")
+                ensure_secondary_action_columns_exist(cursor, table_name)
+                cursor.execute(f"SELECT tc_id, step_no, test_step_description, element_name, action_type, assertion_type, secondary_action, secondary_value, xpath, [values] FROM [{table_name}] ORDER BY step_no")
 
                 test_steps = []
                 for row in cursor.fetchall():
@@ -8583,8 +9942,10 @@ def handle_start_test_execution(data):
                         'element_name': row[3],
                         'action_type': row[4],
                         'assertion_type': row[5],
-                        'xpath': row[6],
-                        'values': row[7]
+                        'secondary_action': row[6],
+                        'secondary_value': row[7],
+                        'xpath': row[8],
+                        'values': row[9]
                     })
 
                 cursor.close()
@@ -10771,7 +12132,8 @@ def execute_single_testcase_with_excel_data(testcase_name, request_data=None):
             }
 
         ensure_assertion_type_column_exists(cursor, table_name)
-        cursor.execute(f"SELECT tc_id, step_no, test_step_description, element_name, action_type, assertion_type, xpath, [values] FROM [{table_name}] ORDER BY step_no")
+        ensure_secondary_action_columns_exist(cursor, table_name)
+        cursor.execute(f"SELECT tc_id, step_no, test_step_description, element_name, action_type, assertion_type, secondary_action, secondary_value, xpath, [values] FROM [{table_name}] ORDER BY step_no")
 
         test_steps = []
         for row in cursor.fetchall():
@@ -10782,8 +12144,10 @@ def execute_single_testcase_with_excel_data(testcase_name, request_data=None):
                 'element_name': row[3],
                 'action_type': row[4],
                 'assertion_type': row[5],
-                'xpath': row[6],
-                'values': row[7]
+                'secondary_action': row[6],
+                'secondary_value': row[7],
+                'xpath': row[8],
+                'values': row[9]
             })
 
         cursor.close()
@@ -10896,6 +12260,7 @@ def execute_single_testcase_with_excel_data(testcase_name, request_data=None):
 
         # Determine which executor to use
         executor_type = request_data.get('executor_type', 'selenium').lower()
+        browser_name = str(request_data.get('browser_name') or request_data.get('browser') or '').strip().lower()
 
         # Prepare metadata to pass to executor
         test_metadata = {
@@ -10910,7 +12275,8 @@ def execute_single_testcase_with_excel_data(testcase_name, request_data=None):
             'username': '',  # Will be set from user info
             'role': '',      # Will be set from user info
             'excel_data_set': data_set_index,
-            'total_excel_data_sets': total_data_sets
+            'total_excel_data_sets': total_data_sets,
+            'browser_name': browser_name
         }
 
         # Get user information for Allure results
@@ -10937,7 +12303,7 @@ def execute_single_testcase_with_excel_data(testcase_name, request_data=None):
         if executor_type == 'playwright':
             print("[EXCEL_PLAYWRIGHT] Creating PlaywrightTestExecutor instance...")
             from playwright_executor import PlaywrightTestExecutor
-            executor = PlaywrightTestExecutor()
+            executor = PlaywrightTestExecutor(browser_name=browser_name)
             print("[EXCEL_PLAYWRIGHT] Starting test case execution...")
             result = executor.execute_test_case(testcase_name, mapped_test_steps, test_metadata)
             print(f"[EXCEL_ALLURE_DEBUG] PlaywrightTestExecutor result status: {result.get('status')}")
@@ -10945,7 +12311,7 @@ def execute_single_testcase_with_excel_data(testcase_name, request_data=None):
         elif executor_type == 'cypress':
             print("[EXCEL_CYPRESS] Creating CypressTestExecutor instance...")
             from cypress_executor import CypressTestExecutor
-            executor = CypressTestExecutor()
+            executor = CypressTestExecutor(browser_name=browser_name)
             print("[EXCEL_CYPRESS] Starting test case execution...")
             result = executor.execute_test_case(testcase_name, mapped_test_steps, test_metadata)
             print(f"[EXCEL_ALLURE_DEBUG] CypressTestExecutor result status: {result.get('status')}")
@@ -10959,7 +12325,8 @@ def execute_single_testcase_with_excel_data(testcase_name, request_data=None):
             executor = SeleniumTestExecutor(
                 enable_isolation=selenium_isolation,
                 headless=selenium_headless,
-                server_execution=False
+                server_execution=False,
+                browser_name=browser_name
             )
             print("[EXCEL_SELENIUM] Starting test case execution...")
             result = executor.execute_test_case(testcase_name, mapped_test_steps, test_metadata)
@@ -10971,22 +12338,34 @@ def execute_single_testcase_with_excel_data(testcase_name, request_data=None):
 
         # Add executor_type to result for proper storage
         result['executor_type'] = executor_type
+        if browser_name:
+            result['browser_name'] = browser_name
         result['excel_data_set'] = data_set_index
         result['total_excel_data_sets'] = total_data_sets
+
+        publish_targets = normalize_publish_targets(request_data.get('publish_targets'))
 
         # Store results in selenium_results table
         store_selenium_results(testcase_name, result, user_email)
 
-        # Auto-generate Allure report after test execution
+        publish_summary = {}
         try:
-            print("[EXCEL_ALLURE] Auto-generating Allure report after Excel test execution...")
-            success = auto_generate_allure_report()
-            if success:
-                print("[EXCEL_ALLURE] Auto-generation completed successfully")
-            else:
-                print("[EXCEL_ALLURE] Auto-generation failed or skipped")
+            print(f"[EXCEL_PUBLISH] Publishing execution outputs for targets: {publish_targets}")
+            publish_summary = publish_execution_results(
+                publish_targets=publish_targets,
+                execution_results=[result],
+                execution_context={
+                    'title': testcase_name,
+                    'execution_id': result.get('execution_id'),
+                    'testrun_id': result.get('testrun_id'),
+                    'executor_type': executor_type,
+                    'browser_name': browser_name,
+                    'suite_type': suite_type,
+                    'excel_data_set': data_set_index,
+                }
+            )
         except Exception as e:
-            print(f"[WARNING] Failed to auto-generate Allure report: {str(e)}")
+            print(f"[WARNING] Failed to publish Excel execution outputs: {str(e)}")
 
         # Transform result to match frontend expectations
         api_result = {
@@ -11005,7 +12384,8 @@ def execute_single_testcase_with_excel_data(testcase_name, request_data=None):
             'step_results': result.get('step_results'),
             'browser_info': result.get('browser_info'),
             'excel_data_set': data_set_index,
-            'total_excel_data_sets': total_data_sets
+            'total_excel_data_sets': total_data_sets,
+            'publish_reports': publish_summary.get('status', {})
         }
 
         # Add user information to the result

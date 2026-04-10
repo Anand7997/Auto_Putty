@@ -61,7 +61,32 @@ interface LocalExecutionStatus {
   lastFinishedTest?: string;
   lastUpdated: string;
 }
- 
+
+type ExecutorType = 'selenium' | 'playwright' | 'cypress';
+interface BrowserOption {
+  value: string;
+  label: string;
+  description: string;
+}
+
+const EXECUTOR_BROWSER_OPTIONS: Record<ExecutorType, BrowserOption[]> = {
+  selenium: [
+    { value: 'chrome', label: 'Chrome', description: 'Best for standard local and server runs' },
+    { value: 'firefox', label: 'Firefox', description: 'Useful for Gecko-based compatibility checks' },
+    { value: 'edge', label: 'Edge', description: 'Chromium-based Microsoft browser coverage' },
+  ],
+  playwright: [
+    { value: 'chromium', label: 'Chromium', description: 'Fast default engine for Playwright' },
+    { value: 'firefox', label: 'Firefox', description: 'Native Playwright Firefox coverage' },
+    { value: 'webkit', label: 'WebKit', description: 'Safari-like engine coverage through WebKit' },
+  ],
+  cypress: [
+    { value: 'chrome', label: 'Chrome', description: 'Most stable Cypress browser in this setup' },
+    { value: 'edge', label: 'Edge', description: 'Chromium-based alternative for Cypress runs' },
+    { value: 'firefox', label: 'Firefox', description: 'Cross-browser validation with Cypress' },
+  ],
+};
+
 const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack }) => {
   const [selectedTestCases, setSelectedTestCases] = useState<string[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -69,7 +94,8 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
   const [lastExecutionResults, setLastExecutionResults] = useState<any[]>([]);
   const [executionInProgress, setExecutionInProgress] = useState(false);
   const [localExecutionStatus, setLocalExecutionStatus] = useState<LocalExecutionStatus | null>(null);
-  const [selectedExecutor, setSelectedExecutor] = useState<'selenium' | 'playwright' | 'cypress'>('selenium');
+  const [selectedExecutor, setSelectedExecutor] = useState<ExecutorType>('selenium');
+  const [selectedBrowser, setSelectedBrowser] = useState<string>('chrome');
   const [enableIsolation, setEnableIsolation] = useState(true);
   const [enableParallelExecution, setEnableParallelExecution] = useState(false);
   const [maxConcurrentTests, setMaxConcurrentTests] = useState(3);
@@ -109,6 +135,13 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
       }
     }
   }, []);
+
+  useEffect(() => {
+    const supportedBrowsers = EXECUTOR_BROWSER_OPTIONS[selectedExecutor];
+    if (!supportedBrowsers.some(option => option.value === selectedBrowser)) {
+      setSelectedBrowser(supportedBrowsers[0]?.value || 'chrome');
+    }
+  }, [selectedBrowser, selectedExecutor]);
  
   // Icon mapping function for created test suites
   const getIconComponent = (iconName: string) => {
@@ -730,6 +763,7 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
             force_save: true,
             ui_execution: true,
             executor_type: selectedExecutor,
+            browser_name: selectedBrowser,
             enable_isolation: enableIsolation,
             execution_mode: testCase.executionMode || 'default',
             value_set_index: testCase.valueSetIndex !== undefined ? testCase.valueSetIndex : null,
@@ -1244,7 +1278,7 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
 
       toast({
         title: "Server Execution Started",
-        description: `Executing ${selectedTestCases.length} test cases from ${selectedCreatedSuites.length} suite(s): ${suiteNames} using ${selectedExecutor.toUpperCase()} executor`,
+        description: `Executing ${selectedTestCases.length} test cases from ${selectedCreatedSuites.length} suite(s): ${suiteNames} using ${selectedExecutor.toUpperCase()} on ${selectedBrowser.toUpperCase()}`,
       });
 
       console.log('🚀 Starting server test execution with configuration:', {
@@ -1253,6 +1287,7 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
         suiteNames: suiteNames,
         totalTestCases: currentTestCases.length,
         executor: selectedExecutor,
+        browser: selectedBrowser,
         isolationMode: enableIsolation,
         parallelExecution: enableParallelExecution,
         maxConcurrentTests: maxConcurrentTests
@@ -1305,6 +1340,7 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
           expandedTestCases,
           selectedSuites,
           executor: selectedExecutor,
+          browser: selectedBrowser,
           parallelExecution: enableParallelExecution,
           timestamp: new Date().toISOString()
         }
@@ -1331,6 +1367,7 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
           test_cases: expandedTestCases,
           selected_suites: selectedSuites,
           executor_type: selectedExecutor,
+          browser_name: selectedBrowser,
           enable_isolation: enableIsolation,
           enable_parallel: enableParallelExecution,
           max_concurrent: maxConcurrentTests,
@@ -1547,7 +1584,7 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
       const testCasesDisplay = selectedTestCases.length === 1 ? '1 test case' : `${selectedTestCases.length} test cases`;
       toast({
         title: "Local Execution Started",
-        description: `Executing ${testCasesDisplay} from ${selectedCreatedSuites.length} suite(s): ${suiteNames} using ${selectedExecutor.toUpperCase()} executor`,
+        description: `Executing ${testCasesDisplay} from ${selectedCreatedSuites.length} suite(s): ${suiteNames} using ${selectedExecutor.toUpperCase()} on ${selectedBrowser.toUpperCase()}`,
       });
 
       console.log('🚀 Starting LOCAL test execution with configuration:', {
@@ -1555,6 +1592,7 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
         selectedSuites: selectedCreatedSuites,
         suiteNames: suiteNames,
         executor: selectedExecutor,
+        browser: selectedBrowser,
         isolationMode: enableIsolation,
         parallelExecution: enableParallelExecution,
         maxConcurrentTests: maxConcurrentTests,
@@ -2320,7 +2358,7 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
               <div className="space-y-4 p-4 bg-gray-50 rounded-lg border">
                 <div className="flex items-center space-x-2">
                   <Settings className="w-5 h-5 text-gray-600" />
-                  <h3 className="text-lg font-semibold text-gray-800">Execution Settings</h3>
+                  <h3 className="text-lg font-semibold text-gray-800">Cross-Browser / Cross-Platform Trigger</h3>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2361,6 +2399,30 @@ const TestExecutionDashboard: React.FC<TestExecutionDashboardProps> = ({ onBack 
                           ? 'Modern browser automation with better performance'
                           : 'Cypress E2E runner (Node/NPM based)'
                       }
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="browser-select" className="text-sm font-medium text-gray-700">
+                      Target Browser
+                    </Label>
+                    <Select value={selectedBrowser} onValueChange={setSelectedBrowser}>
+                      <SelectTrigger id="browser-select" className="w-full">
+                        <SelectValue placeholder="Select browser" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {EXECUTOR_BROWSER_OPTIONS[selectedExecutor].map((browser) => (
+                          <SelectItem key={browser.value} value={browser.value}>
+                            <div className="flex items-center space-x-2">
+                              <div className="w-3 h-3 bg-slate-500 rounded-full"></div>
+                              <span>{browser.label}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-gray-500">
+                      {EXECUTOR_BROWSER_OPTIONS[selectedExecutor].find(option => option.value === selectedBrowser)?.description}
                     </p>
                   </div>
 

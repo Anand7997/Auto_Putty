@@ -39,6 +39,11 @@ interface StepResult {
     before_screenshot?: string;
     after_screenshot?: string;
     screenshot_status?: 'success' | 'error' | 'timeout';
+    secondary_action?: string;
+    secondary_value?: string;
+    secondary_status?: 'PASS' | 'FAIL' | 'SKIPPED';
+    secondary_error?: string;
+    secondary_screenshot?: string;
 }
  
 interface TestResult {
@@ -74,6 +79,15 @@ const RecentResults: React.FC<RecentResultsProps> = ({ onBack }) => {
     const [loading, setLoading] = useState(true);
     const [detailsLoading, setDetailsLoading] = useState(false);
     const { toast } = useToast();
+
+    const openScreenshot = (screenshotPath?: string) => {
+        if (!screenshotPath) return;
+        const isFullPath = screenshotPath.includes('/') || screenshotPath.includes('\\');
+        const url = isFullPath
+            ? screenshotPath
+            : buildApiUrl(`/allure-results/${screenshotPath}`);
+        window.open(url, '_blank');
+    };
  
     const fetchRecentResults = async () => {
         try {
@@ -222,6 +236,41 @@ const RecentResults: React.FC<RecentResultsProps> = ({ onBack }) => {
                                                 {step.error && (
                                                     <div className="text-red-600">
                                                         <span className="font-medium">Error:</span> {step.error}
+                                                    </div>
+                                                )}
+                                                {step.secondary_action && (
+                                                    <div>
+                                                        <span className="font-medium">Secondary Action:</span> {step.secondary_action}
+                                                        {step.secondary_status ? ` (${step.secondary_status})` : ''}
+                                                    </div>
+                                                )}
+                                                {step.secondary_error && (
+                                                    <div className="text-orange-700">
+                                                        <span className="font-medium">Secondary Error:</span> {step.secondary_error}
+                                                    </div>
+                                                )}
+                                                {(step.after_screenshot || step.secondary_screenshot) && (
+                                                    <div className="flex flex-wrap gap-2 pt-2">
+                                                        {step.after_screenshot && (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => openScreenshot(step.after_screenshot)}
+                                                                className="h-8"
+                                                            >
+                                                                {step.status === 'FAIL' ? 'Failure Screenshot' : 'Step Screenshot'}
+                                                            </Button>
+                                                        )}
+                                                        {step.secondary_screenshot && (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => openScreenshot(step.secondary_screenshot)}
+                                                                className="h-8"
+                                                            >
+                                                                Secondary Screenshot
+                                                            </Button>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>

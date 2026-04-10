@@ -1,0 +1,23 @@
+{
+  "generatedAt": "2026-04-01 16:10:00",
+  "context": {
+    "title": "Extent Smoke Test",
+    "execution_id": "SMOKE-1",
+    "executor_type": "selenium",
+    "browser_name": "chrome"
+  },
+  "results": [
+    {
+      "testcase_name": "Sample Test",
+      "suite_type": "smoke",
+      "status": "PASS",
+      "execution_time": "12s",
+      "executor_type": "selenium",
+      "browser_name": "chrome",
+      "step_results": [
+        {"status": "PASS", "description": "Open page"},
+        {"status": "PASS", "description": "Validate result"}
+      ]
+    }
+  ]
+}

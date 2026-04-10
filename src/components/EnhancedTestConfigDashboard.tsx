@@ -62,6 +62,7 @@ const ACTION_TYPES = [
   'PASTE',
   'UPLOAD_FILE',
   'DOWNLOAD_FILE',
+  'HANDLE',
   'VISUAL_ASSERTION',
   'TYPE',
   'SELECT',
@@ -108,6 +109,13 @@ const ASSERTION_OPTIONS = [
   'WAIT_FOR_LOADER_DISAPPEARS',
 ];
 
+const HANDLE_OPTIONS = [
+  'HANDLE_ALERT_DIALOG',
+  'HANDLE_CONFIRMATION',
+  'HANDLE_NOTIFICATION',
+  'HANDLE_OS_DIALOG',
+];
+
 const LEGACY_TO_CURRENT_ACTION: Record<string, string> = {
   CLICK_AND_SELECT_DATE: 'CLICK_AND_SELECT',
   CLICK_QUICK_DATE: 'CLICK_AND_SELECT',
@@ -126,6 +134,22 @@ const LEGACY_TO_CURRENT_ACTION: Record<string, string> = {
   HANDLE_RADIO: 'RADIO_BUTTON',
   DRAGDROP: 'DRAG_AND_DROP',
   'DRAG_&_DROP': 'DRAG_AND_DROP',
+  HANDLE_ALERT_DIALOG: 'HANDLE',
+  HANDLE_CONFIRMATION: 'HANDLE',
+  HANDLE_NOTIFICATION: 'HANDLE',
+  HANDLE_OS_DIALOG: 'HANDLE',
+  HANDLE_ALERT: 'HANDLE_ALERT_DIALOG',
+  HANDLE_DIALOG: 'HANDLE_ALERT_DIALOG',
+  HANDLE_POPUP: 'HANDLE_ALERT_DIALOG',
+  HANDLE_CONFIRM: 'HANDLE_CONFIRMATION',
+  HANDLE_CONFIRM_BOX: 'HANDLE_CONFIRMATION',
+  HANDLE_CONFIRMATION_BOX: 'HANDLE_CONFIRMATION',
+  HANDLE_NOTIFICATION_TOAST: 'HANDLE_NOTIFICATION',
+  HANDLE_TOAST: 'HANDLE_NOTIFICATION',
+  HANDLE_NOTIFICATIONS: 'HANDLE_NOTIFICATION',
+  HANDLE_OS_DIALOGS: 'HANDLE_OS_DIALOG',
+  HANDLE_FILE_CHOOSER: 'HANDLE_OS_DIALOG',
+  HANDLE_PRINT_DIALOG: 'HANDLE_OS_DIALOG',
   SWITCH_FRAME: 'SWITCH_TO_IFRAME',
   SWITCH_TO_FRAME: 'SWITCH_TO_IFRAME',
   SWITCH_IFRAME: 'SWITCH_TO_IFRAME',
@@ -140,7 +164,14 @@ const normalizeActionType = (actionType?: string): string => {
 
 const isPressKeyAction = (actionType?: string): boolean => normalizeActionType(actionType) === 'PRESS_KEY';
 const isAssertionAction = (actionType?: string): boolean => normalizeActionType(actionType) === 'ASSERTION';
+const isHandleAction = (actionType?: string): boolean => normalizeActionType(actionType) === 'HANDLE';
 const getAssertionLabel = (assertionType?: string): string => assertionType || 'ELEMENT_VISIBLE';
+const getHandleLabel = (actionType?: string, handleType?: string): string => {
+  const rawAction = (actionType || '').toUpperCase().trim().replace(/[\s\-/]+/g, '_');
+  if (HANDLE_OPTIONS.includes(rawAction)) return rawAction;
+  const normalizedHandle = (handleType || '').toUpperCase().trim().replace(/[\s\-/]+/g, '_');
+  return HANDLE_OPTIONS.includes(normalizedHandle) ? normalizedHandle : 'HANDLE_ALERT_DIALOG';
+};
 
 const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = ({ 
   selectedProject,
@@ -247,13 +278,14 @@ const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = 
             ...step,
             [field]: field === 'action_type' ? normalizeActionType(String(value)) : value,
             ...(field === 'action_type' && normalizeActionType(String(value)) === 'PRESS_KEY' && !step.values ? { values: 'ENTER' } : {}),
-            ...(field === 'action_type' && normalizeActionType(String(value)) === 'ASSERTION' && !step.assertion_type ? { assertion_type: 'ELEMENT_VISIBLE' } : {})
+            ...(field === 'action_type' && normalizeActionType(String(value)) === 'ASSERTION' && !step.assertion_type ? { assertion_type: 'ELEMENT_VISIBLE' } : {}),
+            ...(field === 'action_type' && normalizeActionType(String(value)) === 'HANDLE' ? { assertion_type: getHandleLabel(String(value), step.assertion_type) } : {})
           }
         : step
     );
     if (field === 'action_type') {
       const normalizedAction = normalizeActionType(String(value));
-      setOpenPressKeyPicker((normalizedAction === 'PRESS_KEY' || normalizedAction === 'ASSERTION') ? stepId : null);
+      setOpenPressKeyPicker((normalizedAction === 'PRESS_KEY' || normalizedAction === 'ASSERTION' || normalizedAction === 'HANDLE') ? stepId : null);
     }
     setSteps(updatedSteps);
     onTestStepsChange?.(updatedSteps);
@@ -418,7 +450,7 @@ const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = 
                               <select
                                 value={normalizeActionType(step.action_type)}
                                 onChange={(e) => updateStep(step.id, 'action_type', e.target.value)}
-                                onClick={() => (isPressKeyAction(step.action_type) || isAssertionAction(step.action_type)) && setOpenPressKeyPicker(step.id)}
+                                onClick={() => (isPressKeyAction(step.action_type) || isAssertionAction(step.action_type) || isHandleAction(step.action_type)) && setOpenPressKeyPicker(step.id)}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                               >
                                 {ACTION_TYPES.map(action => (
@@ -435,9 +467,14 @@ const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = 
                                   Assertion: {getAssertionLabel(step.assertion_type)}
                                 </div>
                               )}
-                              {(isPressKeyAction(step.action_type) || isAssertionAction(step.action_type)) && openPressKeyPicker === step.id && (
+                              {isHandleAction(step.action_type) && (
+                                <div className="mt-1 text-xs font-medium text-emerald-700">
+                                  Handle: {getHandleLabel(step.action_type, step.assertion_type)}
+                                </div>
+                              )}
+                              {(isPressKeyAction(step.action_type) || isAssertionAction(step.action_type) || isHandleAction(step.action_type)) && openPressKeyPicker === step.id && (
                                 <div className="absolute bottom-0 left-full z-20 ml-2 w-48 rounded-md border border-gray-300 bg-white p-1 shadow-lg">
-                                  {(isPressKeyAction(step.action_type) ? PRESS_KEY_OPTIONS : ASSERTION_OPTIONS).map((option) => (
+                                  {(isPressKeyAction(step.action_type) ? PRESS_KEY_OPTIONS : isAssertionAction(step.action_type) ? ASSERTION_OPTIONS : HANDLE_OPTIONS).map((option) => (
                                     <button
                                       key={option}
                                       type="button"
@@ -452,7 +489,9 @@ const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = 
                                       className={`block w-full rounded px-3 py-2 text-left text-sm ${
                                         (isPressKeyAction(step.action_type)
                                           ? (step.values || 'ENTER')
-                                          : getAssertionLabel(step.assertion_type)) === option
+                                          : isAssertionAction(step.action_type)
+                                            ? getAssertionLabel(step.assertion_type)
+                                            : getHandleLabel(step.action_type, step.assertion_type)) === option
                                           ? 'bg-purple-100 text-purple-700'
                                           : 'text-gray-700 hover:bg-purple-50'
                                       }`}
@@ -470,7 +509,7 @@ const EnhancedTestConfigDashboard: React.FC<EnhancedTestConfigDashboardProps> = 
                               <Input
                                 value={step.values}
                                 onChange={(e) => updateStep(step.id, 'values', e.target.value)}
-                                placeholder={isPressKeyAction(step.action_type) ? "Selected from key dropdown" : isAssertionAction(step.action_type) ? "Expected text / URL / title / attribute=value" : "Input values"}
+                                placeholder={isPressKeyAction(step.action_type) ? "Selected from key dropdown" : isAssertionAction(step.action_type) ? "Expected text / URL / title / attribute=value" : isHandleAction(step.action_type) ? "accept; contains=... / file=... / print" : "Input values"}
                                 disabled={isPressKeyAction(step.action_type)}
                               />
                             </div>

@@ -33,16 +33,27 @@ interface ReportingDashboardProps {
   onBack?: () => void;
 }
 
+interface PublishReportStatus {
+  available: boolean;
+  report_ready: boolean;
+  report_url?: string | null;
+  json_url?: string | null;
+  framework?: string | null;
+  legacy_detected?: boolean;
+}
+
 const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onBack }) => {
   const [executions, setExecutions] = useState<TestExecution[]>([]);
   const [selectedExecution, setSelectedExecution] = useState<TestExecution | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showDetailedResults, setShowDetailedResults] = useState(false);
+  const [reportStatus, setReportStatus] = useState<Record<string, PublishReportStatus>>({});
   
   const { toast } = useToast();
 
   useEffect(() => {
     loadExecutions();
+    loadPublishStatus();
   }, []);
 
   const loadExecutions = async () => {
@@ -133,6 +144,19 @@ const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onBack }) => {
     }
   };
 
+  const loadPublishStatus = async () => {
+    try {
+      const response = await fetch(buildApiUrl('/api/results/publish/status'));
+      if (!response.ok) {
+        return;
+      }
+      const data = await response.json();
+      setReportStatus(data.reports || {});
+    } catch (error) {
+      console.error('Error loading publish status:', error);
+    }
+  };
+
   const handleViewDetails = (execution: TestExecution) => {
     setSelectedExecution(execution);
     setShowDetailedResults(true);
@@ -209,6 +233,114 @@ const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onBack }) => {
       toast({
         title: "Error",
         description: "Failed to access Allure report. Please check if the backend is running.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleExtentReport = async () => {
+    try {
+      toast({
+        title: "Loading Extent Report",
+        description: "Checking report status...",
+      });
+
+      const statusResponse = await fetch(buildApiUrl('/api/extent/status'));
+      if (!statusResponse.ok) throw new Error('Backend not responding');
+      const statusResult = await statusResponse.json();
+
+      if (statusResult.report_ready && statusResult.report_url && statusResult.framework === 'extent-spark') {
+        toast({ title: "Opening Extent Report", description: "Report is ready and opening in new tab" });
+        window.open(statusResult.report_url, '_blank');
+      } else if (statusResult.available) {
+        const shouldForceRegenerate = statusResult.legacy_detected === true;
+        toast({
+          title: shouldForceRegenerate ? "Refreshing Extent Report" : "Generating Extent Report",
+          description: shouldForceRegenerate
+            ? "Legacy report detected, regenerating with Extent framework..."
+            : "Test results found, generating report..."
+        });
+        const generateResponse = await fetch(buildApiUrl(shouldForceRegenerate ? '/api/extent/force-regenerate' : '/api/extent/generate'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        const generateResult = await generateResponse.json();
+        if (generateResult.success) {
+          toast({ title: "Report Generated", description: "Extent report opened in new tab" });
+          window.open(generateResult.report_url, '_blank');
+          loadPublishStatus();
+        } else {
+          toast({ title: "Generation Failed", description: generateResult.error || "Failed to generate Extent report", variant: "destructive" });
+        }
+      } else {
+        toast({ title: "No Results Available", description: "No test results found to generate Extent report", variant: "destructive" });
+      }
+    } catch (error) {
+      console.error('Error handling Extent report:', error);
+      toast({ title: "Error", description: "Failed to access Extent report. Please check if the backend is running.", variant: "destructive" });
+    }
+  };
+
+  const handlePublishReport = async (target: 'extent' | 'custom_dashboard') => {
+    try {
+      // Use dedicated extent API for extent reports
+      if (target === 'extent') {
+        await handleExtentReport();
+        return;
+      }
+
+      const currentStatus = reportStatus[target];
+      const shouldForceRegenerateCustomDashboard =
+        target === 'custom_dashboard' &&
+        (currentStatus?.legacy_detected === true || currentStatus?.framework !== 'custom-results-v2');
+
+      if (currentStatus?.report_ready && currentStatus.report_url && !shouldForceRegenerateCustomDashboard) {
+        window.open(currentStatus.report_url, '_blank');
+        return;
+      }
+
+      toast({
+        title: "Publishing Report",
+        description: shouldForceRegenerateCustomDashboard
+          ? "Refreshing Custom Dashboard with the new detailed layout..."
+          : `Generating Custom Dashboard output...`,
+      });
+
+      const response = await fetch(buildApiUrl('/api/results/publish'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          publish_targets: [target],
+          execution_context: {
+            title: 'Reporting Dashboard'
+          }
+        })
+      });
+
+      const data = await response.json();
+      const targetReport = data.reports?.[target];
+      if (data.success && targetReport?.url) {
+        window.open(targetReport.url, '_blank');
+        loadPublishStatus();
+        toast({
+          title: "Report Ready",
+          description: `${target === 'extent' ? 'Extent' : 'Custom Dashboard'} opened in a new tab.`,
+        });
+        return;
+      }
+
+      toast({
+        title: "Report Generation Failed",
+        description: targetReport?.message || 'Unable to publish report',
+        variant: "destructive"
+      });
+    } catch (error) {
+      console.error(`Error handling ${target} report:`, error);
+      toast({
+        title: "Error",
+        description: "Failed to publish report.",
         variant: "destructive"
       });
     }
@@ -331,7 +463,26 @@ const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onBack }) => {
                 View Allure Report
               </Button>
               <Button 
-                onClick={loadExecutions}
+                onClick={() => handlePublishReport('extent')}
+                variant="outline" 
+                className="border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+              >
+                <ExternalLink className="w-4 h-4 mr-2" />
+                View Extent Report
+              </Button>
+              <Button 
+                onClick={() => handlePublishReport('custom_dashboard')}
+                variant="outline" 
+                className="border-sky-200 text-sky-600 hover:bg-sky-50"
+              >
+                <BarChart3 className="w-4 h-4 mr-2" />
+                View Custom Dashboard
+              </Button>
+              <Button 
+                onClick={() => {
+                  loadExecutions();
+                  loadPublishStatus();
+                }}
                 variant="outline" 
                 className="border-green-200 text-green-600"
               >

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Edit, Trash2, ArrowUp, ArrowDown, PlusCircle, Save, X, RefreshCw, CheckCircle, Copy, FileSpreadsheet, Database } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { buildApiUrl } from '@/config/api';
@@ -28,6 +29,8 @@ interface TestStep {
   element_name: string;
   action_type: string;
   assertion_type?: string;
+  secondary_action?: string;
+  secondary_value?: string;
   xpath: string;
   values: string;
 }
@@ -85,6 +88,7 @@ const ACTION_TYPES = [
   'PASTE',
   'UPLOAD_FILE',
   'DOWNLOAD_FILE',
+  'HANDLE',
   'VISUAL_ASSERTION',
   'TYPE',
   'SELECT',
@@ -131,6 +135,14 @@ const ASSERTION_OPTIONS = [
   'WAIT_FOR_LOADER_DISAPPEARS',
 ];
 
+const HANDLE_OPTIONS = [
+  'HANDLE_ALERT_DIALOG',
+  'HANDLE_CONFIRMATION',
+  'HANDLE_NOTIFICATION',
+  'HANDLE_OS_DIALOG',
+];
+const SECONDARY_ACTION_OPTIONS = ['', 'LOG_STEP', 'AUTO_GENERATE_VALUE', 'TAKE_SCREENSHOT'];
+
 const LEGACY_TO_CURRENT_ACTION: Record<string, string> = {
   CLICK_AND_SELECT_DATE: 'CLICK_AND_SELECT',
   CLICK_QUICK_DATE: 'CLICK_AND_SELECT',
@@ -149,6 +161,22 @@ const LEGACY_TO_CURRENT_ACTION: Record<string, string> = {
   HANDLE_RADIO: 'RADIO_BUTTON',
   DRAGDROP: 'DRAG_AND_DROP',
   'DRAG_&_DROP': 'DRAG_AND_DROP',
+  HANDLE_ALERT_DIALOG: 'HANDLE',
+  HANDLE_CONFIRMATION: 'HANDLE',
+  HANDLE_NOTIFICATION: 'HANDLE',
+  HANDLE_OS_DIALOG: 'HANDLE',
+  HANDLE_ALERT: 'HANDLE_ALERT_DIALOG',
+  HANDLE_DIALOG: 'HANDLE_ALERT_DIALOG',
+  HANDLE_POPUP: 'HANDLE_ALERT_DIALOG',
+  HANDLE_CONFIRM: 'HANDLE_CONFIRMATION',
+  HANDLE_CONFIRM_BOX: 'HANDLE_CONFIRMATION',
+  HANDLE_CONFIRMATION_BOX: 'HANDLE_CONFIRMATION',
+  HANDLE_NOTIFICATION_TOAST: 'HANDLE_NOTIFICATION',
+  HANDLE_TOAST: 'HANDLE_NOTIFICATION',
+  HANDLE_NOTIFICATIONS: 'HANDLE_NOTIFICATION',
+  HANDLE_OS_DIALOGS: 'HANDLE_OS_DIALOG',
+  HANDLE_FILE_CHOOSER: 'HANDLE_OS_DIALOG',
+  HANDLE_PRINT_DIALOG: 'HANDLE_OS_DIALOG',
   SWITCH_FRAME: 'SWITCH_TO_IFRAME',
   SWITCH_TO_FRAME: 'SWITCH_TO_IFRAME',
   SWITCH_IFRAME: 'SWITCH_TO_IFRAME',
@@ -163,7 +191,135 @@ const normalizeActionType = (actionType?: string): string => {
 
 const isPressKeyAction = (actionType?: string): boolean => normalizeActionType(actionType) === 'PRESS_KEY';
 const isAssertionAction = (actionType?: string): boolean => normalizeActionType(actionType) === 'ASSERTION';
+const isHandleAction = (actionType?: string): boolean => normalizeActionType(actionType) === 'HANDLE';
+const isAutoGenTypingAction = (actionType?: string): boolean => ['CLICK_AND_TYPE', 'CLEAR_AND_TYPE', 'TYPE'].includes(normalizeActionType(actionType));
+const AUTO_GEN_VALUE_OPTIONS = ['Auto-GenValue'];
+const DATE_TIME_FORMAT_OPTIONS = [
+  'YYYY-MM-DD',
+  'DD/MM/YYYY',
+  'MM/DD/YYYY',
+  'YYYY-MM-DD HH:mm:ss',
+  'DD/MM/YYYY HH:mm:ss',
+  'HH:mm:ss',
+  'hh:mm A',
+];
 const getAssertionLabel = (assertionType?: string): string => assertionType || 'ELEMENT_VISIBLE';
+const getHandleLabel = (actionType?: string, handleType?: string): string => {
+  const rawAction = (actionType || '').toUpperCase().trim().replace(/[\s\-/]+/g, '_');
+  if (HANDLE_OPTIONS.includes(rawAction)) return rawAction;
+  const normalizedHandle = (handleType || '').toUpperCase().trim().replace(/[\s\-/]+/g, '_');
+  return HANDLE_OPTIONS.includes(normalizedHandle) ? normalizedHandle : 'HANDLE_ALERT_DIALOG';
+};
+
+const getHandleDisplayLabel = (handleType?: string): string => {
+  switch (getHandleLabel(undefined, handleType)) {
+    case 'HANDLE_ALERT_DIALOG':
+      return 'Handle Alerts / Pop-ups / Dialogs';
+    case 'HANDLE_CONFIRMATION':
+      return 'Handle Confirmation Boxes';
+    case 'HANDLE_NOTIFICATION':
+      return 'Handle Notifications / Toasts';
+    case 'HANDLE_OS_DIALOG':
+      return 'Interact with OS-level dialogs';
+    default:
+      return getHandleLabel(undefined, handleType);
+  }
+};
+
+const getSecondaryActionDisplayLabel = (secondaryAction?: string): string => {
+  switch ((secondaryAction || '').toUpperCase().trim()) {
+    case 'LOG_STEP':
+      return 'Log Step';
+    case 'AUTO_GENERATE_VALUE':
+      return 'Auto-Generate Value';
+    case 'TAKE_SCREENSHOT':
+      return 'Take Screenshot';
+    default:
+      return 'None';
+  }
+};
+
+const inferAutoGenTemporalKind = (elementName?: string): 'datetime' | 'date' | 'time' | null => {
+  const normalized = String(elementName || '').toLowerCase();
+  if (!normalized.trim()) return null;
+  if (['timestamp', 'date time', 'datetime', 'time stamp', 'created at', 'updated at', 'created on', 'updated on'].some((keyword) => normalized.includes(keyword))) {
+    return 'datetime';
+  }
+  if (['start time', 'end time', 'login time', 'time'].some((keyword) => normalized.includes(keyword))) {
+    return 'time';
+  }
+  if (['date', 'booking date', 'start date', 'end date', 'created date', 'updated date'].some((keyword) => normalized.includes(keyword))) {
+    return 'date';
+  }
+  return null;
+};
+
+const formatDateToken = (date: Date, format: string): string => {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const hours24 = date.getHours();
+  const hours12 = hours24 % 12 || 12;
+  const replacements: Record<string, string> = {
+    YYYY: String(date.getFullYear()),
+    MM: pad(date.getMonth() + 1),
+    DD: pad(date.getDate()),
+    HH: pad(hours24),
+    hh: pad(hours12),
+    mm: pad(date.getMinutes()),
+    ss: pad(date.getSeconds()),
+    A: hours24 >= 12 ? 'PM' : 'AM',
+  };
+  return format.replace(/YYYY|MM|DD|HH|hh|mm|ss|A/g, (token) => replacements[token] || token);
+};
+
+const generateTemporalValue = (format: string): string => {
+  const now = new Date();
+  const randomFutureOffsetDays = Math.floor(Math.random() * 365);
+  const randomSeconds = Math.floor(Math.random() * 24 * 60 * 60);
+  const generated = new Date(now.getTime() + (randomFutureOffsetDays * 24 * 60 * 60 * 1000) + (randomSeconds * 1000));
+  return formatDateToken(generated, format);
+};
+
+const getTemporalFormatOptions = (elementName?: string): string[] => {
+  const kind = inferAutoGenTemporalKind(elementName);
+  if (kind === 'time') return ['HH:mm:ss', 'hh:mm A'];
+  if (kind === 'date') return ['YYYY-MM-DD', 'DD/MM/YYYY', 'MM/DD/YYYY'];
+  if (kind === 'datetime') return ['YYYY-MM-DD HH:mm:ss', 'DD/MM/YYYY HH:mm:ss', 'YYYY-MM-DD', 'HH:mm:ss'];
+  return DATE_TIME_FORMAT_OPTIONS;
+};
+
+const generateSmartAutoValue = (elementName?: string): string => {
+  const normalized = String(elementName || '').toLowerCase().trim();
+  const now = new Date();
+  const stamp = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+  const token = Math.random().toString(36).slice(2, 6);
+
+  if (inferAutoGenTemporalKind(elementName)) {
+    const format = getTemporalFormatOptions(elementName)[0];
+    return generateTemporalValue(format);
+  }
+  if (['email', 'e mail', 'mail id', 'email id'].some((keyword) => normalized.includes(keyword))) {
+    return `autouser_${stamp}${token}@example.com`;
+  }
+  if (['username', 'user name', 'userid', 'user id', 'login id', 'login'].some((keyword) => normalized.includes(keyword))) {
+    return `autouser_${stamp}${token}`;
+  }
+  if (['phone', 'mobile', 'contact number', 'phone number', 'mobile number'].some((keyword) => normalized.includes(keyword))) {
+    return `9${Math.floor(100000000 + Math.random() * 900000000)}`;
+  }
+  if (['first name', 'firstname', 'given name'].some((keyword) => normalized.includes(keyword))) {
+    return `Auto${stamp.slice(-6)}`;
+  }
+  if (['last name', 'lastname', 'surname', 'family name'].some((keyword) => normalized.includes(keyword))) {
+    return `User${stamp.slice(-6)}`;
+  }
+  if (['full name', 'customer name', 'display name', 'name'].some((keyword) => normalized.includes(keyword))) {
+    return `Auto User ${stamp.slice(-4)}`;
+  }
+  if (['password', 'passcode', 'passwd', 'pin'].some((keyword) => normalized.includes(keyword))) {
+    return `Qa@${stamp}${token}!`;
+  }
+  return `Auto${stamp}${token}`;
+};
 
 const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({ 
   selectedProject,
@@ -181,10 +337,15 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
     element_name: '',
     action_type: 'CLICK',
     assertion_type: '',
+    secondary_action: '',
+    secondary_value: '',
     xpath: '',
     values: ''
   });
   const [openPressKeyPicker, setOpenPressKeyPicker] = useState<string | number | null>(null);
+  const [openAutoGenFormatPicker, setOpenAutoGenFormatPicker] = useState<string | number | null>(null);
+  const [openSecondaryLogEditor, setOpenSecondaryLogEditor] = useState<string | number | null>(null);
+  const [secondaryLogDraft, setSecondaryLogDraft] = useState('');
   const [isExcelSidebarOpen, setIsExcelSidebarOpen] = useState(false);
   const [mappedExcelSheet, setMappedExcelSheet] = useState<string>('');
   const [mappedExcelFileId, setMappedExcelFileId] = useState<number | null>(null);
@@ -281,7 +442,10 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
           if (normalizedAction === 'ASSERTION' && !updated.assertion_type) {
             updated.assertion_type = 'ELEMENT_VISIBLE';
           }
-          setOpenPressKeyPicker((normalizedAction === 'PRESS_KEY' || normalizedAction === 'ASSERTION') ? stepId : null);
+          if (normalizedAction === 'HANDLE') {
+            updated.assertion_type = getHandleLabel(String(value), step.assertion_type);
+          }
+          setOpenPressKeyPicker((normalizedAction === 'PRESS_KEY' || normalizedAction === 'ASSERTION' || normalizedAction === 'HANDLE' || normalizedAction === 'CLICK_AND_TYPE' || normalizedAction === 'CLEAR_AND_TYPE' || normalizedAction === 'TYPE') ? stepId : null);
         }
         
         // If page is changed, clear element_name and xpath to avoid confusion
@@ -297,6 +461,74 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
     });
     console.log('updateStep - calling onTestStepsChange with:', updatedSteps);
     onTestStepsChange(updatedSteps);
+  };
+
+  const updateStepFields = (stepId: number, updates: Partial<TestStep>) => {
+    const updatedSteps = testSteps.map(step => (
+      step.id === stepId ? { ...step, ...updates } : step
+    ));
+    onTestStepsChange(updatedSteps);
+  };
+
+  const applyNewStepSecondaryAction = (nextAction: string) => {
+    if (nextAction === 'AUTO_GENERATE_VALUE') {
+      if (inferAutoGenTemporalKind(newStepData.element_name)) {
+        setNewStepData((prev) => ({
+          ...prev,
+          secondary_action: 'AUTO_GENERATE_VALUE',
+          secondary_value: '',
+        }));
+        setOpenAutoGenFormatPicker('new');
+      } else {
+        setNewStepData((prev) => ({
+          ...prev,
+          values: generateSmartAutoValue(prev.element_name),
+          secondary_action: 'AUTO_GENERATE_VALUE',
+          secondary_value: '',
+        }));
+      }
+      return;
+    }
+
+    setNewStepData((prev) => ({
+      ...prev,
+      secondary_action: nextAction,
+      secondary_value: nextAction === 'TAKE_SCREENSHOT' ? '' : prev.secondary_value,
+    }));
+
+    if (nextAction === 'LOG_STEP') {
+      setSecondaryLogDraft(newStepData.secondary_value || '');
+      setOpenSecondaryLogEditor('new');
+    }
+  };
+
+  const applyRowSecondaryAction = (step: TestStep, nextAction: string) => {
+    if (nextAction === 'AUTO_GENERATE_VALUE') {
+      if (inferAutoGenTemporalKind(step.element_name)) {
+        updateStepFields(step.id, {
+          secondary_action: 'AUTO_GENERATE_VALUE',
+          secondary_value: '',
+        });
+        setOpenAutoGenFormatPicker(step.id);
+      } else {
+        updateStepFields(step.id, {
+          values: generateSmartAutoValue(step.element_name),
+          secondary_action: 'AUTO_GENERATE_VALUE',
+          secondary_value: '',
+        });
+      }
+      return;
+    }
+
+    updateStepFields(step.id, {
+      secondary_action: nextAction,
+      secondary_value: nextAction === 'TAKE_SCREENSHOT' ? '' : (step.secondary_value || ''),
+    });
+
+    if (nextAction === 'LOG_STEP') {
+      setSecondaryLogDraft(step.secondary_value || '');
+      setOpenSecondaryLogEditor(step.id);
+    }
   };
 
   // New function to update multiple fields at once
@@ -368,6 +600,8 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
       element_name: '',
       action_type: 'CLICK',
       assertion_type: '',
+      secondary_action: '',
+      secondary_value: '',
       xpath: '',
       values: ''
     };
@@ -412,6 +646,8 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
       element_name: '',
       action_type: 'CLICK',
       assertion_type: '',
+      secondary_action: '',
+      secondary_value: '',
       xpath: '',
       values: ''
     });
@@ -443,6 +679,9 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
       page: '',
       element_name: '',
       action_type: 'CLICK',
+      assertion_type: '',
+      secondary_action: '',
+      secondary_value: '',
       xpath: '',
       values: ''
     });
@@ -479,7 +718,10 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
         if (normalizedAction === 'ASSERTION' && !updated.assertion_type) {
           updated.assertion_type = 'ELEMENT_VISIBLE';
         }
-        setOpenPressKeyPicker((normalizedAction === 'PRESS_KEY' || normalizedAction === 'ASSERTION') ? 'new' : null);
+        if (normalizedAction === 'HANDLE') {
+          updated.assertion_type = getHandleLabel(value, prev.assertion_type);
+        }
+        setOpenPressKeyPicker((normalizedAction === 'PRESS_KEY' || normalizedAction === 'ASSERTION' || normalizedAction === 'HANDLE' || normalizedAction === 'CLICK_AND_TYPE' || normalizedAction === 'CLEAR_AND_TYPE' || normalizedAction === 'TYPE') ? 'new' : null);
       }
       
       // If page is changed, clear element_name and xpath to avoid confusion
@@ -980,7 +1222,7 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
                         <select
                           value={normalizeActionType(newStepData.action_type)}
                           onChange={(e) => updateNewStepData('action_type', e.target.value)}
-                          onClick={() => (isPressKeyAction(newStepData.action_type) || isAssertionAction(newStepData.action_type)) && setOpenPressKeyPicker('new')}
+                          onClick={() => (isPressKeyAction(newStepData.action_type) || isAssertionAction(newStepData.action_type) || isHandleAction(newStepData.action_type)) && setOpenPressKeyPicker('new')}
                           className="w-full px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                         >
                           {ACTION_TYPES.map(action => (
@@ -997,9 +1239,14 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
                             Assertion: {getAssertionLabel(newStepData.assertion_type)}
                           </div>
                         )}
-                        {(isPressKeyAction(newStepData.action_type) || isAssertionAction(newStepData.action_type)) && openPressKeyPicker === 'new' && (
+                        {isHandleAction(newStepData.action_type) && (
+                          <div className="mt-1 text-xs font-medium text-emerald-700">
+                            Handle: {getHandleDisplayLabel(newStepData.assertion_type)}
+                          </div>
+                        )}
+                        {(isPressKeyAction(newStepData.action_type) || isAssertionAction(newStepData.action_type) || isHandleAction(newStepData.action_type)) && openPressKeyPicker === 'new' && (
                           <div className="absolute bottom-0 left-full z-20 ml-2 w-48 rounded-md border border-blue-300 bg-white p-1 shadow-lg">
-                            {(isPressKeyAction(newStepData.action_type) ? PRESS_KEY_OPTIONS : ASSERTION_OPTIONS).map((option) => (
+                            {(isPressKeyAction(newStepData.action_type) ? PRESS_KEY_OPTIONS : isAssertionAction(newStepData.action_type) ? ASSERTION_OPTIONS : HANDLE_OPTIONS).map((option) => (
                               <button
                                 key={option}
                                 type="button"
@@ -1014,14 +1261,72 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
                                 className={`block w-full rounded px-3 py-2 text-left text-sm ${
                                   (isPressKeyAction(newStepData.action_type)
                                     ? (newStepData.values || 'ENTER')
-                                    : getAssertionLabel(newStepData.assertion_type)) === option
+                                    : isAssertionAction(newStepData.action_type)
+                                      ? getAssertionLabel(newStepData.assertion_type)
+                                      : getHandleLabel(newStepData.action_type, newStepData.assertion_type)) === option
                                     ? 'bg-blue-100 text-blue-700'
                                     : 'text-gray-700 hover:bg-blue-50'
                                 }`}
                               >
-                                {option}
+                                {isHandleAction(newStepData.action_type) ? getHandleDisplayLabel(option) : option}
                               </button>
                             ))}
+                          </div>
+                        )}
+                        {openAutoGenFormatPicker === 'new' && (
+                          <div className="absolute bottom-0 left-full z-20 ml-52 w-56 rounded-md border border-sky-200 bg-white p-1 shadow-lg">
+                            {getTemporalFormatOptions(newStepData.element_name).map((format) => (
+                              <button
+                                key={format}
+                                type="button"
+                                onClick={() => {
+                                  setNewStepData((prev) => ({
+                                    ...prev,
+                                    values: generateTemporalValue(format),
+                                    secondary_action: 'AUTO_GENERATE_VALUE',
+                                    secondary_value: '',
+                                  }));
+                                  setOpenAutoGenFormatPicker(null);
+                                }}
+                                className="block w-full rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-sky-50"
+                              >
+                                {format}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <select
+                          value={newStepData.secondary_action || ''}
+                          onChange={(e) => applyNewStepSecondaryAction(e.target.value)}
+                          className="mt-2 w-full px-3 py-2 border border-rose-300 rounded-md focus:outline-none focus:ring-2 focus:ring-rose-400 text-sm"
+                        >
+                          {SECONDARY_ACTION_OPTIONS.map((action) => (
+                            <option key={action || 'none'} value={action}>
+                              {getSecondaryActionDisplayLabel(action)}
+                            </option>
+                          ))}
+                        </select>
+                        {newStepData.secondary_action === 'LOG_STEP' && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="mt-2 border-rose-200 text-rose-700 hover:bg-rose-50"
+                            onClick={() => {
+                              setSecondaryLogDraft(newStepData.secondary_value || '');
+                              setOpenSecondaryLogEditor('new');
+                            }}
+                          >
+                            {newStepData.secondary_value ? 'Edit Log' : 'Add Log'}
+                          </Button>
+                        )}
+                        {newStepData.secondary_action && (
+                          <div className="mt-1 text-xs font-medium text-rose-700">
+                            {newStepData.secondary_action === 'LOG_STEP'
+                              ? (newStepData.secondary_value || 'No log message saved yet')
+                              : newStepData.secondary_action === 'AUTO_GENERATE_VALUE'
+                                ? 'Generates a matching value directly into the Values box'
+                              : 'Screenshot will be captured after the main action'}
                           </div>
                         )}
                       </div>
@@ -1032,7 +1337,7 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
                       <Input
                         value={newStepData.values}
                         onChange={(e) => updateNewStepData('values', e.target.value)}
-                        placeholder={isPressKeyAction(newStepData.action_type) ? "Selected from key dropdown" : isAssertionAction(newStepData.action_type) ? "Expected text / URL / title / attribute=value" : "Input values"}
+                        placeholder={isPressKeyAction(newStepData.action_type) ? "Selected from key dropdown" : isAssertionAction(newStepData.action_type) ? "Expected text / URL / title / attribute=value" : isHandleAction(newStepData.action_type) ? "accept; contains=... / file=... / print" : "Input values"}
                         className="w-full border-blue-300 focus:border-blue-500"
                         disabled={isPressKeyAction(newStepData.action_type)}
                       />
@@ -1175,7 +1480,7 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
                         <select
                           value={normalizeActionType(step.action_type)}
                           onChange={(e) => !readOnlyMode && updateStep(step.id, 'action_type', e.target.value)}
-                          onClick={() => !readOnlyMode && (isPressKeyAction(step.action_type) || isAssertionAction(step.action_type)) && setOpenPressKeyPicker(step.id)}
+                          onClick={() => !readOnlyMode && (isPressKeyAction(step.action_type) || isAssertionAction(step.action_type) || isHandleAction(step.action_type)) && setOpenPressKeyPicker(step.id)}
                           className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm ${readOnlyMode ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                           disabled={readOnlyMode}
                         >
@@ -1193,9 +1498,14 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
                             Assertion: {getAssertionLabel(step.assertion_type)}
                           </div>
                         )}
-                        {(isPressKeyAction(step.action_type) || isAssertionAction(step.action_type)) && openPressKeyPicker === step.id && (
+                        {isHandleAction(step.action_type) && (
+                          <div className="mt-1 text-xs font-medium text-emerald-700">
+                            Handle: {getHandleDisplayLabel(step.assertion_type)}
+                          </div>
+                        )}
+                        {(isPressKeyAction(step.action_type) || isAssertionAction(step.action_type) || isHandleAction(step.action_type)) && openPressKeyPicker === step.id && (
                           <div className={`absolute bottom-0 left-full z-20 ml-2 w-48 rounded-md border border-gray-300 bg-white p-1 shadow-lg ${readOnlyMode ? 'pointer-events-none bg-gray-100' : ''}`}>
-                            {(isPressKeyAction(step.action_type) ? PRESS_KEY_OPTIONS : ASSERTION_OPTIONS).map((option) => (
+                            {(isPressKeyAction(step.action_type) ? PRESS_KEY_OPTIONS : isAssertionAction(step.action_type) ? ASSERTION_OPTIONS : HANDLE_OPTIONS).map((option) => (
                               <button
                                 key={option}
                                 type="button"
@@ -1212,15 +1522,79 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
                                 className={`block w-full rounded px-3 py-2 text-left text-sm ${
                                   (isPressKeyAction(step.action_type)
                                     ? (step.values || 'ENTER')
-                                    : getAssertionLabel(step.assertion_type)) === option
+                                    : isAssertionAction(step.action_type)
+                                      ? getAssertionLabel(step.assertion_type)
+                                      : getHandleLabel(step.action_type, step.assertion_type)) === option
                                     ? 'bg-purple-100 text-purple-700'
                                     : 'text-gray-700 hover:bg-purple-50'
                                 }`}
                                 disabled={readOnlyMode}
                               >
-                                {option}
+                                {isHandleAction(step.action_type) ? getHandleDisplayLabel(option) : option}
                               </button>
                             ))}
+                          </div>
+                        )}
+                        {openAutoGenFormatPicker === step.id && (
+                          <div className={`absolute bottom-0 left-full z-20 ml-52 w-56 rounded-md border border-sky-200 bg-white p-1 shadow-lg ${readOnlyMode ? 'pointer-events-none bg-gray-100' : ''}`}>
+                            {getTemporalFormatOptions(step.element_name).map((format) => (
+                              <button
+                                key={format}
+                                type="button"
+                                onClick={() => {
+                                  if (!readOnlyMode) {
+                                    updateStep(step.id, 'values', generateTemporalValue(format));
+                                    updateStep(step.id, 'secondary_action', 'AUTO_GENERATE_VALUE');
+                                    updateStep(step.id, 'secondary_value', '');
+                                    setOpenAutoGenFormatPicker(null);
+                                  }
+                                }}
+                                className="block w-full rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-sky-50"
+                                disabled={readOnlyMode}
+                              >
+                                {format}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <select
+                          value={step.secondary_action || ''}
+                          onChange={(e) => {
+                            if (!readOnlyMode) {
+                              applyRowSecondaryAction(step, e.target.value);
+                            }
+                          }}
+                          className={`mt-2 w-full px-3 py-2 border border-rose-200 rounded-md focus:outline-none focus:ring-2 focus:ring-rose-400 text-sm ${readOnlyMode ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                          disabled={readOnlyMode}
+                        >
+                          {SECONDARY_ACTION_OPTIONS.map((action) => (
+                            <option key={action || 'none'} value={action}>
+                              {getSecondaryActionDisplayLabel(action)}
+                            </option>
+                          ))}
+                        </select>
+                        {step.secondary_action === 'LOG_STEP' && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="mt-2 border-rose-200 text-rose-700 hover:bg-rose-50"
+                            onClick={() => {
+                              setSecondaryLogDraft(step.secondary_value || '');
+                              setOpenSecondaryLogEditor(step.id);
+                            }}
+                            disabled={readOnlyMode}
+                          >
+                            {step.secondary_value ? 'Edit Log' : 'Add Log'}
+                          </Button>
+                        )}
+                        {step.secondary_action && (
+                          <div className="mt-1 text-xs font-medium text-rose-700">
+                            {step.secondary_action === 'LOG_STEP'
+                              ? (step.secondary_value || 'No log message saved yet')
+                              : step.secondary_action === 'AUTO_GENERATE_VALUE'
+                                ? 'Generates a matching value directly into the Values box'
+                              : 'Screenshot will be captured after the main action'}
                           </div>
                         )}
                       </div>
@@ -1231,7 +1605,7 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
                       <Input
                         value={step.values || ''}
                         onChange={(e) => !readOnlyMode && updateStep(step.id, 'values', e.target.value)}
-                        placeholder={isPressKeyAction(step.action_type) ? "Selected from key dropdown" : isAssertionAction(step.action_type) ? "Expected text / URL / title / attribute=value" : "Input values"}
+                        placeholder={isPressKeyAction(step.action_type) ? "Selected from key dropdown" : isAssertionAction(step.action_type) ? "Expected text / URL / title / attribute=value" : isHandleAction(step.action_type) ? "accept; contains=... / file=... / print" : "Input values"}
                         className={`w-full ${readOnlyMode ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                         disabled={readOnlyMode || isPressKeyAction(step.action_type)}
                       />
@@ -1321,6 +1695,80 @@ const TestStepsGrid = forwardRef<TestStepsGridRef, TestStepsGridProps>(({
         }}
         testCaseName={testCaseName || 'Unknown Test Case'}
       />
+
+      <Dialog open={openSecondaryLogEditor !== null} onOpenChange={(open) => {
+        if (!open) {
+          setOpenSecondaryLogEditor(null);
+          setSecondaryLogDraft('');
+        }
+      }}>
+        <DialogContent className="bg-white border-gray-200 max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-gray-900">Log Step Message</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Textarea
+              value={secondaryLogDraft}
+              onChange={(e) => setSecondaryLogDraft(e.target.value)}
+              placeholder="Type the custom message to save after the main action completes"
+              className="min-h-[140px] bg-gray-50 border-gray-200 text-gray-900"
+            />
+            <div className="flex justify-end space-x-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-red-200 text-red-600 hover:bg-red-50"
+                onClick={() => {
+                  if (openSecondaryLogEditor === 'new') {
+                    setNewStepData((prev) => ({
+                      ...prev,
+                      secondary_action: '',
+                      secondary_value: '',
+                    }));
+                  } else if (typeof openSecondaryLogEditor === 'number') {
+                    updateStep(openSecondaryLogEditor, 'secondary_action', '');
+                    updateStep(openSecondaryLogEditor, 'secondary_value', '');
+                  }
+                  setOpenSecondaryLogEditor(null);
+                  setSecondaryLogDraft('');
+                }}
+              >
+                Delete
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setOpenSecondaryLogEditor(null);
+                  setSecondaryLogDraft('');
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="bg-gradient-to-r from-rose-500 to-orange-500"
+                onClick={() => {
+                  if (openSecondaryLogEditor === 'new') {
+                    setNewStepData((prev) => ({
+                      ...prev,
+                      secondary_action: 'LOG_STEP',
+                      secondary_value: secondaryLogDraft,
+                    }));
+                  } else if (typeof openSecondaryLogEditor === 'number') {
+                    updateStep(openSecondaryLogEditor, 'secondary_action', 'LOG_STEP');
+                    updateStep(openSecondaryLogEditor, 'secondary_value', secondaryLogDraft);
+                  }
+                  setOpenSecondaryLogEditor(null);
+                  setSecondaryLogDraft('');
+                }}
+              >
+                Save Log
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 });

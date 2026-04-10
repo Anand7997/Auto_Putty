@@ -1,0 +1,125 @@
+{
+  "uuid": "e69cd6ec-e978-4246-9cb8-71ca8bb59164",
+  "historyId": "e69cd6ec-e978-4246-9cb8-71ca8bb59164",
+  "name": "[Ixigo_Flights_SearchingFL_TC001] SearchingFL",
+  "fullName": "Ixigo .Flights.Regression.SearchingFL",
+  "status": "failed",
+  "stage": "finished",
+  "start": 1775025066794,
+  "stop": 1775025068332,
+  "description": "Execution Time: 0:00:01 | Test Run ID: SanityTests_SearchingFL_TR058 | Result ID: TC001_TR058",
+  "labels": [
+    {
+      "name": "epic",
+      "value": "Ixigo "
+    },
+    {
+      "name": "feature",
+      "value": "Flights Module"
+    },
+    {
+      "name": "story",
+      "value": "Sanity Tests Suite"
+    },
+    {
+      "name": "suite",
+      "value": "Sanity Tests Tests"
+    },
+    {
+      "name": "testClass",
+      "value": "Flights_Sanity Tests"
+    },
+    {
+      "name": "testMethod",
+      "value": "SearchingFL"
+    },
+    {
+      "name": "parentSuite",
+      "value": "[ROCKET] Ixigo "
+    },
+    {
+      "name": "subSuite",
+      "value": "[PACKAGE] Flights -> Sanity Tests"
+    },
+    {
+      "name": "severity",
+      "value": "normal"
+    },
+    {
+      "name": "owner",
+      "value": "QA Team"
+    },
+    {
+      "name": "tag",
+      "value": "module:flights"
+    },
+    {
+      "name": "tag",
+      "value": "suite:Sanity Tests"
+    },
+    {
+      "name": "testCaseId",
+      "value": "Ixigo_Flights_SearchingFL_TC001"
+    },
+    {
+      "name": "testRunId",
+      "value": "SanityTests_SearchingFL_TR058"
+    },
+    {
+      "name": "resultId",
+      "value": "TC001_TR058"
+    },
+    {
+      "name": "executionTime",
+      "value": "0:00:01"
+    }
+  ],
+  "parameters": [
+    {
+      "name": "Test Case ID",
+      "value": "Ixigo_Flights_SearchingFL_TC001"
+    },
+    {
+      "name": "Test Run ID",
+      "value": "SanityTests_SearchingFL_TR058"
+    },
+    {
+      "name": "Result ID",
+      "value": "TC001_TR058"
+    },
+    {
+      "name": "Suite Type",
+      "value": "Regression"
+    },
+    {
+      "name": "Module",
+      "value": "Flights"
+    },
+    {
+      "name": "Project",
+      "value": "Ixigo "
+    },
+    {
+      "name": "Execution Time",
+      "value": "0:00:01"
+    },
+    {
+      "name": "Total Steps",
+      "value": "12"
+    },
+    {
+      "name": "[OK] Passed Steps",
+      "value": "0"
+    },
+    {
+      "name": "[X] Failed Steps",
+      "value": "0"
+    }
+  ],
+  "steps": [],
+  "attachments": [],
+  "statusDetails": {
+    "message": "Failed to launch browser: Failed to launch browser - Message: Unable to obtain driver for MicrosoftEdge using Selenium Manager.; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors/driver_location\n\nTraceback (most recent call last):\n  File \"C:\\Users\\VAnand\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\selenium\\webdriver\\common\\driver_finder.py\", line 38, in get_path\n    path = SeleniumManager().driver_location(options) if path is None else path\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\VAnand\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\selenium\\webdriver\\common\\selenium_manager.py\", line 94, in driver_location\n    output = self.run(args)\n             ^^^^^^^^^^^^^^\n  File \"C:\\Users\\VAnand\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\selenium\\webdriver\\common\\selenium_manager.py\", line 140, in run\n    raise WebDriverException(f\"Unsuccessful command executed: {command}.\\n{result}{stderr}\")\nselenium.common.exceptions.WebDriverException: Message: Unsuccessful command executed: C:\\Users\\VAnand\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\selenium\\webdriver\\common\\windows\\selenium-manager.exe --browser MicrosoftEdge --browser-path C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe --output json.\n{'code': 65, 'message': 'error sending request for url (https://msedgedriver.azureedge.net/LATEST_RELEASE_146_WINDOWS): error trying to connect: dns error: No such host is known. (os error 11001)', 'driver_path': '', 'browser_path': ''}\n\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"C:\\Users\\VAnand\\Downloads\\Auto_Delta-Putty\\new_backend\\selenium_executor.py\", line 1232, in launch_browser\n    return self._launch_non_chrome_browser(current_os)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\VAnand\\Downloads\\Auto_Delta-Putty\\new_backend\\selenium_executor.py\", line 1184, in _launch_non_chrome_browser\n    self.driver = webdriver.Edge(options=options)\n                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\VAnand\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\selenium\\webdriver\\edge\\webdriver.py\", line 45, in __init__\n    super().__init__(\n  File \"C:\\Users\\VAnand\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\selenium\\webdriver\\chromium\\webdriver.py\", line 51, in __init__\n    self.service.path = DriverFinder.get_path(self.service, options)\n                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\VAnand\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\selenium\\webdriver\\common\\driver_finder.py\", line 41, in get_path\n    raise NoSuchDriverException(msg) from err\nselenium.common.exceptions.NoSuchDriverException: Message: Unable to obtain driver for MicrosoftEdge using Selenium Manager.; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors/driver_location\n\n\nOffline Edge execution needs a local msedgedriver.exe. Place it in new_backend\\Edge_driver\\msedgedriver.exe or set EDGE_DRIVER_PATH.",
+    "trace": "Failed to launch browser: Failed to launch browser - Message: Unable to obtain driver for MicrosoftEdge using Selenium Manager.; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors/driver_location\n\nTraceback (most recent call last):\n  File \"C:\\Users\\VAnand\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\selenium\\webdriver\\common\\driver_finder.py\", line 38, in get_path\n    path = SeleniumManager().driver_location(options) if path is None else path\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\VAnand\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\selenium\\webdriver\\common\\selenium_manager.py\", line 94, in driver_location\n    output = self.run(args)\n             ^^^^^^^^^^^^^^\n  File \"C:\\Users\\VAnand\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\selenium\\webdriver\\common\\selenium_manager.py\", line 140, in run\n    raise WebDriverException(f\"Unsuccessful command executed: {command}.\\n{result}{stderr}\")\nselenium.common.exceptions.WebDriverException: Message: Unsuccessful command executed: C:\\Users\\VAnand\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\selenium\\webdriver\\common\\windows\\selenium-manager.exe --browser MicrosoftEdge --browser-path C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe --output json.\n{'code': 65, 'message': 'error sending request for url (https://msedgedriver.azureedge.net/LATEST_RELEASE_146_WINDOWS): error trying to connect: dns error: No such host is known. (os error 11001)', 'driver_path': '', 'browser_path': ''}\n\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"C:\\Users\\VAnand\\Downloads\\Auto_Delta-Putty\\new_backend\\selenium_executor.py\", line 1232, in launch_browser\n    return self._launch_non_chrome_browser(current_os)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\VAnand\\Downloads\\Auto_Delta-Putty\\new_backend\\selenium_executor.py\", line 1184, in _launch_non_chrome_browser\n    self.driver = webdriver.Edge(options=options)\n                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\VAnand\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\selenium\\webdriver\\edge\\webdriver.py\", line 45, in __init__\n    super().__init__(\n  File \"C:\\Users\\VAnand\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\selenium\\webdriver\\chromium\\webdriver.py\", line 51, in __init__\n    self.service.path = DriverFinder.get_path(self.service, options)\n                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\VAnand\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\selenium\\webdriver\\common\\driver_finder.py\", line 41, in get_path\n    raise NoSuchDriverException(msg) from err\nselenium.common.exceptions.NoSuchDriverException: Message: Unable to obtain driver for MicrosoftEdge using Selenium Manager.; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors/driver_location\n\n\nOffline Edge execution needs a local msedgedriver.exe. Place it in new_backend\\Edge_driver\\msedgedriver.exe or set EDGE_DRIVER_PATH."
+  }
+}

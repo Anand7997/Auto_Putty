@@ -272,6 +272,28 @@ const Index = () => {
         // Directly trigger Allure report functionality
         handleIntegrationAction('allure-reports');
         break;
+      case 'extent-reports':
+        if (!reportingAuth.authorized && !reportingAuth.loading) {
+          toast({
+            title: "Access Denied",
+            description: "You are not authorized to access Reporting functions. Please contact your administrator.",
+            variant: "destructive"
+          });
+          return;
+        }
+        handleIntegrationAction('extent-reports');
+        break;
+      case 'custom-dashboard':
+        if (!reportingAuth.authorized && !reportingAuth.loading) {
+          toast({
+            title: "Access Denied",
+            description: "You are not authorized to access Reporting functions. Please contact your administrator.",
+            variant: "destructive"
+          });
+          return;
+        }
+        handleIntegrationAction('custom-dashboard');
+        break;
      
       // Legacy actions for backward compatibility
       case 'projects':
@@ -460,6 +482,142 @@ const Index = () => {
           toast({
             title: "Connection Error",
             description: "Failed to access Allure report. Please ensure the backend is running.",
+            variant: "destructive"
+          });
+        }
+        break;
+      case 'extent-reports':
+        try {
+          toast({
+            title: "Loading Extent Report",
+            description: "Checking report status...",
+          });
+
+          const statusResponse = await fetch(buildApiUrl('/api/extent/status'));
+          if (!statusResponse.ok) {
+            throw new Error('Backend not responding');
+          }
+
+          const statusResult = await statusResponse.json();
+
+          if (statusResult.report_ready && statusResult.report_url && statusResult.framework === 'extent-spark') {
+            toast({
+              title: "Opening Extent Report",
+              description: "Report is ready and opening in new tab",
+            });
+            window.open(statusResult.report_url, '_blank');
+          } else if (statusResult.available) {
+            const shouldForceRegenerate = statusResult.legacy_detected === true;
+            toast({
+              title: shouldForceRegenerate ? "Refreshing Extent Report" : "Generating Extent Report",
+              description: shouldForceRegenerate
+                ? "Legacy report detected, regenerating with Extent framework..."
+                : "Test results found, generating report...",
+            });
+
+            const generateResponse = await fetch(buildApiUrl(shouldForceRegenerate ? '/api/extent/force-regenerate' : '/api/extent/generate'), {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            });
+
+            const generateResult = await generateResponse.json();
+            if (generateResult.success && generateResult.report_url) {
+              toast({
+                title: "Report Generated",
+                description: "Extent report opened in new tab",
+              });
+              window.open(generateResult.report_url, '_blank');
+            } else {
+              toast({
+                title: "Generation Failed",
+                description: generateResult.error || "Failed to generate Extent report",
+                variant: "destructive"
+              });
+            }
+          } else {
+            toast({
+              title: "No Test Results",
+              description: "Please run a test first to generate Extent results",
+              variant: "destructive"
+            });
+          }
+        } catch (error) {
+          console.error('Failed to access Extent report:', error);
+          toast({
+            title: "Connection Error",
+            description: "Failed to access Extent report. Please ensure the backend is running.",
+            variant: "destructive"
+          });
+        }
+        break;
+      case 'custom-dashboard':
+        try {
+          toast({
+            title: "Loading Custom Dashboard",
+            description: "Checking dashboard status...",
+          });
+
+          const statusResponse = await fetch(buildApiUrl('/api/results/publish/status'));
+          if (!statusResponse.ok) {
+            throw new Error('Backend not responding');
+          }
+
+          const statusResult = await statusResponse.json();
+          const customStatus = statusResult.reports?.custom_dashboard;
+          const shouldForceRegenerate =
+            customStatus?.legacy_detected === true || customStatus?.framework !== 'custom-results-v2';
+
+          if (customStatus?.report_ready && customStatus?.report_url && !shouldForceRegenerate) {
+            toast({
+              title: "Opening Custom Dashboard",
+              description: "Dashboard is ready and opening in new tab",
+            });
+            window.open(customStatus.report_url, '_blank');
+          } else {
+            toast({
+              title: shouldForceRegenerate ? "Refreshing Custom Dashboard" : "Generating Custom Dashboard",
+              description: shouldForceRegenerate
+                ? "Legacy dashboard detected, regenerating the detailed layout..."
+                : "Generating the latest custom dashboard...",
+            });
+
+            const publishResponse = await fetch(buildApiUrl('/api/results/publish'), {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                publish_targets: ['custom_dashboard'],
+                execution_context: {
+                  title: 'Reporting Dashboard'
+                }
+              })
+            });
+
+            const publishResult = await publishResponse.json();
+            const generatedDashboard = publishResult.reports?.custom_dashboard;
+
+            if (publishResult.success && generatedDashboard?.url) {
+              toast({
+                title: "Dashboard Ready",
+                description: "Custom dashboard opened in new tab",
+              });
+              window.open(generatedDashboard.url, '_blank');
+            } else {
+              toast({
+                title: "Generation Failed",
+                description: generatedDashboard?.message || publishResult.error || "Failed to generate Custom Dashboard",
+                variant: "destructive"
+              });
+            }
+          }
+        } catch (error) {
+          console.error('Failed to access custom dashboard:', error);
+          toast({
+            title: "Connection Error",
+            description: "Failed to access Custom Dashboard. Please ensure the backend is running.",
             variant: "destructive"
           });
         }
