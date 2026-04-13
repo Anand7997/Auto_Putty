@@ -133,7 +133,7 @@ class SeleniumTestExecutor:
         "//div[@data-testid='day-after-tomorrow']",
     ]
 
-    def __init__(self, enable_isolation=True, enable_remote_viewing=False, headless=None, server_execution=False, grid_url=None, vnc_session=None, display_id=None):
+    def __init__(self, enable_isolation=True, enable_remote_viewing=False, headless=None, server_execution=False, grid_url=None, vnc_session=None, display_id=None, browser_name=None):
         self.driver = None
         self.wait = None
         self.fluent_wait = None
@@ -147,6 +147,8 @@ class SeleniumTestExecutor:
         self.grid_url = grid_url or "http://10.30.3.85:4444/wd/hub"  # Default Grid URL for server
         self.vnc_session = vnc_session  # VNC session information for streaming
         self.display_id = display_id  # VNC-assigned display ID
+        normalized_browser = str(browser_name or "chrome").strip().lower()
+        self.browser_name = normalized_browser if normalized_browser in {"chrome", "edge", "firefox"} else "chrome"
 
         # Derive numeric display_number and set DISPLAY env var
         # Accept display_id in forms like ":16" or "16"
@@ -197,7 +199,7 @@ class SeleniumTestExecutor:
 
         # Grid execution configuration
         self.grid_capabilities = {
-            "browserName": "chrome",
+            "browserName": self.browser_name,
             "browserVersion": "latest",
             "platformName": "LINUX",
             "se:recordVideo": True,
@@ -211,6 +213,7 @@ class SeleniumTestExecutor:
         print(f"[INIT] Remote viewing mode: {'ENABLED' if enable_remote_viewing else 'DISABLED'}")
         print(f"[INIT] Server execution mode: {'ENABLED' if server_execution else 'DISABLED'}")
         print(f"[INIT] Grid URL: {self.grid_url}")
+        print(f"[INIT] Browser target: {self.browser_name}")
         effective_headless = self.headless
         print(f"[INIT] Headless mode: {'AUTO' if effective_headless is None else ('ENABLED' if effective_headless else 'DISABLED')}")
         print(f"[INIT] Window management enabled with {self.window_switch_timeout}s timeout")
