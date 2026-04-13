@@ -437,6 +437,7 @@ class ServerExecutionManager:
             result["result_id"] = result_id
             result["pass_rate"] = pass_rate
             result["overall_status"] = overall_status
+            result["status"] = overall_status
             result["execution_start_time"] = format_timestamp(execution_start_time) if format_timestamp else execution_start_time.isoformat().rstrip('Z')
             result["execution_date"] = execution_start_time.strftime('%d/%m/%Y, %H:%M:%S')
             

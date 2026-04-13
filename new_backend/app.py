@@ -7299,11 +7299,14 @@ def execute_server():
 
                 results = results or []
                 pass_count = 0
+                partial_pass_count = 0
                 fail_count = 0
                 for result in results:
                     final_status = str(result.get('overall_status') or result.get('status') or '').upper()
                     if final_status == 'PASS':
                         pass_count += 1
+                    elif final_status == 'PARTIAL_PASS':
+                        partial_pass_count += 1
                     else:
                         fail_count += 1
 
@@ -7336,6 +7339,7 @@ def execute_server():
                     'summary': {
                         'total': len(results),
                         'passed': pass_count,
+                        'partial_passed': partial_pass_count,
                         'failed': fail_count
                     }
                 }
@@ -8190,9 +8194,10 @@ def execute_single_testcase(testcase_name, request_data=None):
             traceback.print_exc()
         
         # Transform result to match frontend expectations
+        final_status = str(result.get('overall_status') or result.get('status') or '').upper()
         api_result = {
-            'success': result.get('status') == 'PASS',
-            'status': result.get('status'),
+            'success': final_status in ('PASS', 'PARTIAL_PASS'),
+            'status': final_status or result.get('status'),
             'execution_id': result.get('execution_id'),
             'testcase_name': result.get('testcase_name'),
             'total_steps': result.get('total_steps'),
@@ -12368,9 +12373,10 @@ def execute_single_testcase_with_excel_data(testcase_name, request_data=None):
             print(f"[WARNING] Failed to publish Excel execution outputs: {str(e)}")
 
         # Transform result to match frontend expectations
+        final_status = str(result.get('overall_status') or result.get('status') or '').upper()
         api_result = {
-            'success': result.get('status') == 'PASS',
-            'status': result.get('status'),
+            'success': final_status in ('PASS', 'PARTIAL_PASS'),
+            'status': final_status or result.get('status'),
             'execution_id': result.get('execution_id'),
             'testcase_name': result.get('testcase_name'),
             'total_steps': result.get('total_steps'),
