@@ -2710,7 +2710,22 @@ class SeleniumTestExecutor:
         if len(resolved_tokens) == 1:
             active.send_keys(resolved_tokens[0])
             return
-        active.send_keys(Keys.chord(*resolved_tokens))
+        modifier_keys = {Keys.CONTROL, Keys.SHIFT, Keys.ALT, Keys.COMMAND, Keys.META}
+        modifiers = [token for token in resolved_tokens if token in modifier_keys]
+        non_modifiers = [token for token in resolved_tokens if token not in modifier_keys]
+
+        if modifiers and non_modifiers:
+            actions = ActionChains(self.driver)
+            for modifier in modifiers:
+                actions.key_down(modifier, active)
+            for token in non_modifiers:
+                actions.send_keys(token)
+            for modifier in reversed(modifiers):
+                actions.key_up(modifier, active)
+            actions.perform()
+            return
+
+        active.send_keys(*resolved_tokens)
 
     def _get_readable_element_payload(self, element):
         try:
